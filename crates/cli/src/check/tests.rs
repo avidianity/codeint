@@ -16,8 +16,9 @@ use serde_json::Value;
 use tempfile::TempDir;
 
 use super::{
-    CheckError, LoweringCache, NamedLanguagePlugin, check_with, measure_snapshot,
-    measure_snapshot_with_cache, measure_snapshot_with_versions,
+    CheckError, LoweringCache, NamedLanguagePlugin, VersionedLanguagePlugin, check_with,
+    external_language_plugin_versions, measure_snapshot, measure_snapshot_with_cache,
+    measure_snapshot_with_versions,
 };
 
 struct Alpha;
@@ -1830,14 +1831,18 @@ fn lowering_cache_reuses_unchanged_blobs_across_commits_and_isolates_paths_and_v
         first_tree.blob_id(&test_path)
     );
 
-    let plugins = [NamedLanguagePlugin {
+    let plugin = NamedLanguagePlugin {
         name: "counting-alpha",
         plugin: &CountingPathAwarePlugin,
-    }];
+    };
     let cache = LoweringCache::new();
     let config = Configuration::default();
     let measure_version = |tree: &codeint_git::Snapshot, version: &str| {
-        measure_snapshot_with_versions(tree, &plugins, &[version.to_owned()], &config, Some(&cache))
+        let versioned = [VersionedLanguagePlugin {
+            named: plugin,
+            version,
+        }];
+        measure_snapshot_with_versions(tree, &versioned, &config, Some(&cache))
             .expect("measure commit")
     };
     let source_set_of = |measured: &super::MeasuredSnapshot, path: &RepoPath| {
@@ -1904,4 +1909,32 @@ fn lowering_cache_isolates_sql_dialects_for_identical_blob() {
     assert_ne!(pg.sql_schemas, mysql.sql_schemas);
     assert_eq!(pg.sql_schemas[0].dialect, "postgresql");
     assert_eq!(mysql.sql_schemas[0].dialect, "mysql");
+}
+
+#[test]
+fn external_language_plugin_versions_ignores_metric_plugins_with_same_name() {
+    let folder = repository(&[]);
+    let language_sha = "1111111111111111111111111111111111111111111111111111111111111111";
+    let metric_sha = "2222222222222222222222222222222222222222222222222222222222222222";
+    fs::write(
+        folder.path().join("codeint.json"),
+        format!(
+            r#"{{
+  "plugins": [
+    {{ "name": "shared", "kind": "language", "path": "lang.wasm", "sha256": "{language_sha}" }},
+    {{ "name": "shared", "kind": "metric", "path": "metric.wasm", "sha256": "{metric_sha}" }},
+    {{ "name": "metric-only", "kind": "metric", "path": "other.wasm", "sha256": "{metric_sha}" }}
+  ]
+}}"#
+        ),
+    )
+    .expect("write config");
+    let config = codeint_config::read_configuration(folder.path()).expect("read config");
+    let versions = external_language_plugin_versions(&config);
+
+    assert_eq!(
+        versions.get("shared").map(String::as_str),
+        Some(language_sha)
+    );
+    assert!(!versions.contains_key("metric-only"));
 }

@@ -15,6 +15,12 @@ use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelI
 use super::errors::CheckError;
 use super::sql;
 
+#[derive(Clone, Copy)]
+pub(crate) struct VersionedLanguagePlugin<'a> {
+    pub(crate) named: NamedLanguagePlugin<'a>,
+    pub(crate) version: &'a str,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct LoweringCacheKey {
     path: RepoPath,
@@ -147,12 +153,12 @@ fn first_two_plugin_names(
     (names[0].to_owned(), names[1].to_owned())
 }
 
-fn listed_hazard_rules_by_plugin(plugins: &[NamedLanguagePlugin<'_>]) -> Vec<HashSet<String>> {
+fn listed_hazard_rules_by_plugin(plugins: &[VersionedLanguagePlugin<'_>]) -> Vec<HashSet<String>> {
     plugins
         .iter()
-        .map(|named| {
-            if named.plugin.has_hazard_rules() {
-                named.plugin.hazard_rules().into_iter().collect()
+        .map(|entry| {
+            if entry.named.plugin.has_hazard_rules() {
+                entry.named.plugin.hazard_rules().into_iter().collect()
             } else {
                 HashSet::new()
             }
@@ -162,8 +168,7 @@ fn listed_hazard_rules_by_plugin(plugins: &[NamedLanguagePlugin<'_>]) -> Vec<Has
 
 pub(super) fn lower_covered_files(
     tree: &Snapshot,
-    plugins: &[NamedLanguagePlugin<'_>],
-    plugin_versions: &[String],
+    plugins: &[VersionedLanguagePlugin<'_>],
     covered_files: &[(&RepoPath, usize)],
     sql_dialects: &[Option<SqlDialect>],
     config_file: ConfigFileKind,
@@ -177,12 +182,13 @@ pub(super) fn lower_covered_files(
         .map_init(
             || reader.thread_local(),
             |local_reader, (&(path, index), &dialect)| {
+                let plugin = plugins[index];
                 let cache_key = lowering_cache.and_then(|_| {
                     local_reader.blob_id(path).map(|blob_id| LoweringCacheKey {
                         path: path.clone(),
                         blob_id,
-                        plugin_name: plugins[index].name.to_owned(),
-                        plugin_version: plugin_versions[index].clone(),
+                        plugin_name: plugin.named.name.to_owned(),
+                        plugin_version: plugin.version.to_owned(),
                         sql_dialect: dialect,
                     })
                 });
@@ -195,7 +201,7 @@ pub(super) fn lower_covered_files(
                 let lowered = lower_bytes(
                     bytes,
                     path,
-                    &plugins[index],
+                    &plugin.named,
                     dialect,
                     &listed_hazard_rules[index],
                     config_file,

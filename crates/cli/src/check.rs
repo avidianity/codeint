@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use codeint_config::{
     Baseline, Codeowners, ConfigFileKind, Configuration, DependenciesConfig, EntryPoints,
-    FindingsShown, LanguageCoverage, OwnerFilter, PluginHostConfig, read_configuration,
+    FindingsShown, LanguageCoverage, OwnerFilter, PluginHostConfig, PluginKind, read_configuration,
 };
 use codeint_git::{Repository, Snapshot};
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
@@ -32,7 +32,7 @@ mod sql;
 mod tests;
 
 pub(crate) use errors::CheckError;
-pub(crate) use lowering::LoweringCache;
+pub(crate) use lowering::{LoweringCache, VersionedLanguagePlugin};
 pub(crate) use manifests::{find_workspace, read_manifests};
 #[cfg(test)]
 use package_filter::filter_model_to_package;
@@ -550,62 +550,63 @@ pub(crate) fn measure_snapshot_with_cache(
     configuration: &Configuration,
     lowering_cache: Option<&LoweringCache>,
 ) -> Result<MeasuredSnapshot, CheckError> {
-    let versions = plugin_versions(plugins, configuration);
-    measure_snapshot_with_versions(tree, plugins, &versions, configuration, lowering_cache)
+    let external_versions = external_language_plugin_versions(configuration);
+    let versioned: Vec<VersionedLanguagePlugin<'_>> = plugins
+        .iter()
+        .copied()
+        .map(|named| VersionedLanguagePlugin {
+            version: external_versions
+                .get(named.name)
+                .map(String::as_str)
+                .unwrap_or(env!("CARGO_PKG_VERSION")),
+            named,
+        })
+        .collect();
+    measure_snapshot_with_versions(tree, &versioned, configuration, lowering_cache)
 }
 
 fn measure_snapshot_with_versions(
     tree: &Snapshot,
-    plugins: &[NamedLanguagePlugin<'_>],
-    plugin_versions: &[String],
+    plugins: &[VersionedLanguagePlugin<'_>],
     configuration: &Configuration,
     lowering_cache: Option<&LoweringCache>,
 ) -> Result<MeasuredSnapshot, CheckError> {
-    let names: Vec<&str> = plugins.iter().map(|plugin| plugin.name).collect();
+    let names: Vec<&str> = plugins.iter().map(|plugin| plugin.named.name).collect();
     let coverage = configuration.languages.coverage_of(&names)?;
-    measure(
-        tree,
-        plugins,
-        plugin_versions,
-        &coverage,
-        configuration,
-        lowering_cache,
-    )
+    measure(tree, plugins, &coverage, configuration, lowering_cache)
 }
 
-fn plugin_versions(
-    plugins: &[NamedLanguagePlugin<'_>],
+pub(crate) fn external_language_plugin_versions(
     configuration: &Configuration,
-) -> Vec<String> {
-    let external_versions: HashMap<&str, String> = configuration
+) -> HashMap<&str, String> {
+    configuration
         .plugins
         .iter()
+        .filter(|declared| declared.kind == PluginKind::Language)
         .map(|declared| (declared.name.as_str(), declared.sha256.to_hex()))
-        .collect();
-    plugins
-        .iter()
-        .map(|named| {
-            external_versions
-                .get(named.name)
-                .cloned()
-                .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned())
-        })
         .collect()
 }
 
 fn measure(
     tree: &Snapshot,
-    plugins: &[NamedLanguagePlugin<'_>],
-    plugin_versions: &[String],
+    plugins: &[VersionedLanguagePlugin<'_>],
     coverage: &[LanguageCoverage<'_>],
     configuration: &Configuration,
     lowering_cache: Option<&LoweringCache>,
 ) -> Result<MeasuredSnapshot, CheckError> {
+    let named_plugins: Vec<NamedLanguagePlugin<'_>> =
+        plugins.iter().map(|plugin| plugin.named).collect();
     let config_file = configuration.config_file();
-    let covered_files = lowering::assign_files_to_plugins(tree, plugins, coverage, config_file)?;
-    let sql_dialects =
-        sql::resolve_sql_dialects(plugins, &covered_files, &configuration.sql, config_file)?;
-    let discovery = manifests::find_plugin_workspaces(plugins, read_manifests(tree, plugins)?)?;
+    let covered_files =
+        lowering::assign_files_to_plugins(tree, &named_plugins, coverage, config_file)?;
+    let sql_dialects = sql::resolve_sql_dialects(
+        &named_plugins,
+        &covered_files,
+        &configuration.sql,
+        config_file,
+    )?;
+    let discovery =
+        manifests::find_plugin_workspaces(&named_plugins, read_manifests(tree, &named_plugins)?)?;
     let workspace = discovery.workspace();
     let manifest_warnings = discovery.warnings();
     let plugin_members = discovery.members_by_plugin;
@@ -613,7 +614,6 @@ fn measure(
     let outcomes = lowering::lower_covered_files(
         tree,
         plugins,
-        plugin_versions,
         &covered_files,
         &sql_dialects,
         config_file,
@@ -622,7 +622,7 @@ fn measure(
     let mut collected = lowering::collect_plugin_models(plugins.len(), workspace.clone(), outcomes);
     let profiles_by_plugin = frameworks::resolve_all_language_profiles(
         tree,
-        plugins,
+        &named_plugins,
         &collected.models,
         &manifests_by_plugin,
         &workspace,
@@ -631,7 +631,7 @@ fn measure(
     for (model, profiles) in collected.models.iter_mut().zip(&profiles_by_plugin) {
         frameworks::apply_source_set_priority(model, profiles, &configuration.source_set_overrides);
     }
-    let sql_schemas = plugins
+    let sql_schemas = named_plugins
         .iter()
         .position(|named| named.name == SQL_PLUGIN_NAME)
         .filter(|&index| !collected.models[index].files.is_empty())
@@ -641,7 +641,7 @@ fn measure(
         .unwrap_or_default();
     let mut snapshot = resolve_measured_snapshot(SnapshotInputs {
         tree,
-        plugins,
+        plugins: &named_plugins,
         models: collected.models,
         manifests_by_plugin,
         plugin_members: &plugin_members,

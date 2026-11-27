@@ -11,8 +11,8 @@ use serde::Serialize;
 use crate::check::{
     CheckError, LoadedPlugins, LoweringCache, MeasuredSnapshot, SelectedPackage,
     compute_dependency_hygiene, compute_orphan_files, compute_orphan_files_for_subset,
-    filter_languages_to_package, measure_snapshot_with_cache, select_workspace_package,
-    workspace_of_languages,
+    external_language_plugin_versions, filter_languages_to_package, measure_snapshot_with_cache,
+    select_workspace_package, workspace_of_languages,
 };
 use crate::describe;
 
@@ -79,10 +79,15 @@ impl<'run> CommitMeasurer<'run> {
                 version: CODEINT_VERSION.to_owned(),
             })
             .collect();
-        for declared in &configuration.plugins {
+        let mut external_language_plugins: Vec<(&str, String)> =
+            external_language_plugin_versions(configuration)
+                .into_iter()
+                .collect();
+        external_language_plugins.sort_by(|left, right| left.0.cmp(right.0));
+        for (name, version) in external_language_plugins {
             language_plugins.push(PluginIdentity {
-                name: declared.name.clone(),
-                version: declared.sha256.to_hex(),
+                name: name.to_owned(),
+                version,
             });
         }
         let metric_plugins = plugins.metric_plugins();

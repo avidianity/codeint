@@ -141,6 +141,9 @@ impl ResultCache {
         let now = SystemTime::now();
         let mut live = Vec::new();
         for entry in entries.flatten() {
+            if !entry.file_type().is_ok_and(|file_type| file_type.is_file()) {
+                continue;
+            }
             let path = entry.path();
             if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
                 continue;

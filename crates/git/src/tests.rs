@@ -326,6 +326,59 @@ fn result_cache_enforces_five_thousand_entry_cap_evicting_oldest_touched() {
 }
 
 #[test]
+fn result_cache_prune_ignores_json_subdirectories_and_symlinks() {
+    let temp = TempRepo::new("result-cache-ignore-non-files");
+    temp.write("a.txt", "one\n");
+    temp.commit_all("first");
+
+    let repo = Repository::discover(temp.path()).expect("discover");
+    let first = repo.resolve("HEAD").expect("first commit");
+
+    let cache_dir = temp.path().join(".cache");
+    fs::create_dir_all(&cache_dir).expect("create cache dir");
+    let cache = ResultCache::in_folder(cache_dir.clone());
+
+    let subdir = cache_dir.join("nested.json");
+    fs::create_dir(&subdir).expect("create json subdir");
+
+    #[cfg(unix)]
+    let symlink_path = {
+        let external_target = temp.path().join("external.json");
+        fs::write(&external_target, "{}").expect("write symlink target");
+        let thirty_one_days = Duration::from_secs(31 * 24 * 60 * 60);
+        set_mtime(&external_target, SystemTime::now() - thirty_one_days);
+        let link = cache_dir.join("linked.json");
+        std::os::unix::fs::symlink(&external_target, &link).expect("create json symlink");
+        link
+    };
+
+    let oldest_path = cache_dir.join("0000000000000000000000000000000000000000-oldest.json");
+    fs::write(&oldest_path, "{}").expect("write oldest");
+    set_mtime(&oldest_path, SystemTime::now() - Duration::from_secs(3600));
+
+    let mid_time = SystemTime::now() - Duration::from_secs(1800);
+    for index in 0..4_998usize {
+        let filler = cache_dir.join(format!("filler-{index:05}.json"));
+        fs::write(&filler, "{}").expect("write filler");
+        set_mtime(&filler, mid_time);
+    }
+
+    cache.write(first, &"settings", &1u32).expect("write first");
+
+    assert!(subdir.is_dir(), "json subdirectory should remain untouched");
+    #[cfg(unix)]
+    assert!(
+        fs::symlink_metadata(&symlink_path).is_ok(),
+        "json symlink should remain untouched"
+    );
+    assert!(
+        oldest_path.exists(),
+        "non-file json entries should not count toward the 5,000 entry cap"
+    );
+    assert_eq!(cache.read::<u32>(first, &"settings"), Some(1));
+}
+
+#[test]
 fn parallel_commit_reader_streams_blobs_identically_across_threads() {
     let temp = TempRepo::new("parallel-commit-reader");
     for index in 0..32usize {
