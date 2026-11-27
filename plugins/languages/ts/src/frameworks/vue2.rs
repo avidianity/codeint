@@ -6,7 +6,7 @@ use super::{
 };
 
 const VUE2_REFERENCE_SOURCE: &str =
-    "codeint stratified panel of 20 Vue 2 repositories, ADR 0028, codeint 0.6.0";
+    "codeint stratified panel of 50 Vue 2 repositories, ADR 0035, codeint 0.8.0";
 
 const CONFIG_FILES: [&str; 3] = ["vue.config.js", "vue.config.cjs", "vue.config.mjs"];
 const VUE2_TOOLING: [&str; 3] = [
@@ -43,9 +43,10 @@ fn reference_ranges(ctx: &PackageContext<'_>) -> Option<Vec<ReferenceRange>> {
     vue_reference_ranges(
         ctx,
         VUE2_REFERENCE_SOURCE,
-        (0.099, 0.576),
+        (0.025, 0.479),
+        (0.033, 0.406),
         (0.000, 0.003),
-        (0.015, 0.287),
-        (0.000, 0.115),
+        (0.023, 0.267),
+        (0.000, 0.128),
     )
 }

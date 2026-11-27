@@ -68,15 +68,14 @@ impl Guest for Php {
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
-        codeint_model::scan::build_reference_ranges(
-            "codeint stratified panel of 50 PHP repositories, ADR 0028, codeint 0.6.0",
-            [
-                ("erosion", 1, 0.084, 0.630),
-                ("verbosity", 2, 0.000, 0.005),
-                ("duplication", 1, 0.017, 0.189),
-                ("import_cycles", 1, 0.000, 0.145),
-            ],
-        )
+        codeint_model::scan::CoreReferenceRanges {
+            erosion: (0.064, 0.591),
+            cognitive_complexity: (0.044, 0.542),
+            verbosity: (0.000, 0.004),
+            duplication: (0.025, 0.209),
+            import_cycles: Some((0.000, 0.133)),
+        }
+        .build("codeint stratified panel of 100 PHP repositories, ADR 0035, codeint 0.8.0")
     }
 
     fn extensions() -> Vec<String> {

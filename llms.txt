@@ -29,7 +29,7 @@
 - [JSON Schema](schema/codeint.schema.json): JSON Schema for `codeint` JSON, JSONC, TOML, and YAML configuration files.
 - [Glossary](GLOSSARY.md): canonical domain terminology.
 - [Evaluation suite runner](eval/HOW-TO.md): measure the pinned public corpus in `eval/corpus.json` or stratified panels in `eval/panels.json` in scratch folders with native-parser recall oracles, 3-run timing, and peak memory.
-- [Evaluation report](docs/evaluation.md): published 410-repository Reference range panels, native-parser recall, 3-run speed and memory benchmarks, agent-reviewed false positive rates ([audit verdicts](docs/evaluation-audit.json)), and pinned before-after case studies ([machine-readable summary](docs/evaluation-summary.json)).
+- [Evaluation report](docs/evaluation.md): published 927-repository Reference range panels, native-parser recall, speed and memory benchmarks, agent-reviewed false positive rates ([audit verdicts](docs/evaluation-audit.json)), and pinned before-after case studies ([machine-readable summary](docs/evaluation-summary.json)).
 
 ## Architecture Decision Records
 
@@ -64,3 +64,4 @@
 - [ADR 0032: Context-anchored Finding matching and Baseline schema version 2](docs/adr/0032-context-anchored-finding-matching.md)
 - [ADR 0033: Configurable default output format and concise `text` output](docs/adr/0033-default-output-format-and-text.md)
 - [ADR 0034: Support TOML and YAML configuration files alongside JSON and JSONC](docs/adr/0034-config-file-formats.md)
+- [ADR 0035: Stratified 100-repository Reference panels with round-robin star bands](docs/adr/0035-stratified-100-repository-reference-panels.md)

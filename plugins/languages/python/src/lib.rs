@@ -17,7 +17,7 @@ use codeint_model::language::{
     ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, Token, TokenKind,
     WorkspaceError,
 };
-use codeint_model::scan::build_reference_ranges;
+use codeint_model::scan::CoreReferenceRanges;
 use codeint_model::token_text_hash;
 
 use crate::dependencies::extract_declared;
@@ -34,15 +34,14 @@ impl Guest for Python {
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
-        build_reference_ranges(
-            "codeint stratified panel of 50 Python repositories, ADR 0028, codeint 0.6.0",
-            [
-                ("erosion", 1, 0.331, 0.734),
-                ("verbosity", 2, 0.000, 0.009),
-                ("duplication", 1, 0.008, 0.172),
-                ("import_cycles", 1, 0.000, 0.437),
-            ],
-        )
+        CoreReferenceRanges {
+            erosion: (0.239, 0.717),
+            cognitive_complexity: (0.249, 0.637),
+            verbosity: (0.000, 0.011),
+            duplication: (0.011, 0.220),
+            import_cycles: Some((0.000, 0.446)),
+        }
+        .build("codeint stratified panel of 100 Python repositories, ADR 0035, codeint 0.8.0")
     }
 
     fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {

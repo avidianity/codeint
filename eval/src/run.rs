@@ -278,8 +278,13 @@ fn production_lines(section: &Value) -> Option<u64> {
     section["source_sets"]["production"]["source_lines"].as_u64()
 }
 
-pub(crate) const RANGE_METRICS: [&str; 4] =
-    ["erosion", "verbosity", "duplication", "import_cycles"];
+pub(crate) const RANGE_METRICS: [&str; 5] = [
+    "erosion",
+    "cognitive_complexity",
+    "verbosity",
+    "duplication",
+    "import_cycles",
+];
 
 pub(crate) fn metric_readings(production: &Value) -> BTreeMap<String, MetricReading> {
     RANGE_METRICS

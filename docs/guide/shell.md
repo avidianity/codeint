@@ -79,12 +79,13 @@ Turn off any rule in `hazards.disabled_rules`:
 
 ## Reference ranges
 
-Calibrated Shell Reference ranges come from a stratified panel of 50 current public Shell repositories ([ADR 0031](../adr/0031-shell-reference-ranges.md)), with source `codeint panel of 50 Shell repositories, ADR 0031, codeint 0.6.0`:
+Calibrated Shell Reference ranges come from a stratified panel of 100 current public Shell repositories ([ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md)), with source `codeint stratified panel of 100 Shell repositories, ADR 0035, codeint 0.8.0`:
 
 | Metric | Reference range |
 | ------ | --------------- |
-| Erosion | 41.6% to 92.7% |
-| Duplication | 0.8% to 75.1% |
-| Verbosity | 0.0% to 2.5% |
+| Erosion | 36.4% to 93.0% |
+| Cognitive complexity | 21.8% to 82.8% |
+| Duplication | 0.3% to 71.3% |
+| Verbosity | 0.0% to 3.1% |
 
 Import cycles has no Reference range because shell scripts have no imports.

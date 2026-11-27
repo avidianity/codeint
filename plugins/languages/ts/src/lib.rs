@@ -37,7 +37,7 @@ pub use rules::flagged_line_rules;
 pub(crate) const EXTENSIONS: [&str; 10] = [
     "ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs", "vue", "svelte",
 ];
-const REFERENCE_RANGE_SOURCE: &str = "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0";
+const REFERENCE_RANGE_SOURCE: &str = "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0";
 
 pub struct TypeScriptAndJavaScript;
 
@@ -87,21 +87,14 @@ impl Guest for TypeScriptAndJavaScript {
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
-        [
-            ("erosion", 1, 0.206, 0.731),
-            ("verbosity", 2, 0.000, 0.001),
-            ("duplication", 1, 0.006, 0.194),
-            ("import_cycles", 1, 0.000, 0.184),
-        ]
-        .into_iter()
-        .map(|(metric, metric_version, low, high)| ReferenceRange {
-            metric: metric.to_owned(),
-            metric_version,
-            low,
-            high,
-            source: REFERENCE_RANGE_SOURCE.to_owned(),
-        })
-        .collect()
+        codeint_model::scan::CoreReferenceRanges {
+            erosion: (0.187, 0.671),
+            cognitive_complexity: (0.121, 0.532),
+            verbosity: (0.000, 0.002),
+            duplication: (0.018, 0.252),
+            import_cycles: Some((0.000, 0.182)),
+        }
+        .build(REFERENCE_RANGE_SOURCE)
     }
 
     fn known_framework_profiles() -> Vec<String> {

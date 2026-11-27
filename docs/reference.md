@@ -249,9 +249,9 @@ source_sets:
       ratio: 0.7986
       metric_version: 1
       reference_range:
-        low: 0.206
-        high: 0.731
-        source: "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0"
+        low: 0.187
+        high: 0.671
+        source: "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
       eroded_function_mass: 67.8823
       total_function_mass: 85.0032
       findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:
@@ -259,7 +259,10 @@ source_sets:
     cognitive_complexity:
       ratio: 0
       metric_version: 1
-      reference_range: no published Reference range for this language
+      reference_range:
+        low: 0.121
+        high: 0.532
+        source: "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
       complex_cognitive_complexity: 0
       total_cognitive_complexity: 20
       findings: []
@@ -267,9 +270,9 @@ source_sets:
       ratio: 0
       metric_version: 1
       reference_range:
-        low: 0.006
-        high: 0.194
-        source: "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0"
+        low: 0.018
+        high: 0.252
+        source: "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
       clone_lines: 0
       clone_groups: []
     verbosity:
@@ -277,8 +280,8 @@ source_sets:
       metric_version: 2
       reference_range:
         low: 0
-        high: 0.001
-        source: "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0"
+        high: 0.002
+        source: "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
       verbose_lines: 1
       flagged_lines: 1
       findings[1]{id,path,line,rule}:
@@ -288,8 +291,8 @@ source_sets:
       metric_version: 1
       reference_range:
         low: 0
-        high: 0.184
-        source: "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0"
+        high: 0.182
+        source: "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
       modules_in_import_cycles: 0
       modules: 4
       findings: []
@@ -1258,11 +1261,11 @@ codeint check: PASS (4 files, 39 source lines)
 
 Production (4 files, 39 lines)
   Metric                 Ratio  Reference    Status
-  Erosion               0.7986  0.206-0.731  ok
-  Cognitive complexity       0  -            ok
-  Duplication                0  0.006-0.194  ok
-  Verbosity             0.0256  0-0.001      ok
-  Import cycles              0  0-0.184      ok
+  Erosion               0.7986  0.187-0.671  ok
+  Cognitive complexity       0  0.121-0.532  ok
+  Duplication                0  0.018-0.252  ok
+  Verbosity             0.0256  0-0.002      ok
+  Import cycles              0  0-0.182      ok
 
 Production Erosion findings (1):
   src/route.ts:1  route  cc=16  lines=18  mass=67.8823
@@ -2066,11 +2069,11 @@ codeint check: PASS (4 files, 39 source lines)
 
 Production (4 files, 39 lines)
   Metric                 Ratio  Reference    Status
-  Erosion               0.7986  0.206-0.731  ok
-  Cognitive complexity       0  -            ok
-  Duplication                0  0.006-0.194  ok
-  Verbosity             0.0256  0-0.001      ok
-  Import cycles              0  0-0.184      ok
+  Erosion               0.7986  0.187-0.671  ok
+  Cognitive complexity       0  0.121-0.532  ok
+  Duplication                0  0.018-0.252  ok
+  Verbosity             0.0256  0-0.002      ok
+  Import cycles              0  0-0.182      ok
 
 Production Erosion findings (1):
   src/route.ts:1  route  cc=16  lines=18  mass=67.8823
@@ -2118,9 +2121,9 @@ codeint check --format json
         "ratio": 0.7986,
         "metric_version": 1,
         "reference_range": {
-          "low": 0.206,
-          "high": 0.731,
-          "source": "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0"
+          "low": 0.187,
+          "high": 0.671,
+          "source": "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
         },
         "eroded_function_mass": 67.8823,
         "total_function_mass": 85.0032,
@@ -2141,7 +2144,11 @@ codeint check --format json
       "cognitive_complexity": {
         "ratio": 0.0,
         "metric_version": 1,
-        "reference_range": "no published Reference range for this language",
+        "reference_range": {
+          "low": 0.121,
+          "high": 0.532,
+          "source": "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
+        },
         "complex_cognitive_complexity": 0,
         "total_cognitive_complexity": 20,
         "findings": []
@@ -2150,9 +2157,9 @@ codeint check --format json
         "ratio": 0.0,
         "metric_version": 1,
         "reference_range": {
-          "low": 0.006,
-          "high": 0.194,
-          "source": "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0"
+          "low": 0.018,
+          "high": 0.252,
+          "source": "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
         },
         "clone_lines": 0,
         "clone_groups": []
@@ -2162,8 +2169,8 @@ codeint check --format json
         "metric_version": 2,
         "reference_range": {
           "low": 0.0,
-          "high": 0.001,
-          "source": "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0"
+          "high": 0.002,
+          "source": "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
         },
         "verbose_lines": 1,
         "flagged_lines": 1,
@@ -2181,8 +2188,8 @@ codeint check --format json
         "metric_version": 1,
         "reference_range": {
           "low": 0.0,
-          "high": 0.184,
-          "source": "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0"
+          "high": 0.182,
+          "source": "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
         },
         "modules_in_import_cycles": 0,
         "modules": 4,
@@ -2498,11 +2505,11 @@ Test gap is not measured because no Coverage report was named.
 
 | Source set | Metric | Value | Behind the value | Reference range |
 | ---------- | ------ | ----- | ---------------- | --------------- |
-| Production | Erosion | 0.7986 | 67.8823 of 85.0032 Function mass in eroded functions | 0.206 to 0.731, source: codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0 |
-| Production | Cognitive complexity | 0 | 0 of 20 cognitive complexity in functions over 15 | no published Reference range for this language |
-| Production | Duplication | 0 | 0 clone lines of 39 source lines | 0.006 to 0.194, source: codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0 |
-| Production | Verbosity | 0.0256 | 1 Flagged line of 39 source lines | 0 to 0.001, source: codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0 |
-| Production | Import cycles | 0 | 0 of 4 modules in an Import cycle | 0 to 0.184, source: codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0 |
+| Production | Erosion | 0.7986 | 67.8823 of 85.0032 Function mass in eroded functions | 0.187 to 0.671, source: codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0 |
+| Production | Cognitive complexity | 0 | 0 of 20 cognitive complexity in functions over 15 | 0.121 to 0.532, source: codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0 |
+| Production | Duplication | 0 | 0 clone lines of 39 source lines | 0.018 to 0.252, source: codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0 |
+| Production | Verbosity | 0.0256 | 1 Flagged line of 39 source lines | 0 to 0.002, source: codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0 |
+| Production | Import cycles | 0 | 0 of 4 modules in an Import cycle | 0 to 0.182, source: codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0 |
 
 ## Production Findings
 

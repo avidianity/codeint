@@ -99,12 +99,12 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 
 ## Framework profiles and Reference ranges
 
-- `reference_ranges` in `src/lib.rs` returns the 10th to 90th percentile ranges from the stratified 50-repository current-codebase TypeScript/JavaScript panel under [ADR 0028](../../../docs/adr/0028-stratified-reference-panels.md).
-  Its source label is `codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0`.
+- `reference_ranges` in `src/lib.rs` returns the 10th to 90th percentile ranges from the stratified 100-repository current-codebase TypeScript/JavaScript panel under [ADR 0035](../../../docs/adr/0035-stratified-100-repository-reference-panels.md).
+  Its source label is `codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0`.
 - `src/frameworks/` holds isolated package-level Framework profile modules (`react.rs`, `vue2.rs`, `vue3.rs`, `svelte.rs`, `nextjs.rs`, `nuxt.rs`, `sveltekit.rs`, `angular.rs`, `nestjs.rs`) coordinated by `src/frameworks/mod.rs` ([ADR 0025](../../../docs/adr/0025-framework-profiles.md)).
   Sibling framework modules never import one another.
 - `known_framework_profiles` returns `["react", "vue2", "vue3", "svelte", "nextjs", "nuxt", "sveltekit", "angular", "nestjs"]`, and `resolve_framework_profiles` evaluates strict local package signals (isolating monorepo members from root manifests and excluding `peerDependencies`-only libraries from app-only conventions; `svelte`, `sveltekit`, and `nuxt` allow `devDependencies`).
-- React, Vue 2, and Vue 3 supply calibrated Reference ranges from stratified 20-repository current-codebase panels under [ADR 0028](../../../docs/adr/0028-stratified-reference-panels.md) when active.
+- React, Vue 2, and Vue 3 supply calibrated Reference ranges from stratified 50-repository current-codebase panels under [ADR 0035](../../../docs/adr/0035-stratified-100-repository-reference-panels.md) when active.
   Child profiles (`nextjs` -> `react`, `nuxt` -> `vue2`/`vue3`, `sveltekit` -> `svelte`) union convention entry points, generated paths, and fallback import hints with their parents and inherit parent Reference ranges until calibrated separately.
   When two unrelated sibling profiles both supply Reference ranges in the same scope, conventions union cleanly and Reference ranges fall back to base TypeScript/JavaScript ranges with a `reference_range_note`.
 - `resolve_imports` honors `active_profiles` for framework fallback import hints (`@/*` -> `src/*` for `vue2`/`vue3`; `@/*` and `~/*` -> `src/*` or `./*` for `nextjs`; `~/*`, `@/*`, `~~/*`, `@@/*`, `#shared/*` and `#imports`/`#components`/`#app`/`#build/*` virtual modules for `nuxt`; `$lib` and `$lib/*` -> `src/lib/*` and `$app/*`/`$env/*`/`$service-worker` virtual modules for `svelte`/`sveltekit`) only after `oxc_resolver` and `tsconfig.json` `paths` fail to resolve a specifier.

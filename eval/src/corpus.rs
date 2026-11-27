@@ -63,7 +63,11 @@ pub fn load_corpus(path: &Path) -> Result<Corpus, EvaluationError> {
     let mut names = BTreeSet::new();
     for entry in &corpus.repositories {
         validate_entry(entry).map_err(|message| manifest_error(path, message))?;
-        if !names.insert((entry.name.as_str(), entry.panel.as_deref())) {
+        if !names.insert((
+            entry.name.as_str(),
+            entry.language.as_str(),
+            entry.panel.as_deref(),
+        )) {
             return Err(manifest_error(
                 path,
                 format!("repository {} is listed twice", entry.label()),

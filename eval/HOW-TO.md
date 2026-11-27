@@ -135,10 +135,10 @@ Each function is `[first line, last line, decision points]`.
 cargo run --release --locked -p codeint-eval -- --manifest eval/panels.json --output-dir docs --audit-verdicts docs/evaluation-audit.json
 ```
 
-- [panels.json](./panels.json) pins the stratified panels of [ADR 0028](../docs/adr/0028-stratified-reference-panels.md): up to 50 repositories per base language (15 Small, 20 Medium, 15 Large) and up to 20 per Framework profile (6, 8, 6).
-  An entry with a `panel` field belongs to that Framework profile's panel, and the same repository may join several panels.
+- [panels.json](./panels.json) pins the stratified panels of [ADR 0035](../docs/adr/0035-stratified-100-repository-reference-panels.md): up to 100 repositories per base **Language plugin** (30 Small, 40 Medium, 30 Large) and up to 50 per calibrated **Framework profile** (15 Small, 20 Medium, 15 Large), sampled round-robin across three star bands with a `200+`-star quality floor.
+  An entry with a `panel` field belongs to that Framework profile's panel, and the same repository may join several panels or base languages.
 - [panel-selection.json](./panel-selection.json) is the selection log: every selected repository with its stars, star band, Production lines, and shape, and every skipped candidate with the reason.
-- The report prints the mean, median, standard deviation, 10th and 90th percentile (linear interpolation), lowest, and highest of each Metric per panel, with the Metric version of each reading.
+- The report prints the mean, median, standard deviation, 10th and 90th percentile (linear interpolation), lowest, and highest of each calibrated Metric (`Erosion`, `Cognitive complexity`, `Duplication`, `Verbosity`, and `Import cycles`) per panel, with the Metric version of each reading.
   The 10th and 90th percentiles become the Reference range of the Language plugin or Framework profile, rounded to three decimals.
 - `case_studies` in the manifest pins before and after commits of a public repository.
   The runner measures both commits once and reports the Production Metric ratios, never source.

@@ -283,7 +283,7 @@ pub(crate) fn extension_reference_ranges(
     ctx: &PackageContext<'_>,
     extensions: &[&str],
     source: &str,
-    metrics: [(&str, u32, f64, f64); 4],
+    metrics: [(&str, u32, f64, f64); 5],
 ) -> Option<Vec<ReferenceRange>> {
     ctx.has_any_extension(extensions)
         .then(|| build_reference_ranges(source, metrics))
@@ -293,6 +293,7 @@ pub(crate) fn vue_reference_ranges(
     ctx: &PackageContext<'_>,
     source: &str,
     erosion: (f64, f64),
+    cognitive_complexity: (f64, f64),
     verbosity: (f64, f64),
     duplication: (f64, f64),
     import_cycles: (f64, f64),
@@ -303,6 +304,12 @@ pub(crate) fn vue_reference_ranges(
         source,
         [
             ("erosion", 1, erosion.0, erosion.1),
+            (
+                "cognitive_complexity",
+                1,
+                cognitive_complexity.0,
+                cognitive_complexity.1,
+            ),
             ("verbosity", 2, verbosity.0, verbosity.1),
             ("duplication", 1, duplication.0, duplication.1),
             ("import_cycles", 1, import_cycles.0, import_cycles.1),
@@ -562,7 +569,7 @@ mod tests {
         let (ranges, note) = select_reference_ranges(&ctx, &[&react::PROFILE, &nextjs::PROFILE]);
         assert!(note.is_none(), "expected no fallback note, got {note:?}");
         assert!(ranges.iter().any(|range| {
-            range.source.contains("20 React repositories") && range.source.contains("ADR 0028")
+            range.source.contains("50 React repositories") && range.source.contains("ADR 0035")
         }));
     }
 

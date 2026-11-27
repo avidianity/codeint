@@ -28,4 +28,4 @@
 
 ## Reference ranges
 
-- `reference_ranges` returns the 10th to 90th percentile bands from the stratified 50-repository current-codebase Dart panel under [ADR 0028](../../../docs/adr/0028-stratified-reference-panels.md).
+- `reference_ranges` returns the 10th to 90th percentile bands from the stratified 100-repository current-codebase Dart panel under [ADR 0035](../../../docs/adr/0035-stratified-100-repository-reference-panels.md).

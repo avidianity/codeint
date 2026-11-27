@@ -74,6 +74,26 @@ fn one_repository_may_join_several_panels_but_not_the_same_panel_twice() {
 }
 
 #[test]
+fn one_repository_may_join_two_different_base_language_panels_but_not_the_same_language_twice() {
+    let python = format!(
+        r#"{{"name":"owner/polyglot","language":"python","bucket":"small","url":"https://github.com/owner/polyglot","commit":"{SHA}"}}"#
+    );
+    let shell = format!(
+        r#"{{"name":"owner/polyglot","language":"shell","bucket":"small","url":"https://github.com/owner/polyglot","commit":"{SHA}"}}"#
+    );
+    let both = format!("{python},{shell}");
+    assert_eq!(
+        load(&manifest(&both, ""))
+            .expect("polyglot repository may appear in distinct base language panels")
+            .repositories
+            .len(),
+        2
+    );
+    let duplicate = format!("{python},{python}");
+    assert!(load(&manifest(&duplicate, "")).is_err());
+}
+
+#[test]
 fn case_studies_pin_both_commits() {
     let study = |after: &str| {
         format!(

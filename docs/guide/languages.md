@@ -31,21 +31,21 @@ See [Shell](./shell.md) for shell flavor detection, top-level `<script>` functio
 
 ## Calibrated Reference ranges
 
-Measured across stratified panels of 50 current public repositories per built-in language and 20 current public repositories per calibrated Framework profile (10th to 90th percentile, [ADR 0028](../adr/0028-stratified-reference-panels.md)):
+Measured across stratified panels of up to 100 current public repositories per built-in language (77 for SQL under the `200+`-star floor) and 50 current public repositories per calibrated Framework profile, sampled round-robin across three star bands (10th to 90th percentile, [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md)):
 
-| Language | Erosion | Duplication | Verbosity | Import cycles | Record |
-| -------- | ------- | ----------- | --------- | ------------- | ------ |
-| TypeScript / JavaScript | 20.6% to 73.1% | 0.6% to 19.4% | 0.0% to 0.1% | 0.0% to 18.4% | [ADR 0028](../adr/0028-stratified-reference-panels.md) |
-| React (`.jsx` / `.tsx`) | 27.9% to 55.1% | 2.9% to 45.6% | 0.0% to 0.1% | 0.0% to 8.3% | [ADR 0028](../adr/0028-stratified-reference-panels.md) |
-| Vue 2 (`.vue`) | 9.9% to 57.6% | 1.5% to 28.7% | 0.0% to 0.3% | 0.0% to 11.5% | [ADR 0028](../adr/0028-stratified-reference-panels.md) |
-| Vue 3 (`.vue`) | 10.1% to 45.2% | 1.2% to 19.4% | 0.0% to 0.1% | 0.0% to 7.4% | [ADR 0028](../adr/0028-stratified-reference-panels.md) |
-| Rust | 21.2% to 71.6% | 4.1% to 31.4% | 0.0% to 0.5% | 0.0% to 57.4% | [ADR 0028](../adr/0028-stratified-reference-panels.md) |
-| PHP | 8.4% to 63.0% | 1.7% to 18.9% | 0.0% to 0.5% | 0.0% to 14.5% | [ADR 0028](../adr/0028-stratified-reference-panels.md) |
-| Dart | 2.3% to 47.9% | 2.4% to 26.2% | 0.0% to 0.8% | 1.3% to 48.5% | [ADR 0028](../adr/0028-stratified-reference-panels.md) |
-| Python | 33.1% to 73.4% | 0.8% to 17.2% | 0.0% to 0.9% | 0.0% to 43.7% | [ADR 0028](../adr/0028-stratified-reference-panels.md) |
-| Go | 32.5% to 67.4% | 2.5% to 18.1% | 0.0% to 0.2% | 0.0% to 0.0% | [ADR 0028](../adr/0028-stratified-reference-panels.md) |
-| SQL | 0.0% to 79.5% | 0.1% to 90.9% | 0.0% to 0.0% | N/A | [ADR 0028](../adr/0028-stratified-reference-panels.md) |
-| Shell | 41.6% to 92.7% | 0.8% to 75.1% | 0.0% to 2.5% | N/A | [ADR 0031](../adr/0031-shell-reference-ranges.md) |
+| Language | Erosion | Cognitive complexity | Duplication | Verbosity | Import cycles | Record |
+| -------- | ------- | -------------------- | ----------- | --------- | ------------- | ------ |
+| TypeScript / JavaScript | 18.7% to 67.1% | 12.1% to 53.2% | 1.8% to 25.2% | 0.0% to 0.2% | 0.0% to 18.2% | [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md) |
+| React (`.jsx` / `.tsx`) | 5.4% to 56.6% | 3.8% to 39.9% | 2.6% to 31.5% | 0.0% to 0.1% | 0.0% to 20.2% | [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md) |
+| Vue 2 (`.vue`) | 2.5% to 47.9% | 3.3% to 40.6% | 2.3% to 26.7% | 0.0% to 0.3% | 0.0% to 12.8% | [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md) |
+| Vue 3 (`.vue`) | 4.2% to 43.8% | 2.2% to 29.7% | 2.1% to 29.7% | 0.0% to 0.2% | 0.0% to 32.5% | [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md) |
+| Rust | 24.5% to 70.4% | 17.6% to 58.5% | 4.7% to 37.7% | 0.0% to 0.5% | 0.0% to 61.1% | [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md) |
+| PHP | 6.4% to 59.1% | 4.4% to 54.2% | 2.5% to 20.9% | 0.0% to 0.4% | 0.0% to 13.3% | [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md) |
+| Dart | 3.9% to 49.7% | 0.0% to 37.7% | 2.7% to 25.6% | 0.0% to 1.1% | 6.1% to 60.0% | [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md) |
+| Python | 23.9% to 71.7% | 24.9% to 63.7% | 1.1% to 22.0% | 0.0% to 1.1% | 0.0% to 44.6% | [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md) |
+| Go | 30.4% to 74.6% | 30.6% to 67.1% | 3.4% to 24.3% | 0.0% to 0.4% | 0.0% to 0.0% | [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md) |
+| SQL | 0.0% to 91.8% | 0.0% to 90.2% | 0.0% to 90.9% | 0.0% to 0.0% | N/A | [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md) |
+| Shell | 36.4% to 93.0% | 21.8% to 82.8% | 0.3% to 71.3% | 0.0% to 3.1% | N/A | [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md) |
 
 To add another language as an external WebAssembly plugin, see [docs/plugins.md](../plugins.md).
 
