@@ -607,7 +607,7 @@ source_sets:
     e3bc223e22791aa541f8104438ce1606515231ce,2026-11-16,3,0,0,0,0.0476,0
 ```
 
-codeint compares the committer date, the date that `git log --since` uses, and stops at the first main-line commit committed before that day.
+codeint compares the committer date, the date that `git log --since` uses, and scans up to 14 days earlier than that day before stopping so out-of-order commit timestamps do not truncate newer commits.
 In a shallow clone, the trend stops at the oldest commit the clone has.
 
 The report has one table per Source set, with one row per commit.
