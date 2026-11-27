@@ -32,6 +32,8 @@ pub(crate) enum UpdateError {
     ManagedByPackageManager { path: PathBuf },
     #[error("unsupported platform for self-update")]
     UnsupportedPlatform,
+    #[error("invalid --version value {version:?}: {detail}")]
+    InvalidVersion { version: String, detail: String },
     #[error("cannot query the latest release: {detail}")]
     LatestRelease { detail: String },
     #[error("cannot query the latest release: invalid GitHub Releases API JSON")]
@@ -88,7 +90,7 @@ pub(crate) fn update(
     let current = env!("CARGO_PKG_VERSION");
     let current_tag = format!("v{current}");
     let target_tag = match requested_version {
-        Some(tag) => validate_release_tag(tag)?,
+        Some(tag) => validate_requested_version(tag)?,
         None => resolve_latest_tag(release_base_url)?,
     };
     if target_tag == current_tag && (requested_version.is_none() || check_only) {
@@ -197,19 +199,22 @@ fn is_valid_semver_numeric_part(part: &str) -> bool {
 fn is_valid_semver_prerelease(prerelease: &str) -> bool {
     !prerelease.is_empty()
         && prerelease.split('.').all(|segment| {
-            !segment.is_empty()
-                && segment
+            if segment.is_empty()
+                || !segment
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            {
+                return false;
+            }
+            let all_digits = segment.bytes().all(|byte| byte.is_ascii_digit());
+            !all_digits || is_valid_semver_numeric_part(segment)
         })
 }
 
-fn validate_release_tag(raw: &str) -> Result<String, UpdateError> {
+fn parse_semver_tag(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(UpdateError::LatestRelease {
-            detail: "release tag is empty".to_owned(),
-        });
+        return None;
     }
     let version = trimmed.strip_prefix('v').unwrap_or(trimmed);
     let (core, prerelease) = match version.split_once('-') {
@@ -226,14 +231,35 @@ fn validate_release_tag(raw: &str) -> Result<String, UpdateError> {
         _ => false,
     };
     let valid_pre = prerelease.is_none_or(is_valid_semver_prerelease);
-    if !valid_core || !valid_pre {
+    (valid_core && valid_pre).then(|| format!("v{version}"))
+}
+
+fn validate_release_tag(raw: &str) -> Result<String, UpdateError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
         return Err(UpdateError::LatestRelease {
-            detail: format!(
-                "invalid release tag {trimmed:?}; expected SemVer tag v<major>.<minor>.<patch>"
-            ),
+            detail: "release tag is empty".to_owned(),
         });
     }
-    Ok(format!("v{version}"))
+    parse_semver_tag(trimmed).ok_or_else(|| UpdateError::LatestRelease {
+        detail: format!(
+            "invalid release tag {trimmed:?}; expected SemVer tag v<major>.<minor>.<patch>"
+        ),
+    })
+}
+
+fn validate_requested_version(raw: &str) -> Result<String, UpdateError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(UpdateError::InvalidVersion {
+            version: raw.to_owned(),
+            detail: "value is empty; expected SemVer tag v<major>.<minor>.<patch>".to_owned(),
+        });
+    }
+    parse_semver_tag(trimmed).ok_or_else(|| UpdateError::InvalidVersion {
+        version: trimmed.to_owned(),
+        detail: "expected SemVer tag v<major>.<minor>.<patch>".to_owned(),
+    })
 }
 
 fn resolve_download_base(release_base_url: Option<&str>, tag: &str) -> String {

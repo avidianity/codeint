@@ -9,7 +9,8 @@ use codeint_config::{
 
 use super::{
     UpdateError, build_curl_download_args, build_curl_text_args, constant_time_equal,
-    extract_tag_name, format_schema_sync_notice, validate_release_tag, verify_sha256_bytes,
+    extract_tag_name, format_schema_sync_notice, validate_release_tag, validate_requested_version,
+    verify_sha256_bytes,
 };
 
 fn as_strings(args: &[OsString]) -> Vec<String> {
@@ -114,6 +115,63 @@ fn extract_tag_name_parses_semver_json_and_rejects_malformed_or_traversal_tags()
             ),
             "expected JSON tag_name {invalid_tag:?} to be rejected"
         );
+    }
+}
+
+#[test]
+fn validate_release_tag_enforces_semver_prerelease_leading_zero_rules() {
+    for valid_tag in ["v1.2.3-0", "v1.2.3-0a", "v1.2.3-rc.1", "v1.2.3-alpha.01a"] {
+        assert_eq!(
+            validate_release_tag(valid_tag).expect("valid SemVer prerelease tag"),
+            valid_tag
+        );
+        let payload = serde_json::json!({ "tag_name": valid_tag }).to_string();
+        assert_eq!(
+            extract_tag_name(&payload).expect("valid SemVer prerelease tag in JSON"),
+            valid_tag
+        );
+    }
+
+    for invalid_tag in ["v1.2.3-01", "v1.2.3-rc.007", "v1.2.3-00"] {
+        assert!(
+            matches!(
+                validate_release_tag(invalid_tag),
+                Err(UpdateError::LatestRelease { .. })
+            ),
+            "expected leading-zero prerelease tag {invalid_tag:?} to be rejected"
+        );
+        let payload = serde_json::json!({ "tag_name": invalid_tag }).to_string();
+        assert!(
+            matches!(
+                extract_tag_name(&payload),
+                Err(UpdateError::LatestRelease { .. })
+            ),
+            "expected JSON tag_name {invalid_tag:?} to fail as LatestRelease"
+        );
+    }
+}
+
+#[test]
+fn validate_requested_version_returns_invalid_version_error_for_malformed_input() {
+    assert_eq!(
+        validate_requested_version("1.2.3").expect("valid version"),
+        "v1.2.3"
+    );
+    assert_eq!(
+        validate_requested_version("v1.2.3-0a").expect("valid prerelease"),
+        "v1.2.3-0a"
+    );
+
+    for bad in ["../../x", "v1.0.0-01", "v1.2.3-rc.007", ""] {
+        let error =
+            validate_requested_version(bad).expect_err("malformed --version must be rejected");
+        assert!(
+            matches!(error, UpdateError::InvalidVersion { .. }),
+            "expected InvalidVersion for {bad:?}, got {error:?}"
+        );
+        let rendered = error.to_string();
+        assert!(rendered.contains("--version"), "{rendered}");
+        assert!(!rendered.to_ascii_lowercase().contains("latest release"));
     }
 }
 

@@ -466,8 +466,7 @@ fn update_passes_hardened_tls_timeout_and_terminator_flags_to_curl() {
 }
 
 #[cfg(unix)]
-#[test]
-fn update_parses_github_release_json_and_rejects_malformed_payloads() {
+fn setup_fake_curl_release_fixture() -> (TempDir, PathBuf, PathBuf, String) {
     let temp = TempDir::new().expect("temp");
     let install_dir = temp.path().join("bin");
     let fake_bin = temp.path().join("fake-bin");
@@ -479,6 +478,13 @@ fn update_parses_github_release_json_and_rejects_malformed_payloads() {
     let script = format!("#!/bin/sh\ncat \"{}\"\n", payload_file.display());
     write_executable_script(&fake_bin.join("curl"), &script);
     let joined_path = format!("{}:/usr/bin:/bin", fake_bin.display());
+    (temp, exe, payload_file, joined_path)
+}
+
+#[cfg(unix)]
+#[test]
+fn update_parses_github_release_json_and_rejects_malformed_payloads() {
+    let (temp, exe, payload_file, joined_path) = setup_fake_curl_release_fixture();
 
     fs::write(
         &payload_file,
@@ -707,6 +713,91 @@ fn update_reports_format_specific_schema_directive_notice_for_json_toml_and_yaml
         assert!(
             stdout.contains("v9.9.9/schema/codeint.schema.json"),
             "expected {file_name} notice to include updated URL, got: {stdout}"
+        );
+    }
+}
+
+#[test]
+fn update_rejects_malformed_version_flag_without_latest_release_or_network_error() {
+    let temp = TempDir::new().expect("temp");
+    let install_dir = temp.path().join("bin");
+    fs::create_dir_all(&install_dir).expect("install dir");
+    let exe = copy_codeint_to(&install_dir);
+
+    for (args, bad_value) in [
+        (vec!["update", "--version", "../../x"], "../../x"),
+        (
+            vec!["update", "--check", "--version", "v1.0.0-01"],
+            "v1.0.0-01",
+        ),
+    ] {
+        let output = run_exe(&exe, &args, None);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "expected exit code 2 for {args:?}, got: {output:?}"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr_lower = stderr.to_ascii_lowercase();
+        assert!(
+            stderr.contains("--version"),
+            "expected stderr to name --version for {args:?}, got: {stderr}"
+        );
+        assert!(
+            stderr.contains(bad_value),
+            "expected stderr to include invalid value {bad_value:?}, got: {stderr}"
+        );
+        assert!(
+            !stderr_lower.contains("latest release"),
+            "stderr must not mention latest release for --version error, got: {stderr}"
+        );
+        assert!(
+            !stderr_lower.contains("network"),
+            "stderr must not mention network for --version error, got: {stderr}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn update_rejects_leading_zero_prerelease_from_github_api_as_latest_release_error() {
+    let (temp, exe, payload_file, joined_path) = setup_fake_curl_release_fixture();
+
+    for invalid_tag in ["v1.2.3-01", "v1.2.3-rc.007"] {
+        fs::write(&payload_file, format!(r#"{{"tag_name":"{invalid_tag}"}}"#))
+            .expect("write invalid prerelease json");
+        let output = Command::new(&exe)
+            .current_dir(temp.path())
+            .args(["update", "--check"])
+            .env("PATH", &joined_path)
+            .env_remove("CODEINT_RELEASE_BASE_URL")
+            .output()
+            .expect("run update --check");
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "expected exit code 2 for API tag {invalid_tag:?}, got: {output:?}"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("cannot query the latest release"),
+            "expected LatestRelease error for API tag {invalid_tag:?}, got: {stderr}"
+        );
+    }
+
+    for valid_tag in ["v1.2.3-0", "v1.2.3-0a", "v1.2.3-alpha.01a"] {
+        fs::write(&payload_file, format!(r#"{{"tag_name":"{valid_tag}"}}"#))
+            .expect("write valid prerelease json");
+        let output = Command::new(&exe)
+            .current_dir(temp.path())
+            .args(["update", "--check"])
+            .env("PATH", &joined_path)
+            .env_remove("CODEINT_RELEASE_BASE_URL")
+            .output()
+            .expect("run update --check");
+        assert!(
+            output.status.success(),
+            "expected API tag {valid_tag:?} to succeed, got: {output:?}"
         );
     }
 }

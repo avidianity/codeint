@@ -340,6 +340,9 @@ fn update_remedy(error: &UpdateError) -> &'static str {
         UpdateError::ManagedByPackageManager { .. } => {
             "Update codeint through your package manager instead, such as npm update -g codeint or npx codeint@latest."
         }
+        UpdateError::InvalidVersion { .. } => {
+            "Pass a valid SemVer release tag to --version, such as v1.2.3 or v1.2.3-rc.1."
+        }
         UpdateError::ChecksumMismatch { .. } | UpdateError::MissingChecksum { .. } => {
             "Do not use the downloaded archive; retry codeint update or verify the release on GitHub."
         }
