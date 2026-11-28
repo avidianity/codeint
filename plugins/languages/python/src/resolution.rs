@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use codeint_model::RepoPath;
-use codeint_model::language::{ImportRequest, Manifest, Resolution};
+use codeint_model::language::{ImportRequest, Manifest, PackageFrameworkProfiles, Resolution};
 
 use crate::dependencies::{is_requirements_file, normalize_pep503};
 use crate::frameworks::{fallback_import_roots, has_ignored_dir};
@@ -45,7 +45,7 @@ pub(crate) fn resolve_with_profiles(
     repository_paths: &[RepoPath],
     manifests: &[Manifest],
     requests: &[ImportRequest],
-    active_profiles: &[String],
+    package_profiles: &[PackageFrameworkProfiles],
 ) -> Vec<Resolution> {
     let py_files: HashSet<String> = repository_paths
         .iter()
@@ -54,19 +54,24 @@ pub(crate) fn resolve_with_profiles(
         .map(str::to_owned)
         .collect();
     let module_map = build_module_map(&py_files, manifests);
-    let fallback_map = if active_profiles.is_empty() {
-        HashMap::new()
-    } else {
-        let extra_roots = fallback_import_roots(active_profiles, repository_paths, manifests);
-        build_module_map_for_roots(&py_files, &extra_roots)
-    };
+    let empty_fallback = HashMap::new();
+    let mut fallback_cache: HashMap<&[String], HashMap<String, String>> = HashMap::new();
     requests
         .iter()
         .map(|req| {
+            let active = codeint_model::active_profiles_for_path(package_profiles, &req.importer);
+            let fallback_map = if active.is_empty() {
+                &empty_fallback
+            } else {
+                fallback_cache.entry(active).or_insert_with(|| {
+                    let extra_roots = fallback_import_roots(active, repository_paths, manifests);
+                    build_module_map_for_roots(&py_files, &extra_roots)
+                })
+            };
             resolve_one(
                 &py_files,
                 &module_map,
-                &fallback_map,
+                fallback_map,
                 &req.importer,
                 &req.specifier,
             )

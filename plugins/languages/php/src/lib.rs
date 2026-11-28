@@ -79,7 +79,7 @@ codeint_model::impl_builtin_language_plugin!(
     imports(
         find_manifest_paths,
         workspaces::analyze_manifests,
-        by_profile(resolve_batch_with_profiles),
+        resolve_batch_with_profiles,
         extract_entry_points,
     ),
     frameworks(frameworks),

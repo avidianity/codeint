@@ -67,7 +67,7 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
   A tsconfig `extends` entry that names any other file, or a package outside the repository, cannot be read; the importer then resolves without that tsconfig.
 - `src/resolution/snapshot.rs` is the virtual file system that `oxc_resolver` reads: the repository paths, the manifest texts, and a `node_modules` link for each package of the repository.
   It reads no real file, so a tsconfig never reaches outside the snapshot.
-- `manifest_paths` is also how the plugin asks for the `package.json` files that `workspace_packages` reads, so the host reads each manifest once.
+- `manifest_paths` is also how the plugin asks for the `package.json` files that `analyze_manifests` reads, so the host reads each manifest once.
 - `src/resolution/packages.rs` links the `package.json` of each workspace package that the workspace declares, plus the root `package.json` when its `name` does not collide with a workspace member, so an import of a workspace package follows its `exports` field (falling back to source files or `Builtin` when build outputs are absent).
   It finds the workspace packages with `src/workspaces.rs`, the same rule that splits the report by package.
   A non-root package outside the declared workspaces (including subfolder packages in a repository without workspaces) is not linked, because npm, Yarn, and Bun do not install it in `node_modules`.

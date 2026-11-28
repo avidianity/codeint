@@ -71,16 +71,20 @@ fn ts_entry_points(
     discover_entry_points(paths, manifests, &EXTENSIONS)
 }
 
-fn resolve_ts_batch(
+fn resolve_ts_imports(
     paths: &[codeint_model::RepoPath],
     manifests: &[codeint_model::Manifest],
     requests: &[codeint_model::language::ImportRequest],
-    profiles: &[String],
+    package_profiles: &[codeint_model::PackageFrameworkProfiles],
 ) -> Vec<codeint_model::language::Resolution> {
-    let resolver = ProjectResolver::new(paths, manifests.to_vec(), profiles);
+    let resolver = ProjectResolver::new(paths, manifests.to_vec());
     requests
         .iter()
-        .map(|request| resolver.resolve(request))
+        .map(|request| {
+            let active =
+                codeint_model::active_profiles_for_path(package_profiles, &request.importer);
+            resolver.resolve(request, active)
+        })
         .collect()
 }
 
@@ -93,7 +97,7 @@ codeint_model::impl_builtin_language_plugin!(
     imports(
         manifest_paths,
         workspaces::analyze_manifests,
-        by_profile(resolve_ts_batch),
+        resolve_ts_imports,
         ts_entry_points,
     ),
     frameworks(frameworks),

@@ -1,9 +1,7 @@
 use std::collections::BTreeSet;
 
-use codeint_model::language::{
-    DependencyManifestOwner, Manifest, ManifestAnalysis, WorkspaceError,
-};
-use codeint_model::scan::{manifest_root_excluding, simple_manifest_analysis};
+use codeint_model::language::{Manifest, ManifestAnalysis, WorkspaceError};
+use codeint_model::scan::{analyze_parsed_manifests, manifest_root_excluding};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
@@ -18,29 +16,34 @@ struct PubspecWorkspace {
 }
 
 pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
-    simple_manifest_analysis(manifests, PUBSPEC_MANIFEST, discover, |valid| {
-        let mut active = Vec::new();
-        let mut owners = Vec::new();
-        for manifest in valid {
-            let Some(root) = manifest_root_excluding(
+    analyze_parsed_manifests(
+        manifests,
+        PUBSPEC_MANIFEST,
+        |manifest| {
+            let root = manifest_root_excluding(
                 &manifest.path,
                 PUBSPEC_MANIFEST,
                 &["vendor", ".dart_tool"],
-            ) else {
-                continue;
-            };
-            active.push(*manifest);
-            owners.push(DependencyManifestOwner {
-                package_root: root.to_owned(),
-                path: manifest.path.clone(),
-            });
-        }
-        let declared = crate::dependencies::extract_declared_refs(&active);
-        (owners, declared)
-    })
+            )?;
+            Some(
+                serde_saphyr::from_str::<Option<crate::dependencies::PubspecManifest>>(
+                    &manifest.text,
+                )
+                .map(|doc| (root.to_owned(), doc))
+                .map_err(|err| WorkspaceError {
+                    path: manifest.path.clone(),
+                    message: format!("is not valid YAML: {err}"),
+                }),
+            )
+        },
+        |all, _| discover(all),
+        |_| true,
+        crate::dependencies::extract_declared_from_parsed,
+    )
 }
 
-pub(crate) fn is_pubspec_path(path: &str, _suffix: &str) -> bool {
+#[cfg(test)]
+pub(crate) fn is_pubspec_path(path: &str) -> bool {
     manifest_root_excluding(path, PUBSPEC_MANIFEST, &["vendor", ".dart_tool"]).is_some()
 }
 

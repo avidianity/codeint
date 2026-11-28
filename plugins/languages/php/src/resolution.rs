@@ -1,7 +1,7 @@
 use std::cmp::Reverse;
 use std::collections::HashSet;
 
-use codeint_model::language::{ImportRequest, Manifest, Resolution};
+use codeint_model::language::{ImportRequest, Manifest, PackageFrameworkProfiles, Resolution};
 use codeint_model::scan::{
     RelativeFileResolution, find_manifests, normalize_relative_path, resolve_relative_file,
 };
@@ -43,26 +43,27 @@ pub(crate) fn resolve_batch_with_profiles<P: AsRef<str>>(
     repository_paths: &[P],
     manifests: &[Manifest],
     requests: &[ImportRequest],
-    active_profiles: &[String],
+    package_profiles: &[PackageFrameworkProfiles],
 ) -> Vec<Resolution> {
-    let resolver = PhpResolver::new(repository_paths, manifests, active_profiles);
-    requests.iter().map(|req| resolver.resolve(req)).collect()
+    let resolver = PhpResolver::new(repository_paths, manifests);
+    requests
+        .iter()
+        .map(|req| {
+            let active = codeint_model::active_profiles_for_path(package_profiles, &req.importer);
+            resolver.resolve(req, active)
+        })
+        .collect()
 }
 
 struct PhpResolver {
     files: HashSet<String>,
     rules: Vec<Psr4Rule>,
     declared_packages: HashSet<String>,
-    active_profiles: Vec<String>,
     manifest_package_roots: Vec<String>,
 }
 
 impl PhpResolver {
-    fn new<P: AsRef<str>>(
-        repository_paths: &[P],
-        manifests: &[Manifest],
-        active_profiles: &[String],
-    ) -> PhpResolver {
+    fn new<P: AsRef<str>>(repository_paths: &[P], manifests: &[Manifest]) -> PhpResolver {
         let mut rules = Vec::new();
         for manifest in manifests {
             collect_psr4_rules(manifest, &mut rules);
@@ -75,14 +76,15 @@ impl PhpResolver {
                 .collect(),
             rules,
             declared_packages: declared_package_names(manifests),
-            active_profiles: active_profiles.to_vec(),
             manifest_package_roots: composer_package_roots(manifests),
         }
     }
 
-    fn resolve(&self, request: &ImportRequest) -> Resolution {
+    fn resolve(&self, request: &ImportRequest, active_profiles: &[String]) -> Resolution {
         match request.specifier.split_once(':') {
-            Some(("use", ns_path)) => self.resolve_psr4(&request.importer, ns_path),
+            Some(("use", ns_path)) => {
+                self.resolve_psr4(&request.importer, ns_path, active_profiles)
+            }
             Some(("req", req_path)) => self.resolve_require(&request.importer, req_path),
             _ => Resolution::Unresolved(format!(
                 "unrecognized PHP import specifier {:?}",
@@ -91,7 +93,12 @@ impl PhpResolver {
         }
     }
 
-    fn resolve_psr4(&self, importer: &str, ns_path: &str) -> Resolution {
+    fn resolve_psr4(
+        &self,
+        importer: &str,
+        ns_path: &str,
+        active_profiles: &[String],
+    ) -> Resolution {
         let normalized = ns_path.trim_matches('\\');
         if normalized.is_empty() {
             return Resolution::Unresolved(format!("empty PHP namespace import {ns_path:?}"));
@@ -101,7 +108,7 @@ impl PhpResolver {
             Psr4Match::LocalNamespace => unresolved_internal_namespace(normalized),
             Psr4Match::PrefixOnly => self.resolve_psr4_prefix_fallback(normalized),
             Psr4Match::NoMatch => self
-                .resolve_framework_fallback(importer, normalized)
+                .resolve_framework_fallback(importer, normalized, active_profiles)
                 .unwrap_or_else(|| self.resolve_non_psr4_namespace(normalized)),
         }
     }
@@ -118,12 +125,16 @@ impl PhpResolver {
             .map_or("", String::as_str)
     }
 
-    fn resolve_framework_fallback(&self, importer: &str, normalized: &str) -> Option<Resolution> {
-        if self.active_profiles.is_empty() {
+    fn resolve_framework_fallback(
+        &self,
+        importer: &str,
+        normalized: &str,
+        active_profiles: &[String],
+    ) -> Option<Resolution> {
+        if active_profiles.is_empty() {
             return None;
         }
-        let candidates =
-            crate::frameworks::fallback_import_candidates(&self.active_profiles, normalized);
+        let candidates = crate::frameworks::fallback_import_candidates(active_profiles, normalized);
         if candidates.is_empty() {
             return None;
         }

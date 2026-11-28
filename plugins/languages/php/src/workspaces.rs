@@ -1,9 +1,7 @@
 use std::collections::BTreeSet;
 
-use codeint_model::language::{
-    DependencyManifestOwner, Manifest, ManifestAnalysis, WorkspaceError,
-};
-use codeint_model::scan::{manifest_root_excluding, simple_manifest_analysis};
+use codeint_model::language::{Manifest, ManifestAnalysis, WorkspaceError};
+use codeint_model::scan::{analyze_parsed_manifests, manifest_root_excluding};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 
@@ -13,25 +11,32 @@ mod tests;
 pub(crate) const COMPOSER_MANIFEST: &str = "composer.json";
 
 pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
-    simple_manifest_analysis(manifests, COMPOSER_MANIFEST, workspace_packages, |valid| {
-        let parsed: Vec<(String, String, Value)> = valid
-            .iter()
-            .filter_map(|manifest| {
-                let root = manifest_root_excluding(&manifest.path, COMPOSER_MANIFEST, &["vendor"])?;
-                let doc = serde_json::from_str::<Value>(&manifest.text).ok()?;
-                Some((root.to_owned(), manifest.path.clone(), doc))
-            })
-            .collect();
-        let owners = parsed
-            .iter()
-            .map(|(package_root, path, _)| DependencyManifestOwner {
-                package_root: package_root.clone(),
-                path: path.clone(),
-            })
-            .collect();
-        let declared = crate::dependencies::extract_declared_from_parsed(&parsed);
-        (owners, declared)
-    })
+    analyze_parsed_manifests(
+        manifests,
+        COMPOSER_MANIFEST,
+        |manifest| {
+            let root = manifest_root_excluding(&manifest.path, COMPOSER_MANIFEST, &["vendor"])?;
+            Some(
+                serde_json::from_str::<Value>(&manifest.text)
+                    .map(|doc| (root.to_owned(), doc))
+                    .map_err(|err| WorkspaceError {
+                        path: manifest.path.clone(),
+                        message: format!("is not valid JSON: {err}"),
+                    }),
+            )
+        },
+        |all, parsed| {
+            let Some((_, _, root_doc)) = parsed.iter().find(|(_, p, _)| p == COMPOSER_MANIFEST)
+            else {
+                return Ok(Vec::new());
+            };
+            Ok(build_path_glob_set(root_doc)?
+                .map(|set| matching_package_folders(all, &set))
+                .unwrap_or_default())
+        },
+        |_| true,
+        crate::dependencies::extract_declared_from_parsed,
+    )
 }
 
 fn composer_error(message: String) -> WorkspaceError {
@@ -41,6 +46,7 @@ fn composer_error(message: String) -> WorkspaceError {
     }
 }
 
+#[cfg(test)]
 fn parse_root_composer(manifests: &[Manifest]) -> Result<Option<Value>, WorkspaceError> {
     for manifest in manifests {
         if manifest.path == COMPOSER_MANIFEST {
@@ -53,6 +59,7 @@ fn parse_root_composer(manifests: &[Manifest]) -> Result<Option<Value>, Workspac
     Ok(None)
 }
 
+#[cfg(test)]
 pub(crate) fn workspace_packages(manifests: &[Manifest]) -> Result<Vec<String>, WorkspaceError> {
     let Some(parsed) = parse_root_composer(manifests)? else {
         return Ok(Vec::new());

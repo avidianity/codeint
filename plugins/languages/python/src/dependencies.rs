@@ -184,26 +184,36 @@ pub(crate) fn is_python_dependency_manifest(path: &str) -> bool {
 
 #[cfg(test)]
 pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
-    let refs: Vec<&Manifest> = manifests.iter().collect();
-    extract_declared_refs(&refs)
-}
-
-pub(crate) fn extract_declared_refs(manifests: &[&Manifest]) -> Vec<DeclaredDep> {
-    let parsed_pyprojects: Vec<(String, Value)> = manifests
+    let owned: Vec<(String, String, Value)> = manifests
         .iter()
         .filter(|m| is_pyproject_manifest(&m.path))
         .filter_map(|m| {
             toml::from_str::<Value>(&m.text)
                 .ok()
-                .map(|d| (package_root(&m.path), d))
+                .map(|d| (package_root(&m.path), m.path.clone(), d))
         })
         .collect();
+    let parsed_pyprojects: Vec<(String, String, &Value)> = owned
+        .iter()
+        .map(|(root, path, doc)| (root.clone(), path.clone(), doc))
+        .collect();
+    let auxiliary: Vec<&Manifest> = manifests
+        .iter()
+        .filter(|m| !is_pyproject_manifest(&m.path))
+        .collect();
+    extract_declared_from_parsed(&parsed_pyprojects, &auxiliary)
+}
+
+pub(crate) fn extract_declared_from_parsed(
+    parsed_pyprojects: &[(String, String, &Value)],
+    auxiliary: &[&Manifest],
+) -> Vec<DeclaredDep> {
     let local_packages: HashSet<String> = parsed_pyprojects
         .iter()
-        .filter_map(|(_, doc)| declared_package_name(doc))
+        .filter_map(|(_, _, doc)| declared_package_name(doc))
         .collect();
     let mut entries = BTreeSet::new();
-    for (root, doc) in &parsed_pyprojects {
+    for (root, _, doc) in parsed_pyprojects {
         DepCollector {
             root,
             local_packages: &local_packages,
@@ -211,7 +221,7 @@ pub(crate) fn extract_declared_refs(manifests: &[&Manifest]) -> Vec<DeclaredDep>
         }
         .visit_document(doc);
     }
-    for manifest in manifests {
+    for manifest in auxiliary {
         collect_auxiliary_manifest(manifest, &local_packages, &mut entries);
     }
     entries
@@ -390,6 +400,7 @@ fn is_optional_table(value: &Value) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn is_pyproject_manifest(path: &str) -> bool {
     let matches_name = path == "pyproject.toml" || path.ends_with("/pyproject.toml");
     let ignored_dir = path
@@ -398,6 +409,7 @@ fn is_pyproject_manifest(path: &str) -> bool {
     matches_name && !ignored_dir
 }
 
+#[cfg(test)]
 fn package_root(path: &str) -> String {
     path.strip_suffix("/pyproject.toml")
         .unwrap_or("")

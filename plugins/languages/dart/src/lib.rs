@@ -85,7 +85,7 @@ codeint_model::impl_builtin_language_plugin!(
     imports(
         resolution::find_pubspecs,
         workspaces::analyze_manifests,
-        by_profile(resolution::resolve_dart_imports),
+        resolution::resolve_dart_imports,
         discover_entry_points,
     ),
     frameworks(frameworks),

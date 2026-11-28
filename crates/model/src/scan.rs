@@ -419,32 +419,55 @@ pub fn manifest_root_excluding<'a>(
     (!dir.split('/').any(|seg| ignored_dirs.contains(&seg))).then_some(dir)
 }
 
-pub fn simple_manifest_analysis(
-    manifests: &[Manifest],
+pub fn analyze_parsed_manifests<'a, Doc>(
+    manifests: &'a [Manifest],
     root_manifest_path: &str,
-    discover: impl FnOnce(&[Manifest]) -> Result<Vec<String>, WorkspaceError>,
-    extract: impl FnOnce(&[&Manifest]) -> (Vec<DependencyManifestOwner>, Vec<DeclaredDep>),
+    parse_one: impl Fn(&'a Manifest) -> Option<Result<(String, Doc), WorkspaceError>>,
+    discover: impl FnOnce(
+        &'a [Manifest],
+        &[(String, String, Doc)],
+    ) -> Result<Vec<String>, WorkspaceError>,
+    include_owner: impl Fn(&Doc) -> bool,
+    extract_declared: impl FnOnce(&[(String, String, Doc)]) -> Vec<DeclaredDep>,
 ) -> ManifestAnalysis {
     let mut invalid_manifests = Vec::new();
-    let mut workspace_packages = Vec::new();
-    let mut root_invalid = false;
-    if manifests
-        .iter()
-        .any(|manifest| manifest.path == root_manifest_path)
-    {
-        match discover(manifests) {
-            Ok(packages) => workspace_packages = packages,
+    let mut invalid_paths = HashSet::new();
+    let mut parsed = Vec::new();
+    for manifest in manifests {
+        let Some(result) = parse_one(manifest) else {
+            continue;
+        };
+        match result {
+            Ok((root, doc)) => parsed.push((root, manifest.path.clone(), doc)),
             Err(error) => {
+                invalid_paths.insert(manifest.path.as_str());
                 invalid_manifests.push(error);
-                root_invalid = true;
             }
         }
     }
-    let valid: Vec<&Manifest> = manifests
+    let workspace_packages = if !invalid_paths.contains(root_manifest_path)
+        && parsed.iter().any(|(_, path, _)| path == root_manifest_path)
+    {
+        match discover(manifests, &parsed) {
+            Ok(members) => members,
+            Err(error) => {
+                invalid_manifests.push(error);
+                parsed.retain(|(_, path, _)| path != root_manifest_path);
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    let dependency_manifests = parsed
         .iter()
-        .filter(|manifest| !(root_invalid && manifest.path == root_manifest_path))
+        .filter(|(_, _, doc)| include_owner(doc))
+        .map(|(package_root, path, _)| DependencyManifestOwner {
+            package_root: package_root.clone(),
+            path: path.clone(),
+        })
         .collect();
-    let (dependency_manifests, declared_dependencies) = extract(&valid);
+    let declared_dependencies = extract_declared(&parsed);
     ManifestAnalysis {
         workspace_packages,
         invalid_manifests,

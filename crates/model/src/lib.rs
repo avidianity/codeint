@@ -430,6 +430,10 @@ pub enum LanguagePluginError {
     #[error("the Language plugin returned dependency manifest {path:?}, which was not passed in")]
     UnknownDependencyManifest { path: String },
     #[error(
+        "the Language plugin reported manifest {path:?} as both invalid and a dependency manifest"
+    )]
+    InvalidAndDependencyManifest { path: String },
+    #[error(
         "the Language plugin returned an invalid root-dependency inheritance package root {package_root:?}"
     )]
     InvalidInheritancePackageRoot { package_root: String },
@@ -834,49 +838,6 @@ pub fn active_profiles_for_path<'a>(
     best.map_or(&[], |(_, profiles)| profiles)
 }
 
-pub type ResolveBatchFn = fn(
-    &[RepoPath],
-    &[Manifest],
-    &[language::ImportRequest],
-    &[String],
-) -> Vec<language::Resolution>;
-
-pub fn resolve_imports_by_package_profiles(
-    repository_paths: &[RepoPath],
-    manifests: &[Manifest],
-    requests: &[language::ImportRequest],
-    package_profiles: &[PackageFrameworkProfiles],
-    resolve_batch: ResolveBatchFn,
-) -> Vec<language::Resolution> {
-    if requests.is_empty() {
-        return Vec::new();
-    }
-    let mut grouped: BTreeMap<&[String], Vec<usize>> = BTreeMap::new();
-    for (index, request) in requests.iter().enumerate() {
-        let active = active_profiles_for_path(package_profiles, &request.importer);
-        grouped.entry(active).or_default().push(index);
-    }
-    if grouped.len() == 1 {
-        let active = grouped.keys().next().copied().unwrap_or(&[]);
-        return resolve_batch(repository_paths, manifests, requests, active);
-    }
-    let mut ordered: Vec<Option<language::Resolution>> = vec![None; requests.len()];
-    for (active, indices) in grouped {
-        let batch_requests: Vec<language::ImportRequest> = indices
-            .iter()
-            .map(|&index| requests[index].clone())
-            .collect();
-        let batch_results = resolve_batch(repository_paths, manifests, &batch_requests, active);
-        for (index, resolution) in indices.into_iter().zip(batch_results) {
-            ordered[index] = Some(resolution);
-        }
-    }
-    ordered
-        .into_iter()
-        .map(|item| item.unwrap_or_else(|| language::Resolution::Unresolved(String::new())))
-        .collect()
-}
-
 pub fn validate_manifest_analysis(
     manifests: &[Manifest],
     analysis: ManifestAnalysis,
@@ -901,7 +862,7 @@ pub fn validate_manifest_analysis(
             });
         }
     }
-    validate_dependency_owners(&analysis.dependency_manifests, &passed_paths)?;
+    validate_dependency_owners(&analysis.dependency_manifests, &passed_paths, &seen_invalid)?;
     let _ = validate_declared_dependencies(analysis.declared_dependencies.clone())?;
     validate_package_dependencies(&analysis.manifest_used_dependencies)?;
     validate_inheritance_roots(&analysis.root_dependency_inheritance)?;
@@ -920,6 +881,7 @@ fn validate_optional_package_root(package_root: &str) -> Result<(), LanguagePlug
 fn validate_dependency_owners(
     owners: &[DependencyManifestOwner],
     passed_paths: &HashSet<&str>,
+    seen_invalid: &HashSet<&str>,
 ) -> Result<(), LanguagePluginError> {
     for owner in owners {
         validate_optional_package_root(&owner.package_root)?;
@@ -930,6 +892,11 @@ fn validate_dependency_owners(
         }
         if !passed_paths.contains(owner.path.as_str()) {
             return Err(LanguagePluginError::UnknownDependencyManifest {
+                path: owner.path.clone(),
+            });
+        }
+        if seen_invalid.contains(owner.path.as_str()) {
+            return Err(LanguagePluginError::InvalidAndDependencyManifest {
                 path: owner.path.clone(),
             });
         }
@@ -1108,23 +1075,6 @@ macro_rules! impl_builtin_language_plugin {
         }
     };
     (@imports none) => {};
-    (@imports $manifest_paths:path, $analyze_manifests:path, by_profile($resolve_batch:path), $entry_points:path $(,)?) => {
-        $crate::impl_builtin_language_plugin!(
-            @imports
-            $manifest_paths,
-            $analyze_manifests,
-            |paths, manifests, requests, package_profiles| {
-                $crate::resolve_imports_by_package_profiles(
-                    paths,
-                    manifests,
-                    requests,
-                    package_profiles,
-                    $resolve_batch,
-                )
-            },
-            $entry_points,
-        );
-    };
     (@imports $manifest_paths:path, $analyze_manifests:path, $resolve_imports:expr, $entry_points:path $(,)?) => {
         fn has_imports(&self) -> bool {
             true

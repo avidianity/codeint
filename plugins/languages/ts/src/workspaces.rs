@@ -18,21 +18,12 @@ const WRONG_SHAPE: &str = "the workspaces field must be an array of folder patte
 
 pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
     let mut invalid_manifests = Vec::new();
-    let (workspace_packages, root_invalid) =
-        discover_workspace_packages_single_pass(manifests, &mut invalid_manifests);
-    let active_manifests: Vec<&Manifest> = manifests
-        .iter()
-        .filter(|manifest| !(root_invalid && manifest.path == PACKAGE_MANIFEST))
-        .filter(|manifest| package_manifest_root(&manifest.path).is_some())
-        .collect();
-    let active_parsed: Vec<(&str, &str, Value)> = active_manifests
-        .iter()
-        .filter_map(|manifest| {
-            let root = package_manifest_root(&manifest.path)?;
-            let doc = serde_json::from_str::<Value>(&manifest.text).ok()?;
-            Some((root, manifest.path.as_str(), doc))
-        })
-        .collect();
+    let mut active_parsed = parse_package_manifests(manifests, &mut invalid_manifests);
+    let workspace_packages = discover_workspace_packages_single_pass(
+        manifests,
+        &mut active_parsed,
+        &mut invalid_manifests,
+    );
     let dependency_manifests: Vec<DependencyManifestOwner> = active_parsed
         .iter()
         .map(|(root, path, _)| DependencyManifestOwner {
@@ -42,7 +33,7 @@ pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
         .collect();
     let declared_dependencies = crate::dependencies::extract_declared_from_active(&active_parsed);
     let manifest_used_dependencies = crate::package_scripts::extract_manifest_used_dependencies(
-        &active_manifests,
+        &active_parsed,
         &workspace_packages,
         &declared_dependencies,
     );
@@ -58,10 +49,33 @@ pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
     }
 }
 
-fn discover_workspace_packages_single_pass(
-    manifests: &[Manifest],
+fn parse_package_manifests<'a>(
+    manifests: &'a [Manifest],
     invalid_manifests: &mut Vec<WorkspaceError>,
-) -> (Vec<String>, bool) {
+) -> Vec<(&'a str, &'a str, Value)> {
+    let mut parsed = Vec::new();
+    for manifest in manifests {
+        let Some(root) = package_manifest_root(&manifest.path) else {
+            continue;
+        };
+        match serde_json::from_str::<Value>(&manifest.text) {
+            Ok(doc) => parsed.push((root, manifest.path.as_str(), doc)),
+            Err(error) => {
+                invalid_manifests.push(WorkspaceError {
+                    path: manifest.path.clone(),
+                    message: format!("is not valid JSON: {error}"),
+                });
+            }
+        }
+    }
+    parsed
+}
+
+fn discover_workspace_packages_single_pass<'a>(
+    manifests: &'a [Manifest],
+    active_parsed: &mut Vec<(&'a str, &'a str, Value)>,
+    invalid_manifests: &mut Vec<WorkspaceError>,
+) -> Vec<String> {
     if let Some(pnpm_manifest) = manifests
         .iter()
         .find(|manifest| manifest.path == PNPM_WORKSPACE_MANIFEST)
@@ -73,15 +87,22 @@ fn discover_workspace_packages_single_pass(
             })
             .and_then(|patterns| pnpm::pnpm_workspace_packages(manifests, &patterns))
         {
-            Ok(packages) => return (packages, false),
+            Ok(packages) => return packages,
             Err(error) => invalid_manifests.push(error),
         }
     }
-    match package_json_workspace_packages(manifests) {
-        Ok(packages) => (packages, false),
+    let Some((_, _, root_doc)) = active_parsed
+        .iter()
+        .find(|(_, path, _)| *path == PACKAGE_MANIFEST)
+    else {
+        return Vec::new();
+    };
+    match package_json_workspace_packages_from_doc(root_doc, manifests) {
+        Ok(packages) => packages,
         Err(error) => {
             invalid_manifests.push(error);
-            (Vec::new(), true)
+            active_parsed.retain(|(_, path, _)| *path != PACKAGE_MANIFEST);
+            Vec::new()
         }
     }
 }
@@ -138,8 +159,15 @@ fn package_json_workspace_packages(manifests: &[Manifest]) -> Result<Vec<String>
     };
     let root_manifest: Value = serde_json::from_str(&root.text)
         .map_err(|error| root_manifest_error(format!("is not valid JSON: {error}")))?;
+    package_json_workspace_packages_from_doc(&root_manifest, manifests)
+}
+
+fn package_json_workspace_packages_from_doc(
+    root_manifest: &Value,
+    manifests: &[Manifest],
+) -> Result<Vec<String>, WorkspaceError> {
     let (excluded, included): (Vec<FolderPattern>, Vec<FolderPattern>) =
-        workspace_patterns(&root_manifest)?
+        workspace_patterns(root_manifest)?
             .into_iter()
             .map(FolderPattern::parse)
             .partition(|pattern| pattern.excludes);

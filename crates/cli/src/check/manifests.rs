@@ -117,34 +117,39 @@ pub(super) fn find_plugin_workspaces(
     Ok(discovery)
 }
 
-fn find_valid_plugin_workspace(
+fn analyze_plugin_manifests(
     named: &NamedLanguagePlugin<'_>,
-    mut manifests: Vec<Manifest>,
-    skipped: &mut Vec<SkippedManifest>,
-) -> Result<PluginManifestFacts, CheckError> {
-    let analysis = match named.plugin.analyze_manifests(manifests.clone()) {
-        Ok(analysis) => analysis,
+    manifests: &[Manifest],
+) -> Result<codeint_model::ManifestAnalysis, CheckError> {
+    match named.plugin.analyze_manifests(manifests.to_vec()) {
+        Ok(analysis) => Ok(analysis),
         Err(LanguagePluginError::UnknownInvalidManifest { path, message }) => {
-            return Err(WorkspaceError::Manifest { path, message }.into());
+            Err(WorkspaceError::Manifest { path, message }.into())
         }
         Err(LanguagePluginError::InvalidWorkspacePackageRoot { path }) => {
-            return match RepoPath::new(path.clone()) {
+            match RepoPath::new(path.clone()) {
                 Err(err) => Err(WorkspaceError::InvalidPackageRoot(err).into()),
                 Ok(_) => Err(WorkspaceError::PluginFailed {
                     plugin: named.name.to_owned(),
                     message: format!("invalid workspace package root {path:?}"),
                 }
                 .into()),
-            };
-        }
-        Err(error) => {
-            return Err(WorkspaceError::PluginFailed {
-                plugin: named.name.to_owned(),
-                message: error.to_string(),
             }
-            .into());
         }
-    };
+        Err(error) => Err(WorkspaceError::PluginFailed {
+            plugin: named.name.to_owned(),
+            message: error.to_string(),
+        }
+        .into()),
+    }
+}
+
+fn find_valid_plugin_workspace(
+    named: &NamedLanguagePlugin<'_>,
+    mut manifests: Vec<Manifest>,
+    skipped: &mut Vec<SkippedManifest>,
+) -> Result<PluginManifestFacts, CheckError> {
+    let analysis = analyze_plugin_manifests(named, &manifests)?;
     for invalid in analysis.invalid_manifests {
         if let Some(position) = manifests.iter().position(|m| m.path == invalid.path) {
             manifests.remove(position);
@@ -168,14 +173,14 @@ fn find_valid_plugin_workspace(
     let dependency_manifests = analysis
         .dependency_manifests
         .into_iter()
-        .filter_map(|owner| {
-            let path = RepoPath::new(owner.path).ok()?;
-            Some(DependencyManifest {
+        .map(|owner| {
+            let path = RepoPath::new(owner.path)?;
+            Ok(DependencyManifest {
                 package_root: owner.package_root,
                 path,
             })
         })
-        .collect();
+        .collect::<Result<Vec<DependencyManifest>, WorkspaceError>>()?;
     let manifest_used_dependencies = analysis
         .manifest_used_dependencies
         .into_iter()

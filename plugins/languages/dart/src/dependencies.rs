@@ -1,16 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use codeint_model::language::{DeclaredDep, DepKind, Manifest};
+#[cfg(test)]
+use codeint_model::language::Manifest;
+use codeint_model::language::{DeclaredDep, DepKind};
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 
+#[cfg(test)]
 use crate::workspaces::PUBSPEC_MANIFEST;
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Deserialize)]
-struct PubspecManifest {
+pub(crate) struct PubspecManifest {
     name: Option<String>,
     dependencies: Option<BTreeMap<String, IgnoredAny>>,
     dev_dependencies: Option<BTreeMap<String, IgnoredAny>>,
@@ -22,34 +25,39 @@ pub(crate) fn normalize_pub_name(raw: &str) -> String {
 
 #[cfg(test)]
 pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
-    let refs: Vec<&Manifest> = manifests.iter().collect();
-    extract_declared_refs(&refs)
-}
-
-pub(crate) fn extract_declared_refs(manifests: &[&Manifest]) -> Vec<DeclaredDep> {
     let suffix = format!("/{PUBSPEC_MANIFEST}");
     let mut parsed = Vec::new();
-    let mut local_packages = HashSet::new();
     for manifest in manifests {
-        if !crate::workspaces::is_pubspec_path(&manifest.path, &suffix) {
+        if !crate::workspaces::is_pubspec_path(&manifest.path) {
             continue;
         }
-        let Ok(Some(doc)) = serde_saphyr::from_str::<Option<PubspecManifest>>(&manifest.text)
-        else {
+        let Ok(doc) = serde_saphyr::from_str::<Option<PubspecManifest>>(&manifest.text) else {
             continue;
         };
-        if let Some(local) = doc.name.as_deref().map(normalize_pub_name)
+        let root = manifest.path.strip_suffix(&suffix).unwrap_or("").to_owned();
+        parsed.push((root, manifest.path.clone(), doc));
+    }
+    extract_declared_from_parsed(&parsed)
+}
+
+pub(crate) fn extract_declared_from_parsed(
+    parsed: &[(String, String, Option<PubspecManifest>)],
+) -> Vec<DeclaredDep> {
+    let mut local_packages = HashSet::new();
+    for (_, _, doc_opt) in parsed {
+        if let Some(doc) = doc_opt
+            && let Some(local) = doc.name.as_deref().map(normalize_pub_name)
             && !local.is_empty()
         {
             local_packages.insert(local);
         }
-        let root = manifest.path.strip_suffix(&suffix).unwrap_or("").to_owned();
-        parsed.push((root, doc));
     }
 
     let mut entries = BTreeSet::new();
-    for (root, doc) in &parsed {
-        collect_pubspec_deps(root, doc, &local_packages, &mut entries);
+    for (root, _, doc_opt) in parsed {
+        if let Some(doc) = doc_opt {
+            collect_pubspec_deps(root, doc, &local_packages, &mut entries);
+        }
     }
 
     entries

@@ -1,21 +1,14 @@
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::iter::Peekable;
 use std::str::Chars;
 
-use codeint_model::language::{DeclaredDep, DepKind, Manifest, PackageDependency};
-use serde::Deserialize;
+use codeint_model::language::{DeclaredDep, DepKind, PackageDependency};
 use serde_json::Value;
 
 const MAX_RUNNER_DEPTH: u8 = 4;
-
-#[derive(Deserialize)]
-struct PackageScriptsManifest {
-    #[serde(default)]
-    scripts: BTreeMap<String, Value>,
-}
 
 const PACKAGE_BIN_ALIASES: &[(&str, &[&str])] = &[
     ("typescript", &["tsc", "tsserver"]),
@@ -95,11 +88,11 @@ const GENERIC_SCOPED_TAILS: &[&str] = &[
 const DIST_TAGS: &[&str] = &["latest", "next", "beta", "alpha", "canary", "rc"];
 
 pub(crate) fn extract_manifest_used_dependencies(
-    manifests: &[&Manifest],
+    parsed_manifests: &[(&str, &str, Value)],
     workspace_members: &[String],
     declared: &[DeclaredDep],
 ) -> Vec<PackageDependency> {
-    let tokens_by_root = collect_tokens_by_root(manifests, workspace_members);
+    let tokens_by_root = collect_tokens_by_root(parsed_manifests, workspace_members);
     if tokens_by_root.is_empty() {
         return Vec::new();
     }
@@ -120,19 +113,16 @@ pub(crate) fn extract_manifest_used_dependencies(
 }
 
 fn collect_tokens_by_root<'a>(
-    manifests: &[&'a Manifest],
+    parsed_manifests: &[(&'a str, &'a str, Value)],
     workspace_members: &[String],
 ) -> HashMap<&'a str, HashSet<String>> {
     let mut per_package: HashMap<&'a str, HashSet<String>> = HashMap::new();
-    for manifest in manifests {
-        let Some(root) = crate::workspaces::package_manifest_root(&manifest.path) else {
+    for (root, _, doc) in parsed_manifests {
+        let Some(scripts) = doc.get("scripts").and_then(Value::as_object) else {
             continue;
         };
-        let Ok(parsed) = serde_json::from_str::<PackageScriptsManifest>(&manifest.text) else {
-            continue;
-        };
-        let entry = per_package.entry(root).or_default();
-        for command in parsed.scripts.values().filter_map(Value::as_str) {
+        let entry = per_package.entry(*root).or_default();
+        for command in scripts.values().filter_map(Value::as_str) {
             extract_commands_from_script(command, entry, 0);
         }
     }

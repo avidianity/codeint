@@ -2,13 +2,20 @@ use codeint_model::language::{ImportRequest, Manifest, Resolution};
 
 use super::{ProjectResolver, package_name};
 
+fn resolve_in(resolver: &ProjectResolver, importer: &str, specifier: &str) -> Resolution {
+    resolver.resolve(
+        &ImportRequest {
+            importer: importer.to_owned(),
+            specifier: specifier.to_owned(),
+        },
+        &[],
+    )
+}
+
 fn resolve_specifier(specifier: &str) -> Resolution {
     let paths = vec!["src/main.ts".to_owned()];
-    let resolver = ProjectResolver::new(&paths, Vec::new(), &[]);
-    resolver.resolve(&ImportRequest {
-        importer: "src/main.ts".to_owned(),
-        specifier: specifier.to_owned(),
-    })
+    let resolver = ProjectResolver::new(&paths, Vec::new());
+    resolve_in(&resolver, "src/main.ts", specifier)
 }
 
 #[test]
@@ -182,13 +189,8 @@ fn tsconfig_app_alias_resolves_to_repo_file_before_virtual_module_fallback() {
         "tsconfig.json",
         r#"{"compilerOptions":{"paths":{"$app/*":["./src/app/*"]}}}"#,
     )];
-    let resolver = ProjectResolver::new(&paths, manifests, &[]);
-    let resolve = |specifier: &str| {
-        resolver.resolve(&ImportRequest {
-            importer: "src/main.ts".to_owned(),
-            specifier: specifier.to_owned(),
-        })
-    };
+    let resolver = ProjectResolver::new(&paths, manifests);
+    let resolve = |specifier: &str| resolve_in(&resolver, "src/main.ts", specifier);
 
     assert_eq!(
         resolve("$app/foo"),
@@ -228,13 +230,8 @@ fn workspace_members_resolve_third_party_root_dependencies_as_external() {
             r#"{"name":"@mono/retired","dependencies":{}}"#,
         ),
     ];
-    let resolver = ProjectResolver::new(&paths, manifests, &[]);
-    let resolve = |importer: &str, specifier: &str| {
-        resolver.resolve(&ImportRequest {
-            importer: importer.to_owned(),
-            specifier: specifier.to_owned(),
-        })
-    };
+    let resolver = ProjectResolver::new(&paths, manifests);
+    let resolve = |importer: &str, specifier: &str| resolve_in(&resolver, importer, specifier);
 
     let ext = |name: &str| Resolution::External(name.to_owned());
     let cases = [
@@ -252,4 +249,28 @@ fn workspace_members_resolve_third_party_root_dependencies_as_external() {
             "{importer} -> {specifier}"
         );
     }
+}
+
+#[test]
+fn single_pass_resolve_imports_isolates_heterogeneous_monorepo_profiles() {
+    use codeint_model::{PackageFrameworkProfiles, RepoPath};
+
+    let paths = [
+        RepoPath::new("packages/nuxt-app/app.ts").expect("valid"),
+        RepoPath::new("packages/plain/app.ts").expect("valid"),
+    ];
+    let requests: Vec<ImportRequest> = ["packages/nuxt-app/app.ts", "packages/plain/app.ts"]
+        .into_iter()
+        .map(|importer| ImportRequest {
+            importer: importer.into(),
+            specifier: "#imports".into(),
+        })
+        .collect();
+    let profiles = [PackageFrameworkProfiles {
+        package_root: "packages/nuxt-app".into(),
+        active_profiles: vec!["nuxt".into()],
+    }];
+    let resolved = crate::resolve_ts_imports(&paths, &[], &requests, &profiles);
+    assert_eq!(resolved[0], Resolution::Builtin);
+    assert!(matches!(resolved[1], Resolution::Unresolved(_)));
 }

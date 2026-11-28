@@ -55,9 +55,12 @@ fn invalid_root_cargo_toml_returns_workspace_error() {
 }
 
 #[test]
-fn analyze_manifests_filters_virtual_workspace_and_ignored_dirs_in_one_pass() {
-    let manifests = vec![
-        manifest("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+fn analyze_manifests_filters_virtual_workspace_and_preserves_vendor_members() {
+    let analysis = super::analyze_manifests(&[
+        manifest(
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"crates/*\", \"vendor/*\"]\n",
+        ),
         manifest(
             "crates/api/Cargo.toml",
             "[package]\nname = \"api\"\n[dependencies]\nserde = \"1\"\n",
@@ -70,17 +73,25 @@ fn analyze_manifests_filters_virtual_workspace_and_ignored_dirs_in_one_pass() {
             "vendor/lib/Cargo.toml",
             "[package]\nname = \"lib\"\n[dependencies]\nlog = \"0.4\"\n",
         ),
-    ];
-
-    let analysis = super::analyze_manifests(&manifests);
-    assert!(analysis.invalid_manifests.is_empty());
-    assert_eq!(analysis.workspace_packages, vec!["crates/api"]);
-    assert_eq!(analysis.dependency_manifests.len(), 1);
-    assert_eq!(analysis.dependency_manifests[0].package_root, "crates/api");
+        manifest("crates/broken/Cargo.toml", "[package\nname = "),
+    ]);
+    assert_eq!(analysis.invalid_manifests.len(), 1);
+    assert_eq!(
+        analysis.invalid_manifests[0].path,
+        "crates/broken/Cargo.toml"
+    );
+    assert_eq!(
+        analysis.workspace_packages,
+        ["crates/api", "crates/broken", "vendor/lib"]
+    );
+    assert_eq!(analysis.dependency_manifests.len(), 2);
     assert_eq!(
         analysis.dependency_manifests[0].path,
         "crates/api/Cargo.toml"
     );
-    assert_eq!(analysis.declared_dependencies.len(), 1);
-    assert_eq!(analysis.declared_dependencies[0].name, "serde");
+    assert_eq!(
+        analysis.dependency_manifests[1].path,
+        "vendor/lib/Cargo.toml"
+    );
+    assert_eq!(analysis.declared_dependencies.len(), 2);
 }

@@ -751,7 +751,20 @@ fn validate_manifest_analysis_rejects_unknown_dependency_manifest_and_accepts_kn
         }],
         ..empty_manifest_analysis()
     };
-    assert!(validate_manifest_analysis(&manifests, valid).is_ok());
+    assert!(validate_manifest_analysis(&manifests, valid.clone()).is_ok());
+
+    let overlapping = ManifestAnalysis {
+        invalid_manifests: vec![language::WorkspaceError {
+            path: "package.json".to_owned(),
+            message: "is not valid JSON".to_owned(),
+        }],
+        ..valid
+    };
+    assert!(matches!(
+        validate_manifest_analysis(&manifests, overlapping),
+        Err(LanguagePluginError::InvalidAndDependencyManifest { ref path })
+            if path == "package.json"
+    ));
 }
 
 #[test]

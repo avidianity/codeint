@@ -45,3 +45,34 @@ fn classifies_stdlib_and_normalizes_third_party_modules() {
         ]
     );
 }
+
+#[test]
+fn single_pass_resolve_imports_isolates_heterogeneous_monorepo_profiles() {
+    use codeint_model::{PackageFrameworkProfiles, RepoPath};
+
+    let paths: Vec<RepoPath> = [
+        "packages/web/manage.py",
+        "packages/web/blog/models.py",
+        "packages/web/blog/views.py",
+        "packages/cli/main.py",
+    ]
+    .into_iter()
+    .map(|raw| RepoPath::new(raw).expect("valid"))
+    .collect();
+    let reqs =
+        ["packages/web/blog/views.py", "packages/cli/main.py"].map(|importer| ImportRequest {
+            importer: importer.into(),
+            specifier: "blog.models".into(),
+        });
+    let profiles = [PackageFrameworkProfiles {
+        package_root: "packages/web".into(),
+        active_profiles: vec!["django".into()],
+    }];
+    assert_eq!(
+        super::resolve_with_profiles(&paths, &[], &reqs, &profiles),
+        vec![
+            Resolution::Resolved(vec!["packages/web/blog/models.py".into()]),
+            Resolution::External("blog".into()),
+        ]
+    );
+}

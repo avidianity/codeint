@@ -1,44 +1,85 @@
 use std::collections::BTreeSet;
 
-use codeint_model::language::{
-    DependencyManifestOwner, Manifest, ManifestAnalysis, WorkspaceError,
-};
-use codeint_model::scan::simple_manifest_analysis;
+use codeint_model::language::{Manifest, ManifestAnalysis, WorkspaceError};
+use codeint_model::scan::{analyze_parsed_manifests, manifest_root_excluding};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
-pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
-    simple_manifest_analysis(manifests, "pyproject.toml", discover, |valid| {
-        let active: Vec<&Manifest> = valid
-            .iter()
-            .copied()
-            .filter(|manifest| crate::dependencies::is_python_dependency_manifest(&manifest.path))
-            .collect();
-        let owners = active
-            .iter()
-            .map(|manifest| {
-                let (root, _) = manifest
-                    .path
-                    .rsplit_once('/')
-                    .unwrap_or(("", &manifest.path));
-                DependencyManifestOwner {
-                    package_root: root.to_owned(),
-                    path: manifest.path.clone(),
-                }
-            })
-            .collect();
-        let declared = crate::dependencies::extract_declared_refs(&active);
-        (owners, declared)
-    })
+const PYPROJECT_MANIFEST: &str = "pyproject.toml";
+
+enum PythonManifestDoc<'a> {
+    Pyproject(toml::Value),
+    Auxiliary(&'a Manifest),
 }
 
-pub(crate) fn discover(manifests: &[Manifest]) -> Result<Vec<String>, WorkspaceError> {
-    let Some(root) = manifests.iter().find(|m| m.path == "pyproject.toml") else {
-        return Ok(Vec::new());
-    };
-    let doc: toml::Value = toml::from_str(&root.text).map_err(|err| WorkspaceError {
-        path: root.path.clone(),
-        message: err.to_string(),
-    })?;
+pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
+    analyze_parsed_manifests(
+        manifests,
+        PYPROJECT_MANIFEST,
+        parse_python_manifest,
+        |all, parsed| {
+            let Some((_, _, PythonManifestDoc::Pyproject(doc))) = parsed
+                .iter()
+                .find(|(_, path, _)| path == PYPROJECT_MANIFEST)
+            else {
+                return Ok(Vec::new());
+            };
+            discover_from_doc(doc, all)
+        },
+        |_| true,
+        |parsed| {
+            let pyprojects: Vec<(String, String, &toml::Value)> = parsed
+                .iter()
+                .filter_map(|(root, path, doc)| match doc {
+                    PythonManifestDoc::Pyproject(val) => Some((root.clone(), path.clone(), val)),
+                    PythonManifestDoc::Auxiliary(_) => None,
+                })
+                .collect();
+            let auxiliary: Vec<&Manifest> = parsed
+                .iter()
+                .filter_map(|(_, _, doc)| match doc {
+                    PythonManifestDoc::Auxiliary(m) => Some(*m),
+                    PythonManifestDoc::Pyproject(_) => None,
+                })
+                .collect();
+            crate::dependencies::extract_declared_from_parsed(&pyprojects, &auxiliary)
+        },
+    )
+}
+
+fn parse_python_manifest(
+    manifest: &Manifest,
+) -> Option<Result<(String, PythonManifestDoc<'_>), WorkspaceError>> {
+    if let Some(root) = manifest_root_excluding(
+        &manifest.path,
+        PYPROJECT_MANIFEST,
+        &["vendor", "third_party", ".venv", "venv"],
+    ) {
+        return Some(
+            toml::from_str::<toml::Value>(&manifest.text)
+                .map(|doc| (root.to_owned(), PythonManifestDoc::Pyproject(doc)))
+                .map_err(|err| WorkspaceError {
+                    path: manifest.path.clone(),
+                    message: err.to_string(),
+                }),
+        );
+    }
+    if crate::dependencies::is_python_dependency_manifest(&manifest.path) {
+        let (root, _) = manifest
+            .path
+            .rsplit_once('/')
+            .unwrap_or(("", &manifest.path));
+        return Some(Ok((
+            root.to_owned(),
+            PythonManifestDoc::Auxiliary(manifest),
+        )));
+    }
+    None
+}
+
+fn discover_from_doc(
+    doc: &toml::Value,
+    manifests: &[Manifest],
+) -> Result<Vec<String>, WorkspaceError> {
     let Some(workspace) = doc
         .get("tool")
         .and_then(|v| v.get("uv"))
@@ -50,8 +91,11 @@ pub(crate) fn discover(manifests: &[Manifest]) -> Result<Vec<String>, WorkspaceE
     if members_list.is_empty() {
         return Ok(Vec::new());
     }
-    let members = compile_globs(&members_list, &root.path)?;
-    let excludes = compile_globs(&read_string_array(workspace.get("exclude")), &root.path)?;
+    let members = compile_globs(&members_list, PYPROJECT_MANIFEST)?;
+    let excludes = compile_globs(
+        &read_string_array(workspace.get("exclude")),
+        PYPROJECT_MANIFEST,
+    )?;
     let mut found = BTreeSet::new();
     for manifest in manifests {
         if let Some(dir) = manifest.path.strip_suffix("/pyproject.toml")

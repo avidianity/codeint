@@ -266,3 +266,32 @@ fn analyze_manifests_populates_scripts_inheritance_and_filters_non_dependency_ma
         .collect();
     assert_eq!(used_names, vec!["typescript", "vitest"]);
 }
+
+#[test]
+fn analyze_manifests_reports_malformed_member_and_root_manifests_even_with_valid_pnpm_workspace() {
+    let analysis = super::analyze_manifests(&[
+        manifest("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+        manifest("package.json", "{broken root"),
+        manifest(
+            "packages/good/package.json",
+            r#"{"name":"@mono/good","dependencies":{"zod":"^3.0.0"}}"#,
+        ),
+        manifest("packages/broken/package.json", "{broken member"),
+    ]);
+    assert_eq!(analysis.invalid_manifests.len(), 2);
+    assert_eq!(analysis.invalid_manifests[0].path, "package.json");
+    assert_eq!(
+        analysis.invalid_manifests[1].path,
+        "packages/broken/package.json"
+    );
+    assert_eq!(
+        analysis.workspace_packages,
+        ["packages/good", "packages/broken"]
+    );
+    assert_eq!(analysis.dependency_manifests.len(), 1);
+    assert_eq!(
+        analysis.dependency_manifests[0].path,
+        "packages/good/package.json"
+    );
+    assert_eq!(analysis.declared_dependencies[0].name, "zod");
+}

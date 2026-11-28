@@ -71,7 +71,7 @@ codeint_model::impl_builtin_language_plugin!(
     imports(
         find_python_manifests,
         workspaces::analyze_manifests,
-        by_profile(resolve_with_profiles),
+        resolve_with_profiles,
         discover_entry_points,
     ),
     frameworks(frameworks),
