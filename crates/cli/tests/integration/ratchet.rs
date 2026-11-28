@@ -485,7 +485,7 @@ fn ratchet_includes_external_metric_plugin_and_production_test_gap() {
     );
     assert_eq!(
         ratchet["source_sets"]["production"]["test_gap"]["metric_version"],
-        1
+        2
     );
 }
 

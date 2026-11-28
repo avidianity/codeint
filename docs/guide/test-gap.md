@@ -8,8 +8,9 @@ codeint never runs your tests and never guesses where a Coverage report lives ([
 
 For every Production function, codeint computes an **untested share**:
 
-- Count the function's lines that a Coverage report lists with a hit count of `0`.
-- Divide by all of the function's lines that a Coverage report lists.
+- Assign each listed line in a file to the innermost enclosing function span, excluding lines that fall inside a strictly nested child function or closure ([ADR 0039](../adr/0039-metric-v2-test-gap.md)).
+- Count the function's owned lines that a Coverage report lists with a hit count of `0`.
+- Divide by all of the function's owned lines that a Coverage report lists.
 - Lines that no Coverage report lists count on neither side.
 
 Test gap is the sum over Production functions of `Function mass * untested share`, divided by the total Function mass of those functions.
@@ -29,7 +30,11 @@ Test gap moves only when test execution moves ([ADR 0017](../adr/0017-test-gap-f
   In a multi-language repository, any language covered by no named report also shows Test gap as absent with a one-line reason, so a missing report never reads as "nothing is tested".
 - **Files outside every report**: A Production function whose file appears in no named report, in a language that at least one named report covers, counts as fully untested (`untested share = 1`).
   Code that your test runner never loaded cannot hide behind a zero Test gap.
-- **Functions with no listed lines**: A function whose file appears in a Coverage report, but of which the report lists no line (such as non-executable declarations), is left out of Test gap on both numerator and denominator.
+- **Nested functions and closures**: A line inside a strictly nested function or closure belongs only to that inner function, matching Function mass ownership across all languages (including Shell `<script>` top-level bodies wrapping named functions).
+  An untested inner function never penalizes an executed outer function.
+- **Functions sharing identical start and end lines**: When two functions occupy the exact same start and end lines (such as two inline functions on one line), neither strictly nests inside the other and both retain those lines.
+  Line-based Coverage reports carry no column information, so codeint cannot distinguish execution between two functions on the same line.
+- **Functions with no listed lines**: A function whose file appears in a Coverage report, but that owns no listed line (such as non-executable declarations or a wrapper whose only executable lines lie inside nested functions), is left out of Test gap on both numerator and denominator.
 - **Multiple reports add up**: When you name several Coverage reports, a line counts as executed when any named report executed it.
   You can combine unit and end-to-end reports, or mix LCOV and Cobertura XML in the same run.
 - **Line hits only**: Branch records, function records, method records, and summary rates in Coverage reports are ignored.
