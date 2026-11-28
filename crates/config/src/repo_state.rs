@@ -44,11 +44,12 @@ impl<E> SourceSetEntries<E> {
     }
 
     pub fn get_mut(&mut self, source_set: SourceSet) -> &mut BTreeMap<String, E> {
+        use SourceSet::{Generated, Production, Test, Vendored};
         match source_set {
-            SourceSet::Production => &mut self.production,
-            SourceSet::Test => &mut self.test,
-            SourceSet::Generated => &mut self.generated,
-            SourceSet::Vendored => &mut self.vendored,
+            Production => &mut self.production,
+            Test => &mut self.test,
+            Generated => &mut self.generated,
+            Vendored => &mut self.vendored,
         }
     }
 

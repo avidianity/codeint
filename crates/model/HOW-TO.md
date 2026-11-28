@@ -301,7 +301,7 @@ model.source_set = settle_source_set(&path, text, model.source_set);
   Line length counts characters, not bytes, and a CRLF line ending counts like LF.
 - The file name never counts: `src/vendor.ts` and `src/dist.ts` keep the Source set that the Language plugin names.
 - Every other file keeps the Source set that the Language plugin names.
-- Source set overrides from `codeint.jsonc` or `codeint.json` apply to the result of `settle_source_set`, at its one call site, and win over every rule; [the configuration HOW-TO](../config/HOW-TO.md#apply-source-set-overrides) shows the call.
+- Source set overrides from the repository configuration file apply to the result of `settle_source_set`, at its one call site, and win over every rule; [the configuration HOW-TO](../config/HOW-TO.md#apply-source-set-overrides) shows the call.
 - Built-in Language plugins share `has_generated_header_marker`, `has_generated_header_marker_with_extra`, `has_any_ascii_marker`, `contains_ascii_ignore_case`, `has_folder_named`, and `path_file_name` from `codeint_model` to classify generated header comments and directory segments without duplicating marker or path checks.
 
 ## Split the Code model by Source set

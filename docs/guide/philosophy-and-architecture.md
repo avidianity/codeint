@@ -58,7 +58,7 @@ For each built-in language, codeint measures a stratified panel of up to 100 cur
 ### 5. Version-free language parsing
 
 codeint is a structural entropy tool, not a compiler.
-Every built-in Language plugin parses the modern superset of its language family and uses version-agnostic Flagged-line rules, so older and newer codebases work without version pins in `codeint.jsonc` or `codeint.json`.
+Every built-in Language plugin parses the modern superset of its language family and uses version-agnostic Flagged-line rules, so older and newer codebases work without version pins in the configuration file.
 
 ## How codeint is implemented
 

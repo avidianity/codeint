@@ -23,7 +23,7 @@ With no Dialect configuration, codeint reads every `.sql` file as generic SQL an
 
 ## Source sets
 
-After checking any `source_sets` globs in `codeint.jsonc` or `codeint.json` (which always win, in the order `vendored`, `generated`, `test`, `production`) and core Vendored and Generated rules, the `sql` plugin classifies each `.sql` file as follows:
+After checking any `source_sets` globs in the configuration file (which always win, in the order `vendored`, `generated`, `test`, `production`) and core Vendored and Generated rules, the `sql` plugin classifies each `.sql` file as follows:
 
 - **Generated**:
   - A database dump header in the first 20 lines: `-- PostgreSQL database dump`, `-- Dumped by pg_dump`, `-- MySQL dump` (followed by a space), `-- MariaDB database dump`, or `-- MariaDB dump` (followed by a space).
@@ -49,12 +49,12 @@ SQL has no runtime imports, package manifests, or entry points.
 Because the `sql` Language plugin reports no imports, Import cycles, Orphan files, Import boundaries, and Dependency hygiene are absent for SQL (never `0`), and reports include a one-line `import_metrics_note` explaining why.
 
 In a monorepo with Workspace packages defined by other languages, each `.sql` file belongs to the Workspace package of its enclosing folder and counts in that package's SQL and repository totals.
-Use the `languages` setting in `codeint.jsonc` or `codeint.json` to restrict `sql` to specific folders when needed.
+Use the `languages` setting in the configuration file to restrict `sql` to specific folders when needed.
 
 ## Dialects
 
 Without configuration, every `.sql` file uses generic SQL.
-Map repository-relative folders or file globs to a **Dialect** under `dialects.sql` in `codeint.jsonc` or `codeint.json`:
+Map repository-relative folders or file globs to a **Dialect** under `dialects.sql` in the configuration file:
 
 | Dialect | Covers |
 | ------- | ------ |

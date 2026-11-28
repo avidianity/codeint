@@ -13,7 +13,7 @@ for path in tree.files() {
 ```
 
 - `Repository::discover` finds the repository that contains the folder, at any depth, and fails on a bare repository.
-- `root` is the root of the working tree; read `codeint.json` there.
+- `root` is the root of the working tree; read the repository configuration file there.
 - A `Snapshot` lists the files to measure, sorted by path, and the Git submodules, which codeint never measures.
 - The working tree lists tracked files and untracked files that Git does not ignore.
   It leaves out symbolic links, so codeint never follows one.

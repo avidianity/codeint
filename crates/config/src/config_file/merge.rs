@@ -94,7 +94,7 @@ pub(super) fn parse_value_with_overrides(
     overrides: &ConfigOverrides,
 ) -> Result<ResolvedConfiguration, ConfigurationFileError> {
     let file = parse_configuration_file(config_file_kind, raw.as_ref())?;
-    let mut effective = file.without_schema_address();
+    let mut effective = file.normalized_for_cache();
     let configured_format = file.format();
     let sections = file.into_sections();
     let mut settings = Vec::new();
@@ -351,8 +351,7 @@ fn merge_source_sets(
         })?;
     }
     let cli_by_set = group_source_set_overrides(overrides);
-    for source_set in SourceSet::ALL {
-        let slot = globs.slot_mut(source_set);
+    for (source_set, slot) in globs.slots_mut() {
         let source = if let Some(cli_globs) = cli_by_set.get(&source_set) {
             *slot = cli_globs.clone();
             ConfigProvenance::Cli

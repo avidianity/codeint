@@ -88,7 +88,7 @@ fn mcp_check_remedy(error: &CheckError) -> Option<Cow<'static, str>> {
             "Pass one of the discovered Workspace package paths in package, or omit package to measure the whole repository.",
         )),
         CheckError::TestGapBudgetWithoutCoverage { .. } => Some(Cow::Borrowed(
-            "Name at least one LCOV or Cobertura XML Coverage report in coverage_reports in codeint.json or pass coverage_reports, or remove budgets.production.test_gap.",
+            "Name at least one LCOV or Cobertura XML Coverage report in coverage_reports in the configuration file or pass coverage_reports, or remove budgets.production.test_gap.",
         )),
         CheckError::Git(error) => mcp_git_remedy(error),
         _ => None,
@@ -941,7 +941,7 @@ fn starter_configuration_remedy(error: &StarterConfigurationError) -> Cow<'stati
                 .into_iter()
                 .map(ConfigFileKind::file_name)
                 .find(|name| path.ends_with(name))
-                .unwrap_or("codeint.json");
+                .unwrap_or("configuration file");
             Cow::Owned(format!(
                 "Edit the existing {label}, or delete it and run codeint init again."
             ))

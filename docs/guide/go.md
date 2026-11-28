@@ -39,7 +39,7 @@ Files that cannot be scanned, such as a file with an unclosed string literal, ar
 
 ## Source sets
 
-After checking any `source_sets` globs in `codeint.jsonc` or `codeint.json` (which always override built-in rules), the `go` plugin classifies each `.go` file as follows:
+After checking any `source_sets` globs in the configuration file (which always override built-in rules), the `go` plugin classifies each `.go` file as follows:
 
 - **Vendored**: any file under a `vendor/` folder.
 - **Generated**: any file with a line comment before the first non-comment code matching Go's documented header `// Code generated ... DO NOT EDIT.`.
@@ -88,7 +88,7 @@ Orphan files works on Go repositories with no configuration:
 - **Public Go packages**: every non-test Production `.go` file in a folder with no `internal` segment in its path (counted from its module root) is an entry point, so public library packages are not reported as Orphan files.
 - **Unused internal packages**: Go packages under `internal/` that nothing reaches from an entry point are reported as `unreferenced`, or as `test-only` when only `_test.go` files import them.
 - **Multi-file reachability**: importing a Go package makes every non-test `.go` file in that folder reachable, even when no file mentions a sibling filename directly.
-- **Custom entry points**: `entry_points` globs in `codeint.jsonc` or `codeint.json` add entry points alongside `package main` and public packages.
+- **Custom entry points**: `entry_points` globs in the configuration file add entry points alongside `package main` and public packages.
 
 Run `codeint trace <from> <to>` to inspect why a Go file is reachable.
 `codeint trace` reports `program-start mark` for `package main` files and lists every file reached by each multi-file Go package import.
@@ -109,7 +109,7 @@ In a multi-module repository, each Go module is checked independently against it
 - **`replace`**: a `replace` line whose target is a folder inside the repository resolves imports of that module to that folder's Go files instead of treating it as external.
   A `replace` line pointing to another module version or outside the repository changes nothing.
 - **Unlisted imports and ignores**: an external import not covered by any `require` or `tool` entry in the owning `go.mod` is reported under `unlisted_dependencies`.
-  List Go module paths in `dependencies.ignore` in `codeint.jsonc` or `codeint.json` to silence specific modules.
+  List Go module paths in `dependencies.ignore` in the configuration file to silence specific modules.
 
 ## What codeint does not read
 

@@ -27,7 +27,7 @@ The flavor decides which strict-mode flags `missing-strict-mode` expects, and wh
 
 ## Source sets
 
-After checking any `source_sets` globs in `codeint.jsonc` or `codeint.json` (which always override built-in rules), the `shell` plugin classifies each file as follows:
+After checking any `source_sets` globs in the configuration file (which always override built-in rules), the `shell` plugin classifies each file as follows:
 
 - **Vendored**: any file under a `vendor/` or `third_party/` folder.
 - **Generated**: Autotools helper scripts such as `ltmain.sh` and `configure.sh`, and any file whose header comment contains a generated-file marker such as `Code generated ... DO NOT EDIT.`, `do not modify by hand`, or `this file is generated`.
