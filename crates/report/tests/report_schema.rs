@@ -26,7 +26,7 @@ fn published_report_schema_path() -> PathBuf {
     repo_root().join(ReportSchemaKind::Check.relative_path())
 }
 
-fn validate_against_schema(value: &Value, schema: &Value, _root: &Value, _path: &str) {
+fn validate_against_schema(value: &Value, schema: &Value) {
     if let Err(message) = validate_json_against_schema(value, schema) {
         panic!("{message}");
     }
@@ -149,7 +149,7 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
     let with_gap_json: Value =
         serde_json::from_str(&with_gap.render(ReportFormat::Json).expect("json"))
             .expect("valid JSON");
-    validate_against_schema(&with_gap_json, &schema, &schema, "$");
+    validate_against_schema(&with_gap_json, &schema);
     assert_eq!(
         with_gap_json["source_sets"]["production"]["test_gap"]["ratio"],
         0.75
@@ -184,7 +184,7 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
     let without_gap_json: Value =
         serde_json::from_str(&without_gap.render(ReportFormat::Json).expect("json"))
             .expect("valid JSON");
-    validate_against_schema(&without_gap_json, &schema, &schema, "$");
+    validate_against_schema(&without_gap_json, &schema);
     assert!(
         without_gap_json["source_sets"]["production"]
             .get("test_gap")
@@ -268,7 +268,7 @@ fn report_schema_validates_external_package_boundary_findings() {
     .expect("report with external boundary finding");
     let report_json: Value =
         serde_json::from_str(&report.render(ReportFormat::Json).expect("json")).expect("json");
-    validate_against_schema(&report_json, &schema, &schema, "$");
+    validate_against_schema(&report_json, &schema);
     let finding = &report_json["source_sets"]["production"]["boundaries"]["findings"][0];
     assert_eq!(finding["kind"], "external_package");
     assert_eq!(finding["external_package"], "prisma");
@@ -342,7 +342,7 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
 
     let json_text = report.render(ReportFormat::Json).expect("json");
     let report_json: Value = serde_json::from_str(&json_text).expect("valid JSON");
-    validate_against_schema(&report_json, &schema, &schema, "$");
+    validate_against_schema(&report_json, &schema);
 
     let prod = &report_json["source_sets"]["production"];
     for metric in [
@@ -404,7 +404,7 @@ fn published_report_schemas_match_generated_output_for_all_commands() {
 fn parse_and_validate(kind: ReportSchemaKind, rendered: String) -> Value {
     let schema: Value = serde_json::from_str(&schema_for(kind)).expect("schema");
     let value: Value = serde_json::from_str(&rendered).expect("rendered json");
-    validate_against_schema(&value, &schema, &schema, "$");
+    validate_against_schema(&value, &schema);
     value
 }
 

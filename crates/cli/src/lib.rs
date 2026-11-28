@@ -249,6 +249,7 @@ impl fmt::Display for CodeintError {
 impl Error for CodeintError {}
 
 pub fn check(folder: &Path, options: &CheckOptions) -> Result<CheckOutcome, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
     let report = check::check(folder, options.scope(), &options.plugin_host)
         .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
     let failures = report.failure_messages();
@@ -260,6 +261,7 @@ pub fn diff(
     base_ref: &str,
     options: &DiffOptions,
 ) -> Result<DiffOutcome, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
     let report = measure_diff(folder, base_ref, options)
         .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
     let failures = report.failure_messages();
@@ -289,12 +291,14 @@ fn measure_diff(
 
 pub fn trend(folder: &Path, options: &TrendOptions) -> Result<TrendReport, CodeintError> {
     validate_trend_range(options.range)?;
+    validate_plugin_host(&options.plugin_host)?;
     let cache = options.result_cache.clone().map(ResultCache::in_folder);
     trend::trend(folder, options.range, cache.as_ref(), &options.plugin_host)
         .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
 }
 
 pub fn impact(folder: &Path, options: &ImpactOptions) -> Result<ImpactReport, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
     let request = impact::ImpactRequest {
         paths: &options.paths,
         changed: options.changed.as_deref(),
@@ -312,6 +316,7 @@ pub fn trace(
     to: &str,
     options: &TraceOptions,
 ) -> Result<TraceReport, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
     trace::trace(
         folder,
         from,
@@ -325,6 +330,7 @@ pub fn trace(
 }
 
 pub fn init(folder: &Path, options: &InitOptions) -> Result<InitOutcome, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
     if options.adopt {
         let adopted = init::adopt(folder, options.format, &options.plugin_host)
             .map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))?;
@@ -394,6 +400,7 @@ pub fn doctor(
     folder: &Path,
     plugin_host: &PluginHostConfig,
 ) -> Result<DoctorOutcome, CodeintError> {
+    validate_plugin_host(plugin_host)?;
     require_existing_folder(folder)?;
     let report = doctor::doctor(folder, plugin_host);
     let failures = report.blocking_error_messages();
@@ -419,6 +426,7 @@ pub fn agent_install(
 
 pub fn churn(folder: &Path, options: &ChurnOptions) -> Result<ChurnReport, CodeintError> {
     validate_churn_window(options.window)?;
+    validate_plugin_host(&options.plugin_host)?;
     churn::churn(
         folder,
         options.window,
@@ -430,6 +438,7 @@ pub fn churn(folder: &Path, options: &ChurnOptions) -> Result<ChurnReport, Codei
 
 pub fn coupling(folder: &Path, options: &CouplingOptions) -> Result<CouplingReport, CodeintError> {
     validate_coupling_settings(options.settings)?;
+    validate_plugin_host(&options.plugin_host)?;
     coupling::coupling(
         folder,
         options.settings,
@@ -480,29 +489,63 @@ fn validate_coupling_settings(settings: CouplingSettings) -> Result<(), CodeintE
     Ok(())
 }
 
-fn validate_config_overrides(overrides: &ConfigOverrides) -> Result<(), CodeintError> {
-    if let Some(memory_mb) = overrides.plugin_memory_mb
+fn validate_plugin_limits_values(
+    memory_mb: Option<u64>,
+    timeout_ms: Option<u64>,
+) -> Result<(), CodeintError> {
+    if let Some(memory_mb) = memory_mb
         && !(MIN_PLUGIN_MEMORY_MB..=MAX_PLUGIN_MEMORY_MB).contains(&memory_mb)
     {
         return Err(CodeintError::invalid_option(
             format!(
-                "plugin_memory_mb {memory_mb} is out of range ({MIN_PLUGIN_MEMORY_MB}..={MAX_PLUGIN_MEMORY_MB})"
+                "plugin memory limit {memory_mb} MiB is out of range ({MIN_PLUGIN_MEMORY_MB}..={MAX_PLUGIN_MEMORY_MB})"
             ),
             format!(
-                "Set ConfigOverrides::plugin_memory_mb to a value from {MIN_PLUGIN_MEMORY_MB} to {MAX_PLUGIN_MEMORY_MB} MiB."
+                "Set plugin memory limit to a value from {MIN_PLUGIN_MEMORY_MB} to {MAX_PLUGIN_MEMORY_MB} MiB."
             ),
         ));
     }
-    if let Some(timeout_ms) = overrides.plugin_timeout_ms
+    if let Some(timeout_ms) = timeout_ms
         && !(MIN_PLUGIN_TIMEOUT_MS..=MAX_PLUGIN_TIMEOUT_MS).contains(&timeout_ms)
     {
         return Err(CodeintError::invalid_option(
             format!(
-                "plugin_timeout_ms {timeout_ms} is out of range ({MIN_PLUGIN_TIMEOUT_MS}..={MAX_PLUGIN_TIMEOUT_MS})"
+                "plugin timeout {timeout_ms} ms is out of range ({MIN_PLUGIN_TIMEOUT_MS}..={MAX_PLUGIN_TIMEOUT_MS})"
             ),
             format!(
-                "Set ConfigOverrides::plugin_timeout_ms to a value from {MIN_PLUGIN_TIMEOUT_MS} to {MAX_PLUGIN_TIMEOUT_MS} milliseconds."
+                "Set plugin timeout to a value from {MIN_PLUGIN_TIMEOUT_MS} to {MAX_PLUGIN_TIMEOUT_MS} milliseconds."
             ),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_plugin_host(host: &PluginHostConfig) -> Result<(), CodeintError> {
+    if host.max_download_bytes == 0 {
+        return Err(CodeintError::invalid_option(
+            "plugin host max_download_bytes must be at least 1",
+            "Set PluginHostConfig::max_download_bytes to a positive byte limit (at least 1).",
+        ));
+    }
+    if host.download_timeout_seconds == 0 {
+        return Err(CodeintError::invalid_option(
+            "plugin host download_timeout_seconds must be at least 1",
+            "Set PluginHostConfig::download_timeout_seconds to a positive duration in seconds (at least 1).",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_config_overrides(overrides: &ConfigOverrides) -> Result<(), CodeintError> {
+    validate_plugin_limits_values(overrides.plugin_memory_mb, overrides.plugin_timeout_ms)?;
+    if overrides
+        .source_sets
+        .iter()
+        .any(|entry| entry.glob.trim().is_empty())
+    {
+        return Err(CodeintError::invalid_option(
+            "source_set override glob must not be empty",
+            "Set SourceSetOverride::glob to a non-empty glob pattern.",
         ));
     }
     Ok(())
@@ -512,6 +555,7 @@ pub fn ratchet_update(
     folder: &Path,
     options: &RatchetUpdateOptions,
 ) -> Result<RatchetUpdateReport, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
     let (context, measured) =
         check::load_and_measure_whole_repo(folder, &options.coverage_reports, &options.plugin_host)
             .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
@@ -523,6 +567,7 @@ pub fn baseline_update(
     folder: &Path,
     options: &BaselineUpdateOptions,
 ) -> Result<BaselineUpdateSummary, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
     let (context, measured) =
         check::load_and_measure_whole_repo(folder, &options.coverage_reports, &options.plugin_host)
             .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
@@ -546,6 +591,10 @@ pub fn plugin_test(
     path: &Path,
     options: &PluginTestOptions,
 ) -> Result<PluginTestOutcome, CodeintError> {
+    validate_plugin_limits_values(
+        Some(options.limits.memory_mb),
+        Some(options.limits.timeout_ms),
+    )?;
     let report = plugin_test::plugin_test(path, options.kind, &options.sources, options.limits)
         .map_err(|err| CodeintError::from_cli_error(CliError::PluginTest(err)))?;
     let failures = report.failure_messages();

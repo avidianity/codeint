@@ -6,12 +6,14 @@ use codeint_cli::{
     AgentClient, AgentFormat, BaselineFormat, BaselineUpdateOptions, CheckOptions, ChurnFormat,
     ChurnOptions, ChurnWindow, ConfigFormat, ConfigOverrides, CouplingOptions, CouplingSettings,
     DiffOptions, DoctorFormat, GuardFormat, ImpactFormat, ImpactOptions, InitFormat, InitOptions,
-    PluginHostConfig, PluginKind, PluginTestFormat, PluginTestOptions, RatchetFormat,
+    PluginHostConfig, PluginKind, PluginLimits, PluginTestFormat, PluginTestOptions, RatchetFormat,
     RatchetUpdateOptions, ReportFormat, ReportRenderFormat, RerenderReportOptions, SchemaFormat,
-    TraceFormat, TraceOptions, TrendFormat, TrendOptions, TrendRange, agent_install, agent_status,
-    baseline_update, check, churn, coupling, diff, doctor, guard, impact, init, plugin_test,
-    ratchet_update, render_baseline_update, rerender_report, resolved_config, schema, trace, trend,
+    SourceSetOverride, TraceFormat, TraceOptions, TrendFormat, TrendOptions, TrendRange,
+    agent_install, agent_status, baseline_update, check, churn, coupling, diff, doctor, guard,
+    impact, init, plugin_test, ratchet_update, render_baseline_update, rerender_report,
+    resolved_config, schema, trace, trend,
 };
+use codeint_model::SourceSet;
 use tempfile::TempDir;
 
 pub(crate) fn git(dir: &Path, args: &[&str]) {
@@ -390,5 +392,91 @@ fn rust_sdk_reports_doctor_gated_failures_and_validates_option_bounds() {
         },
     ] {
         assert!(resolved_config(dir.path(), &invalid_overrides).is_err());
+    }
+}
+
+#[test]
+fn rust_sdk_validates_plugin_limits_source_set_globs_and_plugin_host() {
+    let dir = setup_repo();
+    let plugin_path = crate::wasm_fixtures::wasm_fixture_path("sample_mini_plugin.wasm");
+
+    for invalid_limits in [
+        PluginLimits {
+            memory_mb: 0,
+            ..PluginLimits::default()
+        },
+        PluginLimits {
+            memory_mb: 4097,
+            ..PluginLimits::default()
+        },
+        PluginLimits {
+            timeout_ms: 0,
+            ..PluginLimits::default()
+        },
+        PluginLimits {
+            timeout_ms: 300_001,
+            ..PluginLimits::default()
+        },
+    ] {
+        let err = plugin_test(
+            &plugin_path,
+            &PluginTestOptions {
+                limits: invalid_limits,
+                ..PluginTestOptions::new(PluginKind::Language)
+            },
+        )
+        .err()
+        .expect("rejects out-of-range plugin limits");
+        assert!(!err.message().is_empty());
+        assert!(!err.remedy().is_empty());
+    }
+
+    for empty_glob in ["", "   "] {
+        let err = resolved_config(
+            dir.path(),
+            &ConfigOverrides {
+                source_sets: vec![SourceSetOverride {
+                    source_set: SourceSet::Test,
+                    glob: empty_glob.to_owned(),
+                }],
+                ..ConfigOverrides::default()
+            },
+        )
+        .expect_err("rejects empty source_set glob");
+        assert!(!err.message().is_empty());
+        assert!(!err.remedy().is_empty());
+    }
+
+    for invalid_host in [
+        PluginHostConfig {
+            max_download_bytes: 0,
+            ..PluginHostConfig::default()
+        },
+        PluginHostConfig {
+            download_timeout_seconds: 0,
+            ..PluginHostConfig::default()
+        },
+    ] {
+        assert!(
+            check(
+                dir.path(),
+                &CheckOptions {
+                    plugin_host: invalid_host.clone(),
+                    ..CheckOptions::default()
+                },
+            )
+            .is_err()
+        );
+        assert!(doctor(dir.path(), &invalid_host).is_err());
+        assert!(
+            init(
+                dir.path(),
+                &InitOptions {
+                    plugin_host: invalid_host,
+                    ..InitOptions::default()
+                },
+            )
+            .is_err()
+        );
     }
 }
