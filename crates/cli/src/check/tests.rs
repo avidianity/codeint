@@ -1939,7 +1939,7 @@ fn lowering_cache_isolates_sql_dialects_for_identical_blob() {
         fs::write(
             folder.path().join("codeint.json"),
             format!(
-                r#"{{ "sql": {{ "dialects": [{{ "dialect": "{dialect}", "include": ["db/**"] }}] }} }}"#
+                r#"{{ "dialects": {{ "sql": [{{ "dialect": "{dialect}", "include": ["db/**"] }}] }} }}"#
             ),
         )
         .expect("write sql config");
@@ -1950,9 +1950,9 @@ fn lowering_cache_isolates_sql_dialects_for_identical_blob() {
     let pg = measure_dialect("postgresql");
     let mysql = measure_dialect("mysql");
 
-    assert_ne!(pg.sql_schemas, mysql.sql_schemas);
-    assert_eq!(pg.sql_schemas[0].dialect, "postgresql");
-    assert_eq!(mysql.sql_schemas[0].dialect, "mysql");
+    assert_ne!(pg.scope_summaries, mysql.scope_summaries);
+    assert_eq!(pg.scope_summaries[0].dialect.as_deref(), Some("postgresql"));
+    assert_eq!(mysql.scope_summaries[0].dialect.as_deref(), Some("mysql"));
 }
 
 #[test]

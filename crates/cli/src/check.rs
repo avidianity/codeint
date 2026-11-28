@@ -11,13 +11,13 @@ use codeint_model::{
     CodeModel, LanguagePlugin, Manifest, MetricPlugin, RepoPath, SourceFile, SourceSet, Workspace,
 };
 use codeint_plugin_host::{
-    NamedLanguagePlugin, SQL_PLUGIN_NAME, WasmLanguagePlugin, WasmMetricPlugin,
-    built_in_language_descriptors, built_in_language_names, built_in_language_plugins,
-    load_language_plugins_with_limits, load_metric_plugins_with_limits,
+    NamedLanguagePlugin, WasmLanguagePlugin, WasmMetricPlugin, built_in_language_descriptors,
+    built_in_language_names, built_in_language_plugins, load_language_plugins_with_limits,
+    load_metric_plugins_with_limits,
 };
 use codeint_report::{
-    LanguageSchema, MeasuredLanguage, OwnershipOptions, RejectedStatementEntry, Report,
-    ReportExtras, ReportOptions, SqlSchemaSummary,
+    FileDiagnosticEntry, LanguageSchema, MeasuredLanguage, OwnershipOptions, Report, ReportExtras,
+    ReportOptions, ScopeSummaryEntry,
 };
 
 mod control_characters;
@@ -27,7 +27,7 @@ mod frameworks;
 mod lowering;
 mod manifests;
 mod package_filter;
-mod sql;
+mod scope;
 #[cfg(test)]
 mod tests;
 
@@ -89,7 +89,8 @@ impl LoadedPlugins {
             external_metrics,
         };
         let named = loaded.as_named();
-        sql::validate_disabled_hazard_rules(&named, configuration)?;
+        scope::validate_configured_dialects(&named, configuration)?;
+        scope::validate_disabled_hazard_rules(&named, configuration)?;
         frameworks::validate_configured_framework_profiles(&named, configuration)?;
         Ok(loaded)
     }
@@ -263,7 +264,8 @@ fn check_with(
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
     configuration.validate_metrics(&[])?;
-    sql::validate_disabled_hazard_rules(plugins, &configuration)?;
+    scope::validate_configured_dialects(plugins, &configuration)?;
+    scope::validate_disabled_hazard_rules(plugins, &configuration)?;
     frameworks::validate_configured_framework_profiles(plugins, &configuration)?;
     check_loaded(
         &repository,
@@ -297,8 +299,8 @@ pub(crate) struct MeasuredSnapshot {
     pub(crate) framework_profiles_by_language:
         BTreeMap<String, frameworks::ResolvedLanguageProfiles>,
     pub(crate) file_line_counts: BTreeMap<RepoPath, usize>,
-    pub(crate) rejected_statements: Vec<RejectedStatementEntry>,
-    pub(crate) sql_schemas: Vec<SqlSchemaSummary>,
+    pub(crate) file_diagnostics: Vec<FileDiagnosticEntry>,
+    pub(crate) scope_summaries: Vec<ScopeSummaryEntry>,
     pub(crate) manifest_warnings: Vec<String>,
 }
 
@@ -520,8 +522,8 @@ fn measure_check_report(
         },
         ReportExtras::default()
             .with_disabled_hazard_rules(configuration.hazards.disabled_rules_set())
-            .with_rejected_statements(snapshot.rejected_statements)
-            .with_sql_schemas(snapshot.sql_schemas)
+            .with_file_diagnostics(snapshot.file_diagnostics)
+            .with_scope_summaries(snapshot.scope_summaries)
             .with_manifest_warnings(snapshot.manifest_warnings),
     )
     .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))
@@ -537,9 +539,9 @@ fn apply_selected_package(
         return Ok(());
     };
     filter_languages_to_package(&mut snapshot.languages, selected_pkg);
-    sql::filter_sql_extras_to_package(
-        &mut snapshot.rejected_statements,
-        &mut snapshot.sql_schemas,
+    scope::filter_extras_to_package(
+        &mut snapshot.file_diagnostics,
+        &mut snapshot.scope_summaries,
         workspace,
         selected_pkg,
     );
@@ -635,10 +637,10 @@ fn measure(
     let config_file = configuration.config_file();
     let covered_files =
         lowering::assign_files_to_plugins(tree, &named_plugins, coverage, config_file)?;
-    let sql_dialects = sql::resolve_sql_dialects(
+    let file_dialects = scope::resolve_file_dialects(
         &named_plugins,
         &covered_files,
-        &configuration.sql,
+        &configuration.dialects,
         config_file,
     )?;
     let discovery = manifests::find_plugin_workspaces(
@@ -656,7 +658,7 @@ fn measure(
         tree,
         plugins,
         &covered_files,
-        &sql_dialects,
+        &file_dialects,
         config_file,
         lowering_cache,
     )?;
@@ -672,14 +674,13 @@ fn measure(
     for (model, profiles) in collected.models.iter_mut().zip(&profiles_by_plugin) {
         frameworks::apply_source_set_priority(model, profiles, &configuration.source_set_overrides);
     }
-    let sql_schemas = named_plugins
-        .iter()
-        .position(|named| named.name == SQL_PLUGIN_NAME)
-        .filter(|&index| !collected.models[index].files.is_empty())
-        .map(|index| {
-            sql::apply_sql_schema_pass(&mut collected.models[index], &collected.sql_parsed)
-        })
-        .unwrap_or_default();
+    let scope_summaries = scope::apply_scope_analysis(
+        &named_plugins,
+        &mut collected.models,
+        &collected.file_dialects,
+        &collected.file_line_counts,
+        config_file,
+    )?;
     let mut snapshot = resolve_measured_snapshot(SnapshotInputs {
         tree,
         plugins: &named_plugins,
@@ -690,8 +691,8 @@ fn measure(
         config_file,
     })?;
     snapshot.file_line_counts = collected.file_line_counts;
-    snapshot.rejected_statements = collected.rejected_statements;
-    snapshot.sql_schemas = sql_schemas;
+    snapshot.file_diagnostics = collected.file_diagnostics;
+    snapshot.scope_summaries = scope_summaries;
     snapshot.manifest_warnings = manifest_warnings;
     Ok(snapshot)
 }
@@ -765,8 +766,8 @@ fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnaps
         explicit_entry_points_by_language,
         framework_profiles_by_language,
         file_line_counts: BTreeMap::new(),
-        rejected_statements: Vec::new(),
-        sql_schemas: Vec::new(),
+        file_diagnostics: Vec::new(),
+        scope_summaries: Vec::new(),
         manifest_warnings: Vec::new(),
     })
 }

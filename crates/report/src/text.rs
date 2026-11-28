@@ -5,9 +5,9 @@ use codeint_model::{Metric, SourceSet};
 use crate::{
     BoundaryFindingRow, BudgetFailure, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
     CognitiveComplexityFinding, DependenciesSection, ErodedFunctionFinding, ExternalMetricFinding,
-    Findings, FlaggedLineRow, HazardLineRow, ImportCycleFinding, ImportedDependencyRow,
-    MeasuredSection, OrphanFileRow, PackageSection, RatchetFailure, ReferenceRangeEntry,
-    RejectedStatementEntry, Report, SkippedEntry, SourceSetSection, SqlSchemaSummary,
+    FileDiagnosticEntry, Findings, FlaggedLineRow, HazardLineRow, ImportCycleFinding,
+    ImportedDependencyRow, MeasuredSection, OrphanFileRow, PackageSection, RatchetFailure,
+    ReferenceRangeEntry, Report, ScopeSummaryEntry, SkippedEntry, SourceSetSection,
     TestGapFindingRow, UnusedDependencyRow,
 };
 
@@ -992,12 +992,12 @@ fn collect_check_notes(report: &Report) -> Vec<String> {
     );
     push_capped_note(
         &mut lines,
-        "rejected statements",
-        &report.rejected_statements,
+        "file diagnostics",
+        &report.file_diagnostics,
         report.show_all,
-        |e: &RejectedStatementEntry| format!("{}:{} ({})", e.path, e.line, e.dialect),
+        |e: &FileDiagnosticEntry| format!("{}:{} [{}] {}", e.path, e.line, e.kind, e.message),
     );
-    push_sql_schema_notes(&mut lines, &report.sql_schemas);
+    push_scope_summary_notes(&mut lines, &report.scope_summaries);
     if !report.declaration_only.is_empty() {
         lines.push(format!(
             "declaration-only: {} {}",
@@ -1043,22 +1043,35 @@ fn push_capped_note<T>(
     }
 }
 
-fn push_sql_schema_notes(lines: &mut Vec<String>, schemas: &[SqlSchemaSummary]) {
-    if schemas.is_empty() {
+fn push_scope_summary_notes(lines: &mut Vec<String>, summaries: &[ScopeSummaryEntry]) {
+    if summaries.is_empty() {
         return;
     }
-    let listed = schemas
+    let listed = summaries
         .iter()
-        .map(|schema| {
-            let scope = schema.package.as_deref().unwrap_or("root");
-            format!(
-                "{scope} {} ({} {})",
-                schema.dialect,
-                schema.tables,
-                plural(schema.tables, "table", "tables")
-            )
+        .map(|summary| {
+            let scope = summary.package.as_deref().unwrap_or("root");
+            let dialect = summary
+                .dialect
+                .as_deref()
+                .map(|name| format!(" {name}"))
+                .unwrap_or_default();
+            let details = summary
+                .fields
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if details.is_empty() {
+                format!("{} {scope}{dialect} {}", summary.language, summary.kind)
+            } else {
+                format!(
+                    "{} {scope}{dialect} {} ({details})",
+                    summary.language, summary.kind
+                )
+            }
         })
         .collect::<Vec<_>>()
         .join(", ");
-    lines.push(format!("sql schemas: {listed}"));
+    lines.push(format!("scope summaries: {listed}"));
 }

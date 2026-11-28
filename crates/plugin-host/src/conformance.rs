@@ -1660,9 +1660,16 @@ fn scope_analysis_problem(
     line_counts: &BTreeMap<String, usize>,
     listed: &HashSet<String>,
 ) -> Option<String> {
-    validate_scope_analysis(plugin_name, artifacts, listed, Some(line_counts), analysis)
-        .err()
-        .map(|error| error.to_string())
+    let artifact_paths: Vec<&str> = artifacts.iter().map(|item| item.path.as_str()).collect();
+    validate_scope_analysis(
+        plugin_name,
+        &artifact_paths,
+        listed,
+        Some(line_counts),
+        analysis,
+    )
+    .err()
+    .map(|error| error.to_string())
 }
 
 fn run_metric(

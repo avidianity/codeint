@@ -98,18 +98,18 @@
         }
       }
     },
-    "rejected_statements": {
+    "file_diagnostics": {
       "type": "array",
-      "description": "Statements that a Language plugin's parser could not parse; they still count in token Metrics and receive no statement rules.",
+      "description": "Non-fatal per-file diagnostics emitted while lowering source files.",
       "items": {
-        "$ref": "#/$defs/RejectedStatementEntry"
+        "$ref": "#/$defs/FileDiagnosticEntry"
       }
     },
-    "sql_schemas": {
+    "scope_summaries": {
       "type": "array",
-      "description": "Table counts of each SQL schema built per Workspace package (or repository root) and Dialect.",
+      "description": "Language-neutral summaries emitted by cross-file scope analysis per Workspace package and Dialect.",
       "items": {
-        "$ref": "#/$defs/SqlSchemaSummary"
+        "$ref": "#/$defs/ScopeSummaryEntry"
       }
     },
     "declaration_only": {
@@ -714,12 +714,13 @@
       },
       "additionalProperties": false
     },
-    "RejectedStatementEntry": {
+    "FileDiagnosticEntry": {
       "type": "object",
       "required": [
         "path",
         "line",
-        "dialect"
+        "kind",
+        "message"
       ],
       "properties": {
         "path": {
@@ -729,28 +730,39 @@
           "type": "integer",
           "minimum": 1
         },
-        "dialect": {
+        "kind": {
+          "type": "string"
+        },
+        "message": {
           "type": "string"
         }
       },
       "additionalProperties": false
     },
-    "SqlSchemaSummary": {
+    "ScopeSummaryEntry": {
       "type": "object",
       "required": [
-        "dialect",
-        "tables"
+        "language",
+        "kind"
       ],
       "properties": {
+        "language": {
+          "type": "string"
+        },
         "package": {
           "type": "string"
         },
         "dialect": {
           "type": "string"
         },
-        "tables": {
-          "type": "integer",
-          "minimum": 0
+        "kind": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false

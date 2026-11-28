@@ -389,43 +389,47 @@ fn built_in_language_crate_count() -> usize {
         .count()
 }
 
+fn assert_wit_targets_lockstep(
+    wit_path: &str,
+    interface_name: &str,
+    world_name: &str,
+    targets: &[(&str, &str, &str)],
+) {
+    let contract = load_verified_wit_contract(wit_path, interface_name, world_name);
+    for &(label, source_path, header) in targets {
+        let source = read_workspace_file(source_path);
+        assert_rust_block_lockstep(label, &contract.functions, &source, header);
+    }
+}
+
 #[test]
 fn language_wit_matches_model_trait_and_host_implementations() {
-    let contract = load_verified_wit_contract("wit/language.wit", "language", "language-plugin");
-    let model_source = read_workspace_file("crates/model/src/lib.rs");
-    let sdk_language_source = read_workspace_file("crates/plugin-sdk/src/language.rs");
-    let host_source = read_workspace_file("crates/plugin-host/src/lib.rs");
-    let sql_source = read_workspace_file("crates/plugin-host/src/sql.rs");
-
-    assert_rust_block_lockstep(
-        "LanguagePlugin trait",
-        &contract.functions,
-        &model_source,
-        "pub trait LanguagePlugin: Sync",
-    );
-    assert_rust_block_lockstep(
-        "SDK LanguagePlugin trait",
-        &contract.functions,
-        &sdk_language_source,
-        "pub trait LanguagePlugin",
-    );
-    assert_rust_block_lockstep(
-        "LanguagePlugin Guest blanket impl",
-        &contract.functions,
-        &model_source,
-        "impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin",
-    );
-    assert_rust_block_lockstep(
-        "WasmLanguagePlugin impl",
-        &contract.functions,
-        &host_source,
-        "impl LanguagePlugin for WasmLanguagePlugin",
-    );
-    assert_rust_block_lockstep(
-        "BuiltInSql impl",
-        &contract.functions,
-        &sql_source,
-        "impl LanguagePlugin for BuiltInSql",
+    assert_wit_targets_lockstep(
+        "wit/language.wit",
+        "language",
+        "language-plugin",
+        &[
+            (
+                "LanguagePlugin trait",
+                "crates/model/src/lib.rs",
+                "pub trait LanguagePlugin: Sync",
+            ),
+            (
+                "SDK LanguagePlugin trait",
+                "crates/plugin-sdk/src/language.rs",
+                "pub trait LanguagePlugin",
+            ),
+            (
+                "LanguagePlugin Guest blanket impl",
+                "crates/model/src/lib.rs",
+                "impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin",
+            ),
+            (
+                "WasmLanguagePlugin impl",
+                "crates/plugin-host/src/lib.rs",
+                "impl LanguagePlugin for WasmLanguagePlugin",
+            ),
+        ],
     );
 
     let registered = built_in_language_plugins();
@@ -437,28 +441,27 @@ fn language_wit_matches_model_trait_and_host_implementations() {
 
 #[test]
 fn metric_wit_matches_model_trait_and_host_implementation() {
-    let contract = load_verified_wit_contract("wit/metric.wit", "metric", "metric-plugin");
-    let model_metric_source = read_workspace_file("crates/model/src/metric.rs");
-    let sdk_metric_source = read_workspace_file("crates/plugin-sdk/src/metric.rs");
-    let host_source = read_workspace_file("crates/plugin-host/src/lib.rs");
-
-    assert_rust_block_lockstep(
-        "MetricPlugin trait",
-        &contract.functions,
-        &model_metric_source,
-        "pub trait MetricPlugin",
-    );
-    assert_rust_block_lockstep(
-        "SDK MetricPlugin trait",
-        &contract.functions,
-        &sdk_metric_source,
-        "pub trait MetricPlugin",
-    );
-    assert_rust_block_lockstep(
-        "WasmMetricPlugin impl",
-        &contract.functions,
-        &host_source,
-        "impl MetricPlugin for WasmMetricPlugin",
+    assert_wit_targets_lockstep(
+        "wit/metric.wit",
+        "metric",
+        "metric-plugin",
+        &[
+            (
+                "MetricPlugin trait",
+                "crates/model/src/metric.rs",
+                "pub trait MetricPlugin",
+            ),
+            (
+                "SDK MetricPlugin trait",
+                "crates/plugin-sdk/src/metric.rs",
+                "pub trait MetricPlugin",
+            ),
+            (
+                "WasmMetricPlugin impl",
+                "crates/plugin-host/src/lib.rs",
+                "impl MetricPlugin for WasmMetricPlugin",
+            ),
+        ],
     );
 
     let _witness: fn(&dyn MetricPlugin) = exercise_metric_plugin_contract;

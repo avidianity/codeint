@@ -200,7 +200,7 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
     assert!(config_keys.contains("format"));
     assert!(config_keys.contains("coverage_reports"));
     assert!(config_keys.contains("budgets"));
-    assert!(config_keys.contains("sql"));
+    assert!(config_keys.contains("dialects"));
     assert!(config_keys.contains("hazards"));
     let sql_lang = manifest["languages"]
         .as_array()

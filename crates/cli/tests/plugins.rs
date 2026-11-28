@@ -2279,6 +2279,102 @@ fn plugin_trap_in_workspace_packages_stays_fatal_for_every_plugin_name() {
 }
 
 #[test]
+fn external_v05_wasm_plugin_supports_dialects_diagnostics_and_analyze_scope_end_to_end() {
+    let extra_config = r#"
+      "dialects": {
+        "v05-lang": [
+          { "dialect": "alpha", "include": ["alpha/**"] },
+          { "dialect": "beta", "include": ["beta/**"] }
+        ]
+      }
+    "#;
+    let (repo, _hash) = init_single_probe_repo(
+        "v05-lang",
+        None,
+        "v0_5_0_features_language_plugin.wasm",
+        extra_config,
+    );
+    write_file(repo.path(), "alpha/a.v05", "DIAG_NOTE\nSCOPE_RISK\n");
+    write_file(repo.path(), "beta/b.v05", "ok\n");
+    write_file(repo.path(), "plain/c.v05", "ok\n");
+
+    let report = run_check_json_report(repo.path());
+    assert_eq!(report["files"], 3, "report: {report}");
+    assert_eq!(report["file_diagnostics"][0]["path"], "alpha/a.v05");
+    assert_eq!(report["file_diagnostics"][0]["line"], 1);
+    assert_eq!(report["file_diagnostics"][0]["kind"], "note");
+    assert_eq!(report["file_diagnostics"][0]["message"], "v05 diagnostic");
+
+    let hazards = report["source_sets"]["production"]["hazards"]["findings"]
+        .as_array()
+        .expect("hazard findings");
+    assert!(
+        hazards.iter().any(|f| f["path"] == "alpha/a.v05"
+            && f["line"] == 1
+            && f["rule"] == "cross-file-risk"),
+        "expected cross-file-risk from analyze-scope: {report}"
+    );
+
+    let summaries = report["scope_summaries"]
+        .as_array()
+        .expect("scope_summaries");
+    assert_eq!(summaries.len(), 3, "summaries: {summaries:?}");
+    let dialects: Vec<&str> = summaries
+        .iter()
+        .filter_map(|s| s["fields"]["dialect"].as_str())
+        .collect();
+    assert_eq!(dialects, ["none", "alpha", "beta"]);
+    assert!(
+        summaries
+            .iter()
+            .all(|s| s["language"] == "v05-lang" && s["kind"] == "v05-scope")
+    );
+
+    let v05_repo = |extra: &str, path: &str, source: &str| {
+        let (repo, _) = init_single_probe_repo(
+            "v05-lang",
+            None,
+            "v0_5_0_features_language_plugin.wasm",
+            extra,
+        );
+        write_file(repo.path(), path, source);
+        repo
+    };
+    let bad_dialect_repo = v05_repo(
+        r#""dialects": { "v05-lang": [{ "dialect": "gamma", "include": ["src/**"] }] }"#,
+        "src/a.v05",
+        "ok\n",
+    );
+    assert_check_exits_2(bad_dialect_repo.path(), &["gamma", "alpha, beta"]);
+
+    let dup_diag_repo = v05_repo("", "src/dup.v05", "DIAG_DUP\n");
+    let dup_report = run_check_json_report(dup_diag_repo.path());
+    let dup_entries = dup_report["file_diagnostics"]
+        .as_array()
+        .expect("file_diagnostics array");
+    assert_eq!(dup_entries.len(), 1, "expected deduplication: {dup_report}");
+    assert_eq!(dup_entries[0]["message"], "dup diagnostic");
+
+    let invalid_v05_cases: [(&str, &[&str]); 5] = [
+        ("SCOPE_BAD_LINE\n", &["outside the file's", "4000000000"]),
+        (
+            "DIAG_LINE_ZERO\n",
+            &["diagnostic on line 0", "outside the file's"],
+        ),
+        ("DIAG_LINE_HUGE\n", &["4000000000", "outside the file's"]),
+        ("DIAG_EMPTY_KIND\n", &["diagnostic kind must not be empty"]),
+        (
+            "DIAG_EMPTY_MSG\n",
+            &["diagnostic message must not be empty"],
+        ),
+    ];
+    for (source, expected) in invalid_v05_cases {
+        let bad_repo = v05_repo("", "src/bad.v05", source);
+        assert_check_exits_2(bad_repo.path(), expected);
+    }
+}
+
+#[test]
 fn v05_wasm_plugin_achieves_full_manifest_flagged_lines_and_profile_parity_in_codeint_check() {
     let (repo, _hash) = init_single_probe_repo(
         "v05-features",
@@ -2339,27 +2435,22 @@ fn v05_wasm_plugin_achieves_full_manifest_flagged_lines_and_profile_parity_in_co
         "expected discovered workspace packages, got: {package_names:?}"
     );
 
-    let unused: Vec<(&str, &str)> = report["dependencies"]["unused_dependencies"]["findings"]
-        .as_array()
-        .expect("unused findings")
-        .iter()
-        .filter_map(|item| Some((item["package"].as_str()?, item["dependency"].as_str()?)))
-        .collect();
+    let finding_pairs = |metric: &str| -> Vec<(&str, &str)> {
+        report["dependencies"][metric]["findings"]
+            .as_array()
+            .expect("dependency findings")
+            .iter()
+            .filter_map(|item| Some((item["package"].as_str()?, item["dependency"].as_str()?)))
+            .collect()
+    };
     assert_eq!(
-        unused,
+        finding_pairs("unused_dependencies"),
         vec![(".", "unused-v05-dep")],
-        "expected only unused-v05-dep unused (v05-dep credited by manifest_used_dependencies and hoisted-v05-dep credited via root_dependency_inheritance), got: {unused:?}"
+        "expected only unused-v05-dep unused (v05-dep credited by manifest_used_dependencies and hoisted-v05-dep credited via root_dependency_inheritance)"
     );
-
-    let unlisted: Vec<(&str, &str)> = report["dependencies"]["unlisted_dependencies"]["findings"]
-        .as_array()
-        .expect("unlisted findings")
-        .iter()
-        .filter_map(|item| Some((item["package"].as_str()?, item["dependency"].as_str()?)))
-        .collect();
     assert_eq!(
-        unlisted,
+        finding_pairs("unlisted_dependencies"),
         vec![("packages/plain", "profile-dep")],
-        "expected profile-dep resolved as builtin in packages/web (v05-profile active) and unlisted only in packages/plain, got: {unlisted:?}"
+        "expected profile-dep resolved as builtin in packages/web (v05-profile active) and unlisted only in packages/plain"
     );
 }

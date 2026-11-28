@@ -39,9 +39,9 @@ Generated SQL shows its Metrics and Hazards under the `generated` Source set so 
 ## Templated SQL and rejected statements
 
 - **Templated SQL**: codeint skips any `.sql` file containing `{{`, `{%`, `%}`, `<%`, or `%>` outside SQL strings and comments.
-  The file appears under `skipped` with reason `templated SQL`, so template files such as dbt models are not measured as raw SQL.
+  The file appears under `skipped` with reason `cannot parse: templated SQL`, so template files such as dbt models are not measured as raw SQL.
 - **Rejected statements**: because the parser reads one statement at a time, a single statement that the parser cannot parse never removes the rest of the file.
-  A rejected statement still counts in every token-layer Metric (source lines, Erosion, Cognitive complexity, and Duplication), receives no Flagged line or Hazard line rules, and is listed under `rejected_statements` with its `path`, starting `line`, and `dialect`.
+  A rejected statement still counts in every token-layer Metric (source lines, Erosion, Cognitive complexity, and Duplication), receives no Flagged line or Hazard line rules, and is listed under `file_diagnostics` with `path`, starting `line`, `kind` (`rejected-statement`), and `message`.
 
 ## Absent import Metrics and Workspaces
 
@@ -54,7 +54,7 @@ Use the `languages` setting in `codeint.jsonc` or `codeint.json` to restrict `sq
 ## Dialects
 
 Without configuration, every `.sql` file uses generic SQL.
-Map repository-relative folders or file globs to a **Dialect** under `sql.dialects` in `codeint.jsonc` or `codeint.json`:
+Map repository-relative folders or file globs to a **Dialect** under `dialects.sql` in `codeint.jsonc` or `codeint.json`:
 
 | Dialect | Covers |
 | ------- | ------ |
@@ -63,17 +63,17 @@ Map repository-relative folders or file globs to a **Dialect** under `sql.dialec
 | `sqlite` | SQLite |
 | `duckdb` | DuckDB |
 
-Files matching no `sql.dialects` entry stay generic SQL.
+Files matching no `dialects.sql` entry stay generic SQL.
 ClickHouse, SQL Server, Oracle, BigQuery, and Snowflake stay generic SQL.
 An unknown Dialect name, or one file matched by two entries with different Dialects, stops the run with exit code `2` and names the configuration key or conflicting patterns.
-When `codeint init` detects `.sql` files, it adds a commented `sql.dialects` hint to the starter `codeint.jsonc`.
+When `codeint init` detects `.sql` files, it adds a commented `dialects.sql` hint to the starter `codeint.jsonc`.
 
 In a monorepo that mixes databases, assign each folder its own Dialect:
 
 ```jsonc
 {
-  "sql": {
-    "dialects": [
+  "dialects": {
+    "sql": [
       {
         "dialect": "postgresql",
         "include": ["services/billing/migrations", "services/billing/queries"],
@@ -109,8 +109,8 @@ codeint builds an in-memory schema automatically from the repository's own SQL f
 - **Scopes**: codeint builds one schema per Workspace package and Dialect, plus one root schema per Dialect for `.sql` files outside every Workspace package.
   Generic SQL is its own Dialect scope.
 
-Every `codeint check` report lists each scope's table count under `sql_schemas` (or under `## SQL schemas` in Markdown).
-A scope showing `tables: 0` tells you that no `CREATE TABLE` definitions were found in that package and Dialect.
+Every `codeint check` report lists each scope's table count under `scope_summaries` (or under `## Scope summaries` in Markdown).
+A scope showing `tables=0` tells you that no `CREATE TABLE` definitions were found in that package and Dialect.
 
 ### Schema-backed Hazard line rules
 

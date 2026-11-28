@@ -392,14 +392,37 @@ pub enum ConfigurationFileError {
         key: KeyPath,
         metric: Metric,
     },
-    #[error("{file}: {key} for SQL dialect {dialect:?} must list at least one glob pattern")]
-    EmptySqlDialectInclude {
+    #[error("{file}: {key} must name a non-empty Language plugin")]
+    EmptyDialectLanguage { file: ConfigFileKind, key: KeyPath },
+    #[error("{file}: {key} must not be empty")]
+    EmptyDialectName { file: ConfigFileKind, key: KeyPath },
+    #[error("{file}: {key} for {language} Dialect {dialect:?} must list at least one glob pattern")]
+    EmptyDialectInclude {
         file: ConfigFileKind,
         key: KeyPath,
+        language: String,
         dialect: String,
     },
     #[error("{file}: {key} must not be empty")]
-    EmptySqlDialectPattern { file: ConfigFileKind, key: KeyPath },
+    EmptyDialectPattern { file: ConfigFileKind, key: KeyPath },
+    #[error(
+        "{file}: {key} names an unknown Language plugin {language:?}; the known Language plugins are {}",
+        known.join(", ")
+    )]
+    UnknownDialectLanguage {
+        file: ConfigFileKind,
+        key: KeyPath,
+        language: String,
+        known: Vec<String>,
+    },
+    #[error("{}", format_unknown_dialect(*file, key, language, dialect, known))]
+    UnknownDialect {
+        file: ConfigFileKind,
+        key: KeyPath,
+        language: String,
+        dialect: String,
+        known: Vec<String>,
+    },
     #[error("{file}: {key} must not be empty")]
     EmptyHazardRuleName { file: ConfigFileKind, key: KeyPath },
     #[error("{}", format_unknown_framework_profile(*file, key, name, known))]
@@ -497,8 +520,12 @@ impl ConfigurationFileError {
             | TestGapRegressionLimit { file, .. }
             | MetricBudgetOutsideProduction { file, .. }
             | MetricRegressionLimitOutsideProduction { file, .. }
-            | EmptySqlDialectInclude { file, .. }
-            | EmptySqlDialectPattern { file, .. }
+            | EmptyDialectLanguage { file, .. }
+            | EmptyDialectName { file, .. }
+            | EmptyDialectInclude { file, .. }
+            | EmptyDialectPattern { file, .. }
+            | UnknownDialectLanguage { file, .. }
+            | UnknownDialect { file, .. }
             | EmptyHazardRuleName { file, .. }
             | UnknownFrameworkProfile { file, .. }
             | EmptyFrameworkProfileName { file, .. }
@@ -658,6 +685,25 @@ fn format_unknown_framework_profile(
     } else {
         format!(
             "{file} names an unknown Framework profile {name:?} at {key}; the known Framework profiles are {}",
+            known.join(", ")
+        )
+    }
+}
+
+fn format_unknown_dialect(
+    file: ConfigFileKind,
+    key: &KeyPath,
+    language: &str,
+    dialect: &str,
+    known: &[String],
+) -> String {
+    if known.is_empty() {
+        format!(
+            "{file} names an unknown Dialect {dialect:?} for {language:?} at {key}; Language plugin {language:?} defines no selectable Dialects"
+        )
+    } else {
+        format!(
+            "{file} names an unknown Dialect {dialect:?} for {language:?} at {key}; the known Dialects are {}",
             known.join(", ")
         )
     }

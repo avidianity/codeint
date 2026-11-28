@@ -19,6 +19,7 @@ mod tests;
 pub struct DetectedLanguage {
     pub plugin: String,
     pub include: Vec<RepoPath>,
+    pub known_dialects: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -358,9 +359,15 @@ fn render_structured(
     kind: StarterKind,
     zero_budgets: &ZeroBudgetKeys,
 ) -> String {
-    let language_pairs: Vec<(String, Vec<RepoPath>)> = languages
+    let language_pairs: Vec<(String, Vec<RepoPath>, Vec<String>)> = languages
         .iter()
-        .map(|lang| (lang.plugin.clone(), lang.include.clone()))
+        .map(|lang| {
+            (
+                lang.plugin.clone(),
+                lang.include.clone(),
+                lang.known_dialects.clone(),
+            )
+        })
         .collect();
     let zones: Option<Vec<(String, String)>> = match boundaries {
         Some(StarterBoundaries::WorkspaceZones(zones)) => Some(
@@ -472,10 +479,19 @@ fn add_jsonc_hints(
     if kind == StarterKind::Adoption {
         trailing_hints.push_str(NEW_FILE_BUDGETS_HINT);
     }
-    if languages.iter().any(|language| language.plugin == "sql") {
-        trailing_hints.push_str(
-            "  // Optional: map SQL folders to a Dialect with sql.dialects (postgresql, mysql, sqlite, or duckdb).\n  // \"sql\": { \"dialects\": [] }\n",
+    for language in languages
+        .iter()
+        .filter(|language| !language.known_dialects.is_empty())
+    {
+        let plugin_json = serde_json::Value::String(language.plugin.clone()).to_string();
+        let _ = writeln!(
+            trailing_hints,
+            "  // Optional: map {} folders to a Dialect with dialects.{} ({}).",
+            language.plugin,
+            language.plugin,
+            language.known_dialects.join(", ")
         );
+        let _ = writeln!(trailing_hints, "  // \"dialects\": {{ {plugin_json}: [] }}");
     }
     if let Some(starter_boundaries) = boundaries {
         render_commented_boundaries(&mut trailing_hints, starter_boundaries);

@@ -109,7 +109,7 @@ pub use config::ConfigReport;
 pub use coupling::{CouplingHistoryInput, CouplingReport};
 pub use diff::{BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit, NewFileBudgetFailure};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
-pub use findings::{HazardLineRow, RejectedStatementEntry, SqlSchemaSummary};
+pub use findings::{FileDiagnosticEntry, HazardLineRow, ScopeSummaryEntry};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardExternalImports, GuardReport};
 pub use impact::{ChangedBase, ImpactReport};
 pub use measurement::{CommitMeasurement, CommitMeasurementOptions};
@@ -159,9 +159,9 @@ pub struct Report {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    rejected_statements: Vec<RejectedStatementEntry>,
+    file_diagnostics: Vec<FileDiagnosticEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    sql_schemas: Vec<SqlSchemaSummary>,
+    scope_summaries: Vec<ScopeSummaryEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     declaration_only: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -455,8 +455,8 @@ impl<'a> ReportOptions<'a> {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReportExtras {
     pub disabled_hazard_rules: BTreeSet<String>,
-    pub rejected_statements: Vec<RejectedStatementEntry>,
-    pub sql_schemas: Vec<SqlSchemaSummary>,
+    pub file_diagnostics: Vec<FileDiagnosticEntry>,
+    pub scope_summaries: Vec<ScopeSummaryEntry>,
     pub manifest_warnings: Vec<String>,
 }
 
@@ -471,16 +471,16 @@ impl ReportExtras {
         self
     }
 
-    pub fn with_rejected_statements(
+    pub fn with_file_diagnostics(
         mut self,
-        rejected_statements: Vec<RejectedStatementEntry>,
+        file_diagnostics: Vec<FileDiagnosticEntry>,
     ) -> ReportExtras {
-        self.rejected_statements = rejected_statements;
+        self.file_diagnostics = file_diagnostics;
         self
     }
 
-    pub fn with_sql_schemas(mut self, sql_schemas: Vec<SqlSchemaSummary>) -> ReportExtras {
-        self.sql_schemas = sql_schemas;
+    pub fn with_scope_summaries(mut self, scope_summaries: Vec<ScopeSummaryEntry>) -> ReportExtras {
+        self.scope_summaries = scope_summaries;
         self
     }
 }
@@ -659,8 +659,8 @@ impl Report {
             over_budget: failures,
             over_ratchet: Vec::new(),
             skipped,
-            rejected_statements: extras.rejected_statements,
-            sql_schemas: extras.sql_schemas,
+            file_diagnostics: extras.file_diagnostics,
+            scope_summaries: extras.scope_summaries,
             declaration_only,
             submodules: submodules.iter().map(RepoPath::to_string).collect(),
             measured,

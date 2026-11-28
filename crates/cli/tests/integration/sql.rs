@@ -38,10 +38,10 @@ fn dialects_config(entries: &[(&str, &[&str])], disabled_rules: &[&str]) -> Stri
         .map(|(dialect, include)| json!({ "dialect": dialect, "include": include }))
         .collect();
     if disabled_rules.is_empty() {
-        json!({ "sql": { "dialects": dialects } }).to_string()
+        json!({ "dialects": { "sql": dialects } }).to_string()
     } else {
         json!({
-            "sql": { "dialects": dialects },
+            "dialects": { "sql": dialects },
             "hazards": { "disabled_rules": disabled_rules }
         })
         .to_string()
@@ -55,13 +55,18 @@ fn prod_hazard_findings(report: &Value) -> &[Value] {
 }
 
 fn has_rejected(report: &Value, path: &str, dialect: Option<&str>) -> bool {
-    report["rejected_statements"]
+    report["file_diagnostics"]
         .as_array()
-        .expect("rejected statements")
+        .expect("file diagnostics")
         .iter()
         .any(|entry| {
             entry["path"].as_str() == Some(path)
-                && dialect.is_none_or(|d| entry["dialect"].as_str() == Some(d))
+                && entry["kind"].as_str() == Some("rejected-statement")
+                && dialect.is_none_or(|d| {
+                    entry["message"]
+                        .as_str()
+                        .is_some_and(|message| message.contains(d))
+                })
         })
 }
 
@@ -246,24 +251,32 @@ fn templated_sql_skipped_and_rejected_statements_render_in_all_formats() {
     let json = check_json(repo.path());
     assert_eq!(json["files"], 1, "{json}");
     assert_eq!(json["skipped"][0]["path"], "queries/template.sql");
-    assert_eq!(json["skipped"][0]["reason"], "templated SQL");
-    assert_eq!(json["rejected_statements"][0]["path"], "queries/mixed.sql");
-    assert_eq!(json["rejected_statements"][0]["line"], 2);
-    assert_eq!(json["rejected_statements"][0]["dialect"], "generic SQL");
+    assert_eq!(json["skipped"][0]["reason"], "cannot parse: templated SQL");
+    assert_eq!(json["file_diagnostics"][0]["path"], "queries/mixed.sql");
+    assert_eq!(json["file_diagnostics"][0]["line"], 2);
+    assert_eq!(json["file_diagnostics"][0]["kind"], "rejected-statement");
+    assert!(
+        json["file_diagnostics"][0]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("generic SQL")),
+        "diagnostic: {}",
+        json["file_diagnostics"][0]
+    );
 
     assert_format_contains(
         repo.path(),
         "toon",
-        &["templated SQL", "rejected_statements", "generic SQL"],
+        &["templated SQL", "file_diagnostics", "generic SQL"],
     );
     assert_format_contains(
         repo.path(),
         "markdown",
         &[
             "templated SQL",
-            "## Rejected statements",
+            "## File diagnostics",
             "`queries/mixed.sql:2`",
-            "`generic SQL`",
+            "`rejected-statement`",
+            "generic SQL",
         ],
     );
 
@@ -341,12 +354,11 @@ fn sql_dialects_monorepo_handles_all_four_dialects_generic_fallback_and_doctor()
         "sqlite trigger should not be rejected: {report}"
     );
 
-    let dialects: Vec<&str> = report["sql_schemas"]
-        .as_array()
-        .expect("sql_schemas")
+    let mut dialects: Vec<&str> = scope_summaries(&report)
         .iter()
-        .filter_map(|s| s["dialect"].as_str())
+        .filter_map(|s| s["fields"]["dialect"].as_str())
         .collect();
+    dialects.sort_unstable();
     assert_eq!(
         dialects,
         ["duckdb", "generic SQL", "mysql", "postgresql", "sqlite"]
@@ -357,20 +369,46 @@ fn sql_dialects_monorepo_handles_all_four_dialects_generic_fallback_and_doctor()
 
 #[test]
 fn sql_dialects_errors_and_init_behavior() {
-    let unknown_repo = init_git_repo(&[
-        (
-            "codeint.json",
-            r#"{"sql":{"dialects":[{"dialect":"oracle","include":["db/**"]}]}}"#,
-        ),
-        ("db/query.sql", "SELECT 1;\n"),
-    ]);
+    let sql_repo =
+        |config: &str| init_git_repo(&[("codeint.json", config), ("db/query.sql", "SELECT 1;\n")]);
+    let unknown_repo =
+        sql_repo(r#"{"dialects":{"sql":[{"dialect":"oracle","include":["db/**"]}]}}"#);
     let (_, unknown_stderr) = run_codeint_text(unknown_repo.path(), &["check"], 2);
     assert!(
         unknown_stderr.contains("postgresql")
             && unknown_stderr.contains("mysql")
             && unknown_stderr.contains("sqlite")
-            && unknown_stderr.contains("duckdb"),
+            && unknown_stderr.contains("duckdb")
+            && !unknown_stderr.contains("generic"),
         "stderr: {unknown_stderr}"
+    );
+    let (doctor_stdout, _) = run_codeint_text(unknown_repo.path(), &["doctor"], 1);
+    assert!(
+        doctor_stdout.contains("[ERROR] config") && doctor_stdout.contains("oracle"),
+        "doctor stdout: {doctor_stdout}"
+    );
+    let (_, config_stderr) = run_codeint_text(unknown_repo.path(), &["config", "--resolved"], 2);
+    assert!(config_stderr.contains("oracle"), "stderr: {config_stderr}");
+
+    let generic_repo =
+        sql_repo(r#"{"dialects":{"sql":[{"dialect":"generic","include":["db/**"]}]}}"#);
+    let (_, generic_stderr) = run_codeint_text(generic_repo.path(), &["check"], 2);
+    assert!(
+        generic_stderr.contains("generic") && generic_stderr.contains("postgresql"),
+        "stderr: {generic_stderr}"
+    );
+
+    let unknown_lang_repo = sql_repo(r#"{"dialects":{"cobol":[]}}"#);
+    let (unknown_lang_doctor, _) = run_codeint_text(unknown_lang_repo.path(), &["doctor"], 1);
+    assert!(
+        unknown_lang_doctor.contains("[ERROR] config") && unknown_lang_doctor.contains("cobol"),
+        "doctor stdout: {unknown_lang_doctor}"
+    );
+    let (_, unknown_lang_config) =
+        run_codeint_text(unknown_lang_repo.path(), &["config", "--resolved"], 2);
+    assert!(
+        unknown_lang_config.contains("cobol"),
+        "stderr: {unknown_lang_config}"
     );
 
     let overlap_config = dialects_config(
@@ -383,7 +421,7 @@ fn sql_dialects_errors_and_init_behavior() {
     ]);
     let (_, overlap_stderr) = run_codeint_text(overlap_repo.path(), &["check"], 2);
     for expected in [
-        "sql.dialects",
+        "dialects.sql",
         "db/analytics/report.sql",
         "postgresql",
         "duckdb",
@@ -401,7 +439,7 @@ fn sql_dialects_errors_and_init_behavior() {
     let sql_config =
         fs::read_to_string(with_sql.path().join("codeint.jsonc")).expect("read codeint.jsonc");
     assert!(
-        sql_config.contains("sql.dialects") && sql_config.contains("\"plugin\": \"sql\""),
+        sql_config.contains("dialects.sql") && sql_config.contains("\"plugin\": \"sql\""),
         "config: {sql_config}"
     );
     assert!(
@@ -415,8 +453,8 @@ fn sql_dialects_errors_and_init_behavior() {
     let ts_config =
         fs::read_to_string(without_sql.path().join("codeint.jsonc")).expect("read codeint.jsonc");
     assert!(
-        !ts_config.contains("sql.dialects"),
-        "config without sql must not mention sql.dialects: {ts_config}"
+        !ts_config.contains("dialects.sql"),
+        "config without sql must not mention dialects.sql: {ts_config}"
     );
 }
 
@@ -481,25 +519,23 @@ fn sql_schema_pass_handles_migrations_source_sets_scopes_all_five_rules_and_disa
     ]);
 
     let report = check_json(repo.path());
-    let schemas: Vec<(Option<&str>, &str, u64)> = report["sql_schemas"]
-        .as_array()
-        .expect("sql_schemas")
+    let schemas: Vec<(Option<&str>, &str, &str)> = scope_summaries(&report)
         .iter()
         .map(|s| {
             (
                 s.get("package").and_then(Value::as_str),
-                s["dialect"].as_str().expect("dialect"),
-                s["tables"].as_u64().expect("tables"),
+                s["fields"]["dialect"].as_str().expect("dialect"),
+                s["fields"]["tables"].as_str().expect("tables"),
             )
         })
         .collect();
     assert_eq!(
         schemas,
         [
-            (Some("packages/analytics"), "duckdb", 1),
-            (Some("packages/analytics"), "postgresql", 3),
-            (Some("packages/billing"), "postgresql", 2),
-            (Some("packages/billing"), "sqlite", 1),
+            (Some("packages/analytics"), "duckdb", "1"),
+            (Some("packages/analytics"), "postgresql", "3"),
+            (Some("packages/billing"), "postgresql", "2"),
+            (Some("packages/billing"), "sqlite", "1"),
         ],
         "report: {report}"
     );
@@ -546,9 +582,9 @@ fn sql_schema_pass_handles_migrations_source_sets_scopes_all_five_rules_and_disa
     assert_format_contains(
         repo.path(),
         "markdown",
-        &["## SQL schemas", "`packages/billing`"],
+        &["## Scope summaries", "`packages/billing`"],
     );
-    assert_format_contains(repo.path(), "toon", &["sql_schemas"]);
+    assert_format_contains(repo.path(), "toon", &["scope_summaries"]);
 
     fs::write(
         repo.path().join("codeint.json"),
@@ -591,7 +627,10 @@ fn sql_schema_skips_down_migration_files_while_still_running_rules_on_them() {
     ]);
 
     let report = check_json(repo.path());
-    assert_eq!(report["sql_schemas"][0]["tables"], 1, "report: {report}");
+    assert_eq!(
+        report["scope_summaries"][0]["fields"]["tables"], "1",
+        "report: {report}"
+    );
 
     let findings = prod_hazard_findings(&report);
     let query_findings: Vec<&Value> = findings
@@ -612,4 +651,48 @@ fn sql_schema_skips_down_migration_files_while_still_running_rules_on_them() {
             && down_drops.contains(&"migrations/002_add_handle.down.sql"),
         "down migrations must still run statement hazard rules: {down_drops:?}"
     );
+}
+
+fn scope_summaries(report: &Value) -> &[Value] {
+    report["scope_summaries"]
+        .as_array()
+        .expect("scope_summaries")
+}
+
+fn render_saved_report(dir: &Path, saved_path: &Path, format: &str) -> String {
+    let saved_str = saved_path.to_str().expect("utf8 path");
+    run_stdout(dir, &["report", saved_str, "--format", format], 0)
+}
+
+#[test]
+fn codeint_report_loads_legacy_saved_json_with_sql_schemas_and_rejected_statements() {
+    let repo = init_git_repo(&[("README.md", "legacy report test\n")]);
+    let historical = json!({
+        "files": 1,
+        "source_lines": 4,
+        "source_sets": {},
+        "rejected_statements": [
+            { "path": "queries/mixed.sql", "line": 2, "dialect": "postgresql" }
+        ],
+        "sql_schemas": [
+            { "package": "packages/billing", "dialect": "postgresql", "tables": 2 }
+        ]
+    })
+    .to_string();
+    let saved_path = repo.path().join("legacy-report.json");
+    fs::write(&saved_path, historical).expect("write legacy report");
+
+    let markdown = render_saved_report(repo.path(), &saved_path, "markdown");
+    assert!(
+        markdown.contains("## Scope summaries")
+            && markdown.contains("`packages/billing`")
+            && markdown.contains("## File diagnostics")
+            && markdown.contains("`queries/mixed.sql:2`"),
+        "markdown: {markdown}"
+    );
+
+    let json_out = render_saved_report(repo.path(), &saved_path, "json");
+    let parsed: Value = serde_json::from_str(&json_out).expect("valid json");
+    assert_eq!(parsed["file_diagnostics"][0]["path"], "queries/mixed.sql");
+    assert_eq!(parsed["scope_summaries"][0]["fields"]["tables"], "2");
 }

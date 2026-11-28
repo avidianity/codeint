@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use codeint_model::{Metric, RepoPath, SourceSet};
@@ -12,10 +13,10 @@ use crate::RegressionLimits;
 use crate::boundaries::Boundaries;
 use crate::config_error::{ConfigFileKind, ConfigurationFileError, KeyPath, KeySegment, glob_set};
 use crate::dependencies::DependenciesConfig;
+use crate::dialects::DialectRules;
 use crate::framework_profiles::FrameworkProfilesConfig;
 use crate::hazards::HazardsConfig;
 use crate::ratchet::RatchetConfig;
-use crate::sql::SqlConfig;
 
 pub const DEPENDENCY_METRIC_KEYS: [&str; 3] = [
     Metric::UnusedDependencies.key(),
@@ -101,7 +102,7 @@ pub struct Configuration {
     pub duplication: DuplicationConfig,
     pub entry_points: EntryPoints,
     pub coverage_reports: Vec<String>,
-    pub sql: SqlConfig,
+    pub dialects: BTreeMap<String, DialectRules>,
     pub hazards: HazardsConfig,
     pub framework_profiles: FrameworkProfilesConfig,
     pub ratchet: RatchetConfig,

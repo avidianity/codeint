@@ -2,10 +2,10 @@ use crate::ownership::OwnedFinding;
 use crate::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
     CognitiveComplexityFinding, DependenciesSection, ErodedFunctionFinding, ExternalMetricFinding,
-    Findings, FlaggedLineRow, HazardLineRow, HazardsSection, ImportCycleFinding,
-    ImportCyclesSection, ImportedDependencyRow, MeasuredSection, MetricHeader, OrphanFileRow,
-    PackageSection, ReferenceRangeEntry, RejectedStatementEntry, Report, SourceSetSection,
-    SqlSchemaSummary, TestGapFindingRow, UnresolvedImportRow, UnusedDependencyRow,
+    FileDiagnosticEntry, Findings, FlaggedLineRow, HazardLineRow, HazardsSection,
+    ImportCycleFinding, ImportCyclesSection, ImportedDependencyRow, MeasuredSection, MetricHeader,
+    OrphanFileRow, PackageSection, ReferenceRangeEntry, Report, ScopeSummaryEntry,
+    SourceSetSection, TestGapFindingRow, UnresolvedImportRow, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -39,7 +39,7 @@ const PACKAGE_COLUMNS: [&str; 8] = [
 ];
 pub(crate) const FLAGGED_LINE_COLUMNS: [&str; 2] = ["Flagged line", "Rule"];
 pub(crate) const HAZARD_LINE_COLUMNS: [&str; 3] = ["Path", "Line", "Rule"];
-const SQL_SCHEMA_COLUMNS: [&str; 3] = ["Scope", "Dialect", "Tables"];
+const SCOPE_SUMMARY_COLUMNS: [&str; 5] = ["Language", "Scope", "Dialect", "Kind", "Details"];
 pub(crate) const EXTERNAL_FINDING_COLUMNS: [&str; 2] = ["Location", "Message"];
 pub(crate) const BOUNDARY_FINDING_COLUMNS: [&str; 6] = [
     "Importer",
@@ -166,10 +166,10 @@ pub(crate) fn render(report: &Report) -> String {
         blocks.push(packages);
     }
     push_language_sections(&mut blocks, &report.languages);
-    push_sql_schemas(&mut blocks, &report.sql_schemas);
+    push_scope_summaries(&mut blocks, &report.scope_summaries);
     push_source_set_findings(&mut blocks, &sections);
     push_dependency_findings(&mut blocks, report.measured.dependencies.as_ref());
-    push_rejected_statements(&mut blocks, &report.rejected_statements);
+    push_file_diagnostics(&mut blocks, &report.file_diagnostics);
     let not_measured = files_not_measured(report);
     if !not_measured.is_empty() {
         blocks.push("## Files not measured".to_string());
@@ -202,35 +202,56 @@ fn push_header_notes(blocks: &mut Vec<String>, report: &Report) {
     }
 }
 
-fn push_sql_schemas(blocks: &mut Vec<String>, schemas: &[SqlSchemaSummary]) {
-    if schemas.is_empty() {
+fn push_scope_summaries(blocks: &mut Vec<String>, summaries: &[ScopeSummaryEntry]) {
+    if summaries.is_empty() {
         return;
     }
-    blocks.push("## SQL schemas".to_string());
+    blocks.push("## Scope summaries".to_string());
     blocks.push(table(
-        &SQL_SCHEMA_COLUMNS,
-        schemas.iter().map(sql_schema_row).collect(),
+        &SCOPE_SUMMARY_COLUMNS,
+        summaries.iter().map(scope_summary_row).collect(),
     ));
 }
 
-fn sql_schema_row(schema: &SqlSchemaSummary) -> Vec<String> {
-    let scope = match schema.package.as_deref() {
+fn scope_summary_row(summary: &ScopeSummaryEntry) -> Vec<String> {
+    let scope = match summary.package.as_deref() {
         Some(package) => code(package),
         None => "root".to_string(),
     };
-    vec![scope, code(&schema.dialect), schema.tables.to_string()]
+    let dialect = match summary.dialect.as_deref() {
+        Some(name) => code(name),
+        None => "-".to_string(),
+    };
+    let details = if summary.fields.is_empty() {
+        "-".to_string()
+    } else {
+        summary
+            .fields
+            .iter()
+            .map(|(key, value)| format!("{}={}", code(key), prose(value)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    vec![
+        code(&summary.language),
+        scope,
+        dialect,
+        code(&summary.kind),
+        details,
+    ]
 }
 
-fn push_rejected_statements(blocks: &mut Vec<String>, rejected: &[RejectedStatementEntry]) {
-    if rejected.is_empty() {
+fn push_file_diagnostics(blocks: &mut Vec<String>, diagnostics: &[FileDiagnosticEntry]) {
+    if diagnostics.is_empty() {
         return;
     }
-    blocks.push("## Rejected statements".to_string());
-    blocks.push(list(rejected.iter().map(|entry| {
+    blocks.push("## File diagnostics".to_string());
+    blocks.push(list(diagnostics.iter().map(|entry| {
         format!(
-            "{}: dialect {}",
+            "{} ({}): {}",
             code(&format!("{}:{}", entry.path, entry.line)),
-            code(&entry.dialect)
+            code(&entry.kind),
+            prose(&entry.message)
         )
     })));
 }

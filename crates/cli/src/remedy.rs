@@ -205,8 +205,12 @@ fn check_remedy(error: &CheckError) -> Cow<'static, str> {
         CheckError::UnknownWorkspacePackage { .. } => Cow::Borrowed(
             "Pass one of the discovered Workspace package paths to --package, or omit --package to measure the whole repository.",
         ),
-        CheckError::SqlDialectConflict { config_file, .. } => Cow::Owned(format!(
-            "Adjust the include globs in sql.dialects in {config_file} so each SQL file matches at most one Dialect."
+        CheckError::DialectConflict {
+            config_file,
+            conflict,
+        } => Cow::Owned(format!(
+            "Adjust the include globs in dialects.{} in {config_file} so each file matches at most one Dialect.",
+            conflict.language
         )),
         CheckError::UnknownHazardRule { config_file, .. } => Cow::Owned(format!(
             "Remove the unknown rule name from hazards.disabled_rules in {config_file}, or run codeint schema to list the known Hazard line rules."
@@ -286,7 +290,7 @@ fn check_plugin_remedy(error: &CheckError) -> Cow<'static, str> {
         | CheckError::InvalidCoverageReport { .. }
         | CheckError::CoverageApply(_)
         | CheckError::TestGapBudgetWithoutCoverage { .. }
-        | CheckError::SqlDialectConflict { .. }
+        | CheckError::DialectConflict { .. }
         | CheckError::UnknownHazardRule { .. }
         | CheckError::StateFile(_)
         | CheckError::RatchetVersionMismatch { .. }
@@ -489,7 +493,7 @@ fn workspace_remedy(error: &WorkspaceError) -> &'static str {
 pub(crate) fn configuration_file_remedy(error: &ConfigurationFileError) -> Cow<'static, str> {
     plugin_config_remedy(error)
         .or_else(|| test_gap_config_remedy(error))
-        .or_else(|| sql_hazards_and_ratchet_config_remedy(error))
+        .or_else(|| dialects_hazards_and_ratchet_config_remedy(error))
         .or_else(|| boundary_config_remedy(error))
         .or_else(|| file_access_remedy(error))
         .or_else(|| json_shape_remedy(error).map(Cow::Borrowed))
@@ -701,20 +705,17 @@ fn metric_budget_outside_production_remedy(
     }
 }
 
-fn sql_hazards_and_ratchet_config_remedy(
+fn dialects_hazards_and_ratchet_config_remedy(
     error: &ConfigurationFileError,
 ) -> Option<Cow<'static, str>> {
     if let Some(remedy) = framework_profile_config_remedy(error) {
         return Some(remedy);
     }
+    if let Some(remedy) = dialect_config_remedy(error) {
+        return Some(remedy);
+    }
     use ConfigurationFileError::*;
     Some(match error {
-        EmptySqlDialectInclude { file, .. } => Cow::Owned(format!(
-            "Add at least one glob pattern under include for every entry in sql.dialects in {file}."
-        )),
-        EmptySqlDialectPattern { file, .. } => Cow::Owned(format!(
-            "Set non-empty glob patterns in sql.dialects in {file}, or remove the empty entry."
-        )),
         EmptyHazardRuleName { file, .. } => Cow::Owned(format!(
             "Set non-empty rule names in hazards.disabled_rules in {file}, or remove the empty entry."
         )),
@@ -724,6 +725,31 @@ fn sql_hazards_and_ratchet_config_remedy(
         AbsoluteRatchetPath { file, .. } | ParentTraversalRatchetPath { file, .. } => Cow::Owned(
             format!("Use a repository-relative path without \"..\" in ratchet.path in {file}."),
         ),
+        _ => return None,
+    })
+}
+
+fn dialect_config_remedy(error: &ConfigurationFileError) -> Option<Cow<'static, str>> {
+    use ConfigurationFileError::*;
+    Some(match error {
+        EmptyDialectLanguage { file, .. } => Cow::Owned(format!(
+            "Key dialects in {file} by non-empty Language plugin names, such as dialects.sql."
+        )),
+        EmptyDialectName { file, .. } => Cow::Owned(format!(
+            "Set a non-empty dialect name for every entry under dialects in {file}."
+        )),
+        EmptyDialectInclude { file, language, .. } => Cow::Owned(format!(
+            "Add at least one glob pattern under include for every entry in dialects.{language} in {file}."
+        )),
+        EmptyDialectPattern { file, .. } => Cow::Owned(format!(
+            "Set non-empty glob patterns under dialects in {file}, or remove the empty entry."
+        )),
+        UnknownDialectLanguage { file, .. } => Cow::Owned(format!(
+            "Use a loaded Language plugin name under dialects in {file}, or remove the unknown language key."
+        )),
+        UnknownDialect { file, language, .. } => Cow::Owned(format!(
+            "Use one of the known Dialect names supported by {language} in dialects.{language} in {file}."
+        )),
         _ => return None,
     })
 }

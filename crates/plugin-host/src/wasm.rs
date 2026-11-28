@@ -9,8 +9,9 @@ use codeint_model::{
     FileScopeArtifact, FrameworkProfileResult, FrameworkProfileSelection, LanguagePluginError,
     LowerError, Manifest, ManifestAnalysis, PackageDependency, PackageFrameworkProfiles,
     ReferenceRange, ReferenceRanges, RepoPath, ScopeAnalysis, ScopeSummary, SourceSet,
-    SummaryField, Token, TokenKind, language, validate_entry_points, validate_flagged_lines,
-    validate_framework_profile_result, validate_manifest_analysis, validate_scope_analysis,
+    SummaryField, Token, TokenKind, language, validate_entry_points, validate_file_diagnostics,
+    validate_flagged_lines, validate_framework_profile_result, validate_manifest_analysis,
+    validate_scope_analysis,
 };
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Config, Engine, Store};
@@ -519,14 +520,17 @@ impl WasmLanguagePlugin {
         let model = lowered
             .map(convert_file_model)
             .map_err(convert_lower_error)?;
+        let line_count = text.lines().count();
         validate_flagged_lines(
             &self.name,
             path,
-            text.lines().count(),
+            line_count,
             &model.flagged_lines,
             &self.flagged_line_rules_set,
         )
         .map_err(LowerError::Contract)?;
+        validate_file_diagnostics(&self.name, path, line_count, &model.diagnostics)
+            .map_err(LowerError::Contract)?;
         Ok(model)
     }
 
@@ -671,9 +675,10 @@ impl WasmLanguagePlugin {
         let analysis = self
             .analyze_scope_checked(package_root, dialect, &artifacts)
             .map_err(map_language_plugin_error)?;
+        let artifact_paths: Vec<&str> = artifacts.iter().map(|item| item.path.as_str()).collect();
         validate_scope_analysis(
             &self.name,
-            &artifacts,
+            &artifact_paths,
             &self.hazard_rules_set,
             None,
             analysis,

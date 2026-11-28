@@ -94,7 +94,7 @@ fn equivalent_json_toml_and_yaml_configs_produce_identical_effective_configurati
   "duplication": { "near_clones": true, "min_similarity": 0.9 },
   "entry_points": ["src/main.rs"],
   "coverage_reports": ["coverage/lcov.info"],
-  "sql": { "dialects": [{ "dialect": "postgresql", "include": ["db/**"] }] },
+  "dialects": { "sql": [{ "dialect": "postgresql", "include": ["db/**"] }] },
   "hazards": { "disabled_rules": ["select-star"] },
   "framework_profiles": { "exclude": ["nextjs"] },
   "packages": { "crates/core": { "framework_profiles": false } },
@@ -151,7 +151,7 @@ ignore = ["serde"]
 near_clones = true
 min_similarity = 0.9
 
-[[sql.dialects]]
+[[dialects.sql]]
 dialect = "postgresql"
 include = ["db/**"]
 
@@ -215,8 +215,8 @@ entry_points:
   - src/main.rs
 coverage_reports:
   - coverage/lcov.info
-sql:
-  dialects:
+dialects:
+  sql:
     - dialect: postgresql
       include:
         - db/**
@@ -488,10 +488,12 @@ fn starter_formats_generate_valid_round_trippable_configs_and_refuse_existing_fi
         DetectedLanguage {
             plugin: "rust".to_owned(),
             include: vec![RepoPath::new("crates").expect("repo path")],
+            known_dialects: Vec::new(),
         },
         DetectedLanguage {
             plugin: "sql".to_owned(),
             include: vec![RepoPath::new("db").expect("repo path")],
+            known_dialects: vec!["postgresql".to_owned(), "sqlite".to_owned()],
         },
     ];
     let boundaries = StarterBoundaries::Preset(BoundaryPreset::Layered);

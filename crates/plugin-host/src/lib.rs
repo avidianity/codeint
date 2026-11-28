@@ -16,13 +16,12 @@ mod conformance;
 mod fetch;
 mod limits;
 mod sha256;
-mod sql;
 mod wasm;
 mod wasm_metric;
 
 pub use builtins::{
-    BuiltInLanguageDescriptor, NamedLanguagePlugin, SQL_PLUGIN_NAME,
-    TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, built_in_language_descriptors,
+    BuiltInLanguageDescriptor, NamedLanguagePlugin, TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME,
+    built_in_language_descriptors, built_in_language_dialects,
     built_in_language_flagged_line_rules, built_in_language_framework_profiles,
     built_in_language_hazard_rules, built_in_language_names, built_in_language_plugin,
     built_in_language_plugins,
@@ -32,10 +31,6 @@ pub use conformance::{
     EndToEndFile, EndToEndProbe, LANGUAGE_CHECKS, METRIC_CHECKS, run_conformance,
 };
 pub use sha256::{format_hex as sha256_hex, sha256};
-pub use sql::{
-    LoweredSqlFile, SqlParsedFile, SqlRejectedStatement, SqlSchemaScopeSummary,
-    apply_sql_schema_pass, lower_sql_source,
-};
 pub use wasm::WasmLanguagePlugin;
 pub use wasm_metric::{WasmMetricPlugin, validate_metric_key, validate_metric_version};
 

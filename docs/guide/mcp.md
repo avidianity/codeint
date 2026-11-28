@@ -43,7 +43,7 @@ All eight tools return MCP-tailored error remedies naming MCP arguments instead 
 
 | Tool | Required arguments | Optional arguments | Purpose |
 | ---- | ------------------ | ------------------ | ------- |
-| `check` | none | `path`, `package`, `coverage_reports`, `all`, `ignore_baseline`, `format` | Measure Software entropy and Hazards of the working tree (Erosion, Cognitive complexity, Test gap when Coverage reports are configured, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Dependency hygiene, and Hazards when a measured language defines Hazard line rules) and report Budget failures, `sql_schemas`, and `rejected_statements`. |
+| `check` | none | `path`, `package`, `coverage_reports`, `all`, `ignore_baseline`, `format` | Measure Software entropy and Hazards of the working tree (Erosion, Cognitive complexity, Test gap when Coverage reports are configured, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Dependency hygiene, and Hazards when a measured language defines Hazard line rules) and report Budget failures, `scope_summaries`, and `file_diagnostics`. |
 | `diff` | `base_ref` | `head_ref`, `path`, `package`, `all`, `format` | Compare against the merge-base of `base_ref` (including Hazards and new Hazard line Findings) and classify Findings as new, resolved, or unchanged. |
 | `trend` | none | `path`, `since` (`YYYY-MM-DD`), `format` | Measure each main-line commit over time (latest 20 commits or since a UTC date), including `hazards` when measured. |
 | `guard` | `file` | `path`, `format` | Query the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for an existing or planned file path. |

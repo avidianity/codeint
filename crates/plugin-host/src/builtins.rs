@@ -6,13 +6,13 @@ use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
 use codeint_lang_shell::Shell;
+use codeint_lang_sql::Sql;
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::LanguagePlugin;
 
-use crate::sql::BuiltInSql;
-
 pub const TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME: &str = "typescript-javascript";
-pub const SQL_PLUGIN_NAME: &str = "sql";
+
+const BUILT_IN_SQL: Sql = Sql::new();
 
 #[derive(Clone, Copy)]
 pub struct NamedLanguagePlugin<'plugin> {
@@ -52,8 +52,8 @@ const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 8] = [
         plugin: &Go,
     },
     NamedLanguagePlugin {
-        name: SQL_PLUGIN_NAME,
-        plugin: &BuiltInSql,
+        name: "sql",
+        plugin: &BUILT_IN_SQL,
     },
     NamedLanguagePlugin {
         name: "shell",
@@ -111,5 +111,12 @@ pub fn built_in_language_framework_profiles() -> BTreeMap<String, Vec<String>> {
             let profiles = named.plugin.known_framework_profiles();
             (!profiles.is_empty()).then(|| (named.name.to_owned(), profiles))
         })
+        .collect()
+}
+
+pub fn built_in_language_dialects() -> BTreeMap<String, Vec<String>> {
+    BUILT_IN_LANGUAGE_PLUGINS
+        .iter()
+        .map(|named| (named.name.to_owned(), named.plugin.known_dialects()))
         .collect()
 }

@@ -8,8 +8,8 @@ use codeint_model::{
     SourceFile, SourceSet, Workspace,
 };
 use codeint_report::{
-    MeasuredLanguage, OwnershipOptions, RejectedStatementEntry, Report, ReportExtras,
-    ReportOptions, SqlSchemaSummary, report_schema,
+    FileDiagnosticEntry, MeasuredLanguage, OwnershipOptions, Report, ReportExtras, ReportOptions,
+    ScopeSummaryEntry, report_schema,
 };
 use serde_json::Value;
 
@@ -202,15 +202,21 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
             baseline: None,
         },
         ReportExtras::default()
-            .with_rejected_statements(vec![RejectedStatementEntry {
+            .with_file_diagnostics(vec![FileDiagnosticEntry {
                 path: "packages/api/db/bad.sql".to_owned(),
                 line: 9,
-                dialect: "postgresql".to_owned(),
+                kind: "rejected-statement".to_owned(),
+                message: "could not parse statement as postgresql".to_owned(),
             }])
-            .with_sql_schemas(vec![SqlSchemaSummary {
+            .with_scope_summaries(vec![ScopeSummaryEntry {
+                language: "sql".to_owned(),
                 package: Some("packages/api".to_owned()),
-                dialect: "postgresql".to_owned(),
-                tables: 3,
+                dialect: Some("postgresql".to_owned()),
+                kind: "sql-schema".to_owned(),
+                fields: BTreeMap::from([
+                    ("dialect".to_owned(), "postgresql".to_owned()),
+                    ("tables".to_owned(), "3".to_owned()),
+                ]),
             }]),
     )
     .expect("report with test gap and hazards");

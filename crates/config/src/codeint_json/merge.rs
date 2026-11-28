@@ -22,6 +22,7 @@ use crate::RegressionLimits;
 use crate::boundaries::{Boundaries, BoundariesFile};
 use crate::config_error::{ConfigFileKind, ConfigurationFileError, compile_glob};
 use crate::dependencies::{DependenciesConfig, DependenciesFile};
+use crate::dialects::{DialectEntryFile, DialectRules, parse_dialects_map};
 use crate::framework_profiles::{
     FrameworkProfileRuleFile, FrameworkProfilesConfig, PackageConfigFile,
 };
@@ -32,7 +33,6 @@ use crate::resolved::{
     BudgetOverride, ConfigOverrides, ConfigProvenance, ResolvedConfiguration, ResolvedSetting,
     SourceSetOverride, resolve_with_provenance,
 };
-use crate::sql::{SqlConfig, SqlConfigFile};
 
 fn parse_configuration_file(
     config_file_kind: ConfigFileKind,
@@ -126,9 +126,9 @@ pub(super) fn parse_value_with_overrides(
         effective.coverage_reports(),
         &mut settings,
     )?;
-    let (sql, hazards, ratchet) = parse_sql_hazards_and_ratchet(
+    let (dialects, hazards, ratchet) = parse_dialects_hazards_and_ratchet(
         raw.as_ref(),
-        sections.sql,
+        sections.dialects,
         sections.hazards,
         sections.ratchet,
         &mut settings,
@@ -155,7 +155,7 @@ pub(super) fn parse_value_with_overrides(
         duplication: features.duplication,
         entry_points: features.entry_points,
         coverage_reports: features.coverage_reports,
-        sql,
+        dialects,
         hazards,
         framework_profiles,
         ratchet,
@@ -168,21 +168,33 @@ pub(super) fn parse_value_with_overrides(
     })
 }
 
-fn parse_sql_hazards_and_ratchet(
+fn parse_dialects_hazards_and_ratchet(
     raw: Option<&Value>,
-    sql_file: SqlConfigFile,
+    dialects_file: BTreeMap<String, Vec<DialectEntryFile>>,
     hazards_file: HazardsConfigFile,
     ratchet_file: RatchetConfigFile,
     settings: &mut Vec<ResolvedSetting>,
-) -> Result<(SqlConfig, HazardsConfig, RatchetConfig), ConfigurationFileError> {
-    let dialects_json = serde_json::to_value(&sql_file.dialects).unwrap_or_else(|_| json!([]));
-    let sql = SqlConfig::from_file(sql_file)?;
-    let sql_source = if has_json_path(raw, &["sql", "dialects"]) {
-        ConfigProvenance::File
+) -> Result<(BTreeMap<String, DialectRules>, HazardsConfig, RatchetConfig), ConfigurationFileError>
+{
+    let dialects_snapshot = dialects_file.clone();
+    let dialects = parse_dialects_map(dialects_file)?;
+    if dialects_snapshot.is_empty() {
+        push_setting(settings, "dialects", json!({}), ConfigProvenance::Default);
     } else {
-        ConfigProvenance::Default
-    };
-    push_setting(settings, "sql.dialects", dialects_json, sql_source);
+        for (language, entries) in dialects_snapshot {
+            let source = if has_json_path(raw, &["dialects", language.as_str()]) {
+                ConfigProvenance::File
+            } else {
+                ConfigProvenance::Default
+            };
+            push_setting(
+                settings,
+                format!("dialects.{language}"),
+                serde_json::to_value(&entries).unwrap_or_else(|_| json!([])),
+                source,
+            );
+        }
+    }
 
     let hazards = HazardsConfig::from_file(hazards_file)?;
     let hazards_source = if has_json_path(raw, &["hazards", "disabled_rules"]) {
@@ -209,7 +221,7 @@ fn parse_sql_hazards_and_ratchet(
         json!(ratchet.path),
         ratchet_source,
     );
-    Ok((sql, hazards, ratchet))
+    Ok((dialects, hazards, ratchet))
 }
 
 fn parse_framework_profiles(

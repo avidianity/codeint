@@ -46,7 +46,11 @@ impl SavedReport {
             return Ok(SavedReport::Diff(Box::new(report)));
         }
         if is_check_shape(object) {
-            let mut report: Report = serde_json::from_value(value).map_err(|source| {
+            let mut normalized = value;
+            if let Some(map) = normalized.as_object_mut() {
+                normalize_legacy_check_keys(map)?;
+            }
+            let mut report: Report = serde_json::from_value(normalized).map_err(|source| {
                 SavedReportError::InvalidPayload {
                     kind: "check",
                     source,
@@ -117,4 +121,87 @@ fn is_check_shape(object: &Map<String, Value>) -> bool {
     object.contains_key("files")
         && object.contains_key("source_lines")
         && object.contains_key("source_sets")
+}
+
+fn normalize_legacy_check_keys(object: &mut Map<String, Value>) -> Result<(), SavedReportError> {
+    migrate_legacy_array(
+        object,
+        "file_diagnostics",
+        "rejected_statements",
+        convert_legacy_rejected_statement,
+    )?;
+    migrate_legacy_array(
+        object,
+        "scope_summaries",
+        "sql_schemas",
+        convert_legacy_sql_schema,
+    )?;
+    Ok(())
+}
+
+fn migrate_legacy_array(
+    object: &mut Map<String, Value>,
+    new_key: &str,
+    old_key: &str,
+    convert: fn(&Value) -> Option<Value>,
+) -> Result<(), SavedReportError> {
+    if object.contains_key(new_key) {
+        return Ok(());
+    }
+    let Some(legacy_value) = object.remove(old_key) else {
+        return Ok(());
+    };
+    let Value::Array(items) = legacy_value else {
+        return Err(invalid_legacy_payload(format!(
+            "legacy field {old_key:?} must be an array"
+        )));
+    };
+    let mut converted = Vec::with_capacity(items.len());
+    for (index, item) in items.iter().enumerate() {
+        let entry = convert(item).ok_or_else(|| {
+            invalid_legacy_payload(format!("invalid entry at {old_key}[{index}]"))
+        })?;
+        converted.push(entry);
+    }
+    object.insert(new_key.to_owned(), Value::Array(converted));
+    Ok(())
+}
+
+fn invalid_legacy_payload(message: String) -> SavedReportError {
+    SavedReportError::InvalidPayload {
+        kind: "check",
+        source: <serde_json::Error as serde::de::Error>::custom(message),
+    }
+}
+
+fn convert_legacy_rejected_statement(item: &Value) -> Option<Value> {
+    let path = item.get("path")?.as_str()?;
+    let line = item.get("line")?.as_u64()?;
+    let dialect = item.get("dialect")?.as_str()?;
+    Some(serde_json::json!({
+        "path": path,
+        "line": line,
+        "kind": "rejected-statement",
+        "message": format!("could not parse statement as {dialect}"),
+    }))
+}
+
+fn convert_legacy_sql_schema(item: &Value) -> Option<Value> {
+    let dialect = item.get("dialect")?.as_str()?;
+    let tables = item.get("tables")?.as_u64()?;
+    let mut entry = Map::new();
+    entry.insert("language".to_owned(), Value::String("sql".to_owned()));
+    if let Some(package) = item.get("package").and_then(Value::as_str) {
+        entry.insert("package".to_owned(), Value::String(package.to_owned()));
+    }
+    entry.insert("dialect".to_owned(), Value::String(dialect.to_owned()));
+    entry.insert("kind".to_owned(), Value::String("sql-schema".to_owned()));
+    entry.insert(
+        "fields".to_owned(),
+        serde_json::json!({
+            "dialect": dialect,
+            "tables": tables.to_string(),
+        }),
+    );
+    Some(Value::Object(entry))
 }

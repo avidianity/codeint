@@ -4,13 +4,14 @@ use std::path::{Path, PathBuf};
 use codeint_config::{
     Configuration, ConfigurationInspection, LanguageCoverage, PluginDeclaration, PluginHostConfig,
     PluginKind, PluginSource, SchemaVersionStatus, inspect_configuration, is_broken_symlink,
+    validate_dialects,
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_model::Workspace;
 use codeint_plugin_host::{
-    PLUGIN_INTERFACE_VERSION, PluginHostError, built_in_language_framework_profiles,
-    built_in_language_names, built_in_language_plugins, sha256, sha256_hex,
-    verify_plugin_component,
+    PLUGIN_INTERFACE_VERSION, PluginHostError, built_in_language_dialects,
+    built_in_language_framework_profiles, built_in_language_names, built_in_language_plugins,
+    sha256, sha256_hex, verify_plugin_component,
 };
 use codeint_report::{DoctorCheck, DoctorReport};
 
@@ -142,19 +143,37 @@ fn valid_configuration_checks(
         .plugins
         .iter()
         .any(|plugin| plugin.kind == PluginKind::Language);
-    let config_check =
-        if !has_external_metrics && let Err(error) = configuration.validate_metrics(&[]) {
-            DoctorCheck::error("config", describe(&error))
-                .with_remedy(configuration_file_remedy(&error))
-        } else if !has_external_languages
-            && let Err(error) = validate_built_in_framework_profiles(configuration)
-        {
-            DoctorCheck::error("config", describe(&error))
-                .with_remedy(configuration_file_remedy(&error))
-        } else {
-            DoctorCheck::pass("config", format!("{file_name} is valid"))
-        };
+    let config_check = if !has_external_metrics
+        && let Err(error) = configuration.validate_metrics(&[])
+    {
+        DoctorCheck::error("config", describe(&error))
+            .with_remedy(configuration_file_remedy(&error))
+    } else if !has_external_languages
+        && let Err(error) = validate_built_in_framework_profiles(configuration)
+    {
+        DoctorCheck::error("config", describe(&error))
+            .with_remedy(configuration_file_remedy(&error))
+    } else if !has_external_languages && let Err(error) = validate_built_in_dialects(configuration)
+    {
+        DoctorCheck::error("config", describe(&error))
+            .with_remedy(configuration_file_remedy(&error))
+    } else {
+        DoctorCheck::pass("config", format!("{file_name} is valid"))
+    };
     vec![config_check, schema_check(file_name, schema)]
+}
+
+fn validate_built_in_dialects(
+    configuration: &Configuration,
+) -> Result<(), codeint_config::ConfigurationFileError> {
+    if configuration.dialects.is_empty() {
+        return Ok(());
+    }
+    validate_dialects(
+        configuration.config_file(),
+        &configuration.dialects,
+        &built_in_language_dialects(),
+    )
 }
 
 fn validate_built_in_framework_profiles(

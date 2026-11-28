@@ -69,15 +69,15 @@ fn report_schema_value() -> Value {
                     }
                 }
             },
-            "rejected_statements": {
+            "file_diagnostics": {
                 "type": "array",
-                "description": "Statements that a Language plugin's parser could not parse; they still count in token Metrics and receive no statement rules.",
-                "items": { "$ref": "#/$defs/RejectedStatementEntry" }
+                "description": "Non-fatal per-file diagnostics emitted while lowering source files.",
+                "items": { "$ref": "#/$defs/FileDiagnosticEntry" }
             },
-            "sql_schemas": {
+            "scope_summaries": {
                 "type": "array",
-                "description": "Table counts of each SQL schema built per Workspace package (or repository root) and Dialect.",
-                "items": { "$ref": "#/$defs/SqlSchemaSummary" }
+                "description": "Language-neutral summaries emitted by cross-file scope analysis per Workspace package and Dialect.",
+                "items": { "$ref": "#/$defs/ScopeSummaryEntry" }
             },
             "declaration_only": { "type": "array", "items": { "type": "string" } },
             "submodules": { "type": "array", "items": { "type": "string" } },
@@ -328,23 +328,29 @@ fn report_schema_value() -> Value {
                 },
                 "additionalProperties": false
             },
-            "RejectedStatementEntry": {
+            "FileDiagnosticEntry": {
                 "type": "object",
-                "required": ["path", "line", "dialect"],
+                "required": ["path", "line", "kind", "message"],
                 "properties": {
                     "path": { "type": "string" },
                     "line": { "type": "integer", "minimum": 1 },
-                    "dialect": { "type": "string" }
+                    "kind": { "type": "string" },
+                    "message": { "type": "string" }
                 },
                 "additionalProperties": false
             },
-            "SqlSchemaSummary": {
+            "ScopeSummaryEntry": {
                 "type": "object",
-                "required": ["dialect", "tables"],
+                "required": ["language", "kind"],
                 "properties": {
+                    "language": { "type": "string" },
                     "package": { "type": "string" },
                     "dialect": { "type": "string" },
-                    "tables": { "type": "integer", "minimum": 0 }
+                    "kind": { "type": "string" },
+                    "fields": {
+                        "type": "object",
+                        "additionalProperties": { "type": "string" }
+                    }
                 },
                 "additionalProperties": false
             },

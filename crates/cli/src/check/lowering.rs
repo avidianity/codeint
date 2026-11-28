@@ -2,18 +2,17 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::string::FromUtf8Error;
 use std::sync::RwLock;
 
-use codeint_config::{ConfigFileKind, LanguageCoverage, SqlDialect};
+use codeint_config::{ConfigFileKind, LanguageCoverage};
 use codeint_git::{BlobId, Snapshot};
 use codeint_model::{
     CodeModel, LowerError, RepoPath, SkippedFile, SourceFile, Workspace, settle_source_set,
-    validate_hazard_lines,
+    validate_file_diagnostics, validate_hazard_lines,
 };
-use codeint_plugin_host::{NamedLanguagePlugin, SqlParsedFile};
-use codeint_report::RejectedStatementEntry;
+use codeint_plugin_host::NamedLanguagePlugin;
+use codeint_report::FileDiagnosticEntry;
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use super::errors::CheckError;
-use super::sql;
 
 #[derive(Clone, Copy)]
 pub(crate) struct VersionedLanguagePlugin<'a> {
@@ -27,7 +26,7 @@ struct LoweringCacheKey {
     blob_id: BlobId,
     plugin_name: String,
     plugin_version: String,
-    sql_dialect: Option<SqlDialect>,
+    dialect: Option<String>,
 }
 
 #[derive(Default)]
@@ -60,15 +59,15 @@ impl LoweringCache {
 pub(super) struct CollectedPluginModels {
     pub(super) models: Vec<CodeModel>,
     pub(super) file_line_counts: BTreeMap<RepoPath, usize>,
-    pub(super) sql_parsed: BTreeMap<RepoPath, SqlParsedFile>,
-    pub(super) rejected_statements: Vec<RejectedStatementEntry>,
+    pub(super) file_dialects: BTreeMap<RepoPath, Option<String>>,
+    pub(super) file_diagnostics: Vec<FileDiagnosticEntry>,
 }
 
 #[derive(Clone)]
 pub(super) struct LoweredOutcome {
     file: LoweredFile,
     line_count: Option<(RepoPath, usize)>,
-    sql: Option<sql::SqlLowerDetails>,
+    dialect: Option<String>,
 }
 
 #[derive(Clone)]
@@ -170,7 +169,7 @@ pub(super) fn lower_covered_files(
     tree: &Snapshot,
     plugins: &[VersionedLanguagePlugin<'_>],
     covered_files: &[(&RepoPath, usize)],
-    sql_dialects: &[Option<SqlDialect>],
+    file_dialects: &[Option<String>],
     config_file: ConfigFileKind,
     lowering_cache: Option<&LoweringCache>,
 ) -> Result<Vec<(usize, LoweredOutcome)>, CheckError> {
@@ -178,10 +177,10 @@ pub(super) fn lower_covered_files(
     let reader = tree.parallel_reader();
     covered_files
         .par_iter()
-        .zip(sql_dialects.par_iter())
+        .zip(file_dialects.par_iter())
         .map_init(
             || reader.thread_local(),
-            |local_reader, (&(path, index), &dialect)| {
+            |local_reader, (&(path, index), dialect)| {
                 let plugin = plugins[index];
                 let cache_key = lowering_cache.and_then(|_| {
                     local_reader.blob_id(path).map(|blob_id| LoweringCacheKey {
@@ -189,7 +188,7 @@ pub(super) fn lower_covered_files(
                         blob_id,
                         plugin_name: plugin.named.name.to_owned(),
                         plugin_version: plugin.version.to_owned(),
-                        sql_dialect: dialect,
+                        dialect: dialect.clone(),
                     })
                 });
                 if let (Some(cache), Some(key)) = (lowering_cache, cache_key.as_ref())
@@ -202,7 +201,7 @@ pub(super) fn lower_covered_files(
                     bytes,
                     path,
                     &plugin.named,
-                    dialect,
+                    dialect.as_deref(),
                     &listed_hazard_rules[index],
                     config_file,
                 )?;
@@ -227,8 +226,8 @@ pub(super) fn collect_plugin_models(
         })
         .collect();
     let mut file_line_counts = BTreeMap::new();
-    let mut sql_parsed = BTreeMap::new();
-    let mut rejected_statements = Vec::new();
+    let mut file_dialects = BTreeMap::new();
+    let mut file_diagnostics = Vec::new();
     for (index, outcome) in outcomes {
         if let Some((path, lines)) = outcome.line_count {
             file_line_counts.insert(path, lines);
@@ -236,28 +235,41 @@ pub(super) fn collect_plugin_models(
         let model = &mut models[index];
         match outcome.file {
             LoweredFile::Measured(file) => {
-                if let Some(details) = outcome.sql {
-                    rejected_statements.extend(details.rejected_statements);
-                    sql_parsed.insert(file.path.clone(), details.parsed);
+                for diagnostic in &file.model.diagnostics {
+                    file_diagnostics.push(FileDiagnosticEntry {
+                        path: file.path.to_string(),
+                        line: diagnostic.line,
+                        kind: diagnostic.kind.clone(),
+                        message: diagnostic.message.clone(),
+                    });
                 }
+                file_dialects.insert(file.path.clone(), outcome.dialect);
                 model.files.push(file);
             }
             LoweredFile::DeclarationOnly(path) => model.declaration_only.push(path),
             LoweredFile::Skipped(skipped) => model.skipped.push(skipped),
         }
     }
-    rejected_statements.sort_by(|a, b| {
-        (a.path.as_str(), a.line, a.dialect.as_str()).cmp(&(
-            b.path.as_str(),
-            b.line,
-            b.dialect.as_str(),
-        ))
+    file_diagnostics.sort_by(|left, right| {
+        (
+            left.path.as_str(),
+            left.line,
+            left.kind.as_str(),
+            left.message.as_str(),
+        )
+            .cmp(&(
+                right.path.as_str(),
+                right.line,
+                right.kind.as_str(),
+                right.message.as_str(),
+            ))
     });
+    file_diagnostics.dedup();
     CollectedPluginModels {
         models,
         file_line_counts,
-        sql_parsed,
-        rejected_statements,
+        file_dialects,
+        file_diagnostics,
     }
 }
 
@@ -265,7 +277,7 @@ fn lower_bytes(
     bytes: Vec<u8>,
     path: &RepoPath,
     named: &NamedLanguagePlugin<'_>,
-    sql_dialect: Option<SqlDialect>,
+    dialect: Option<&str>,
     listed_hazard_rules: &HashSet<String>,
     config_file: ConfigFileKind,
 ) -> Result<LoweredOutcome, CheckError> {
@@ -275,23 +287,14 @@ fn lower_bytes(
             return Ok(LoweredOutcome {
                 file: LoweredFile::Skipped(not_utf8(path.clone(), &error)),
                 line_count: None,
-                sql: None,
+                dialect: dialect.map(str::to_owned),
             });
         }
     };
     let line_count = text.lines().count();
     let recorded_lines = Some((path.clone(), line_count));
-    let lowered = match sql_dialect {
-        Some(dialect) => {
-            sql::lower_sql_source(path, &text, dialect).map(|(file, details)| (file, Some(details)))
-        }
-        None => named
-            .plugin
-            .lower(path, &text, None)
-            .map(|file| (file, None)),
-    };
-    match lowered {
-        Ok((mut file, sql_details)) => {
+    match named.plugin.lower(path, &text, dialect) {
+        Ok(mut file) => {
             validate_hazard_lines(
                 named.name,
                 path,
@@ -300,6 +303,8 @@ fn lower_bytes(
                 listed_hazard_rules,
             )
             .map_err(|error| CheckError::language_plugin(config_file, error))?;
+            validate_file_diagnostics(named.name, path, line_count, &file.diagnostics)
+                .map_err(|error| CheckError::language_plugin(config_file, error))?;
             for function in &mut file.functions {
                 function.coverage = None;
             }
@@ -313,22 +318,22 @@ fn lower_bytes(
                     model: file,
                 }),
                 line_count: recorded_lines,
-                sql: sql_details,
+                dialect: dialect.map(str::to_owned),
             })
         }
         Err(LowerError::DeclarationOnly) => Ok(LoweredOutcome {
             file: LoweredFile::DeclarationOnly(path.clone()),
             line_count: recorded_lines,
-            sql: None,
+            dialect: dialect.map(str::to_owned),
         }),
         Err(LowerError::Contract(error)) => Err(CheckError::language_plugin(config_file, error)),
         Err(reason) => Ok(LoweredOutcome {
             file: LoweredFile::Skipped(SkippedFile {
                 path: path.clone(),
-                reason: sql::format_lower_error(sql_dialect.is_some(), reason),
+                reason: reason.to_string(),
             }),
             line_count: recorded_lines,
-            sql: None,
+            dialect: dialect.map(str::to_owned),
         }),
     }
 }

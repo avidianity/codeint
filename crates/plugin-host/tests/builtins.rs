@@ -1,12 +1,11 @@
-use std::collections::BTreeMap;
-
-use codeint_config::SqlDialect;
-use codeint_model::{CodeModel, FrameworkProfileSelection, Manifest, RepoPath, SourceFile};
+use codeint_model::{
+    FileScopeArtifact, FrameworkProfileSelection, Manifest, RepoPath, SummaryField,
+};
 use codeint_plugin_host::{
-    SQL_PLUGIN_NAME, SqlSchemaScopeSummary, TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME,
-    apply_sql_schema_pass, built_in_language_descriptors, built_in_language_flagged_line_rules,
-    built_in_language_framework_profiles, built_in_language_hazard_rules, built_in_language_names,
-    built_in_language_plugin, built_in_language_plugins, lower_sql_source,
+    TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, built_in_language_descriptors,
+    built_in_language_flagged_line_rules, built_in_language_framework_profiles,
+    built_in_language_hazard_rules, built_in_language_names, built_in_language_plugin,
+    built_in_language_plugins,
 };
 
 #[test]
@@ -27,7 +26,7 @@ fn built_in_language_plugins_register_all_eight_languages_with_descriptors_and_h
     let plugins = built_in_language_plugins();
     assert_eq!(plugins.len(), 8);
     assert!(built_in_language_plugin(TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME).is_some());
-    assert!(built_in_language_plugin(SQL_PLUGIN_NAME).is_some());
+    assert!(built_in_language_plugin("sql").is_some());
     assert!(built_in_language_plugin("unknown-language").is_none());
 
     let descriptors = built_in_language_descriptors();
@@ -40,7 +39,7 @@ fn built_in_language_plugins_register_all_eight_languages_with_descriptors_and_h
 
     let hazard_rules = built_in_language_hazard_rules();
     let sql_rules = hazard_rules
-        .get(SQL_PLUGIN_NAME)
+        .get("sql")
         .expect("sql built-in plugin exposes hazard rules");
     assert!(
         sql_rules
@@ -72,72 +71,89 @@ fn every_built_in_language_plugin_declares_flagged_line_rules() {
 }
 
 #[test]
-fn sql_host_helpers_lower_with_dialect_and_apply_cross_file_schema_hazards() {
+fn built_in_sql_plugin_exports_dialects_and_runs_scope_analysis_through_language_plugin_trait() {
+    let sql = built_in_language_plugin("sql").expect("built-in sql plugin");
+    assert_eq!(
+        sql.plugin.known_dialects(),
+        vec!["postgresql", "mysql", "sqlite", "duckdb"]
+    );
+    assert!(sql.plugin.has_scope_analysis());
+
     let migration_path = RepoPath::new("migrations/001_init.sql").expect("valid path");
     let down_path = RepoPath::new("migrations/001_init.down.sql").expect("valid path");
     let query_path = RepoPath::new("queries/get_users.sql").expect("valid path");
 
-    let migration = lower_sql_source(
-        &migration_path,
-        "CREATE TABLE users (id INT PRIMARY KEY, email TEXT);\n",
-        SqlDialect::Postgresql,
-    )
-    .expect("migration lowers");
-    let down = lower_sql_source(&down_path, "DROP TABLE users;\n", SqlDialect::Postgresql)
+    let migration = sql
+        .plugin
+        .lower(
+            &migration_path,
+            "CREATE TABLE users (id INT PRIMARY KEY, email TEXT);\n",
+            Some("postgresql"),
+        )
+        .expect("migration lowers");
+    let down = sql
+        .plugin
+        .lower(&down_path, "DROP TABLE users;\n", Some("postgresql"))
         .expect("down migration lowers");
-    let query = lower_sql_source(
-        &query_path,
-        "SELECT id FROM users WHERE email = 'a@b.com';\n",
-        SqlDialect::Postgresql,
-    )
-    .expect("query lowers");
+    let query = sql
+        .plugin
+        .lower(
+            &query_path,
+            "SELECT id FROM users WHERE email = 'a@b.com';\n",
+            Some("postgresql"),
+        )
+        .expect("query lowers");
 
-    let mut parsed_by_path = BTreeMap::new();
-    parsed_by_path.insert(migration_path.clone(), migration.parsed);
-    parsed_by_path.insert(down_path.clone(), down.parsed);
-    parsed_by_path.insert(query_path.clone(), query.parsed);
+    let artifacts = vec![
+        FileScopeArtifact {
+            path: migration_path.to_string(),
+            source_set: migration.source_set,
+            artifact: migration.scope_artifact.expect("migration artifact"),
+        },
+        FileScopeArtifact {
+            path: down_path.to_string(),
+            source_set: down.source_set,
+            artifact: down.scope_artifact.expect("down artifact"),
+        },
+        FileScopeArtifact {
+            path: query_path.to_string(),
+            source_set: query.source_set,
+            artifact: query.scope_artifact.expect("query artifact"),
+        },
+    ];
 
-    let mut model = CodeModel {
-        files: vec![
-            SourceFile {
-                path: migration_path,
-                model: migration.file_model,
-            },
-            SourceFile {
-                path: down_path,
-                model: down.file_model,
-            },
-            SourceFile {
-                path: query_path.clone(),
-                model: query.file_model,
-            },
-        ],
-        ..CodeModel::default()
-    };
-
-    let summaries = apply_sql_schema_pass(&mut model, &parsed_by_path);
+    let analysis = sql
+        .plugin
+        .analyze_scope("", Some("postgresql"), artifacts)
+        .expect("scope analysis succeeds");
+    assert_eq!(analysis.summaries.len(), 1);
+    assert_eq!(analysis.summaries[0].kind, "sql-schema");
     assert_eq!(
-        summaries,
-        vec![SqlSchemaScopeSummary {
-            package: None,
-            dialect: "postgresql".to_owned(),
-            tables: 1,
-        }]
+        analysis.summaries[0].fields,
+        vec![
+            SummaryField {
+                key: "dialect".to_owned(),
+                value: "postgresql".to_owned(),
+            },
+            SummaryField {
+                key: "tables".to_owned(),
+                value: "1".to_owned(),
+            },
+        ]
     );
 
-    let query_file = model
-        .files
+    let query_hazards = analysis
+        .extra_hazards
         .iter()
-        .find(|file| file.path == query_path)
-        .expect("query file present");
+        .find(|entry| entry.path == query_path.as_str())
+        .expect("query hazards present");
     assert!(
-        query_file
-            .model
+        query_hazards
             .hazard_lines
             .iter()
             .any(|hazard| hazard.rule == "filter-on-unindexed-column"),
         "expected cross-file schema hazard, got {:?}",
-        query_file.model.hazard_lines
+        query_hazards.hazard_lines
     );
 }
 
