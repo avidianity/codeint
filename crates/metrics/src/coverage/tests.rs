@@ -572,3 +572,266 @@ fn path_matcher_rejects_relative_parent_traversal_paths() {
         Some(&repo[0])
     );
 }
+
+#[test]
+fn apply_attributes_lines_to_innermost_nested_function_across_deep_nesting_and_closures() {
+    let mut closure = make_function("", 16, 19);
+    closure.name = None;
+    let file = source_file_with_functions(
+        "src/nested.ts",
+        SourceSet::Production,
+        24,
+        vec![
+            make_function("outer", 1, 10),
+            make_function("inner", 4, 7),
+            make_function("deepOuter", 12, 24),
+            make_function("deepMiddle", 14, 22),
+            closure,
+        ],
+    );
+    let mut models = vec![language_model("typescript", vec![file])];
+    let report = NamedCoverageReport {
+        path: "lcov.info".to_owned(),
+        report: parse_coverage_report(
+            concat!(
+                "SF:src/nested.ts\n",
+                "DA:2,1\n",
+                "DA:3,1\n",
+                "DA:5,0\n",
+                "DA:6,0\n",
+                "DA:9,1\n",
+                "DA:13,1\n",
+                "DA:15,1\n",
+                "DA:17,0\n",
+                "DA:18,0\n",
+                "DA:21,0\n",
+                "DA:23,1\n",
+                "end_of_record\n",
+            )
+            .as_bytes(),
+        )
+        .expect("valid LCOV"),
+    };
+    let mut line_counts = BTreeMap::new();
+    line_counts.insert(repo_path("src/nested.ts"), 24);
+
+    apply_coverage_reports(&[report], &mut models, &line_counts)
+        .expect("nested coverage application should succeed");
+
+    let functions = &models[0].files[0].model.functions;
+    assert_eq!(
+        functions[0].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 3,
+            executed_lines: 3,
+        })
+    );
+    assert_eq!(
+        functions[1].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 2,
+            executed_lines: 0,
+        })
+    );
+    assert_eq!(
+        functions[2].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 2,
+            executed_lines: 2,
+        })
+    );
+    assert_eq!(
+        functions[3].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 2,
+            executed_lines: 1,
+        })
+    );
+    assert_eq!(
+        functions[4].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 2,
+            executed_lines: 0,
+        })
+    );
+}
+
+#[test]
+fn apply_shares_identical_spans_and_handles_zero_own_lines_invalid_spans_and_partial_overlaps() {
+    let file = source_file_with_functions(
+        "src/edges.ts",
+        SourceSet::Production,
+        50,
+        vec![
+            make_function("enclosing", 1, 10),
+            make_function("sameLineA", 5, 5),
+            make_function("sameLineB", 5, 5),
+            make_function("wrapperOnly", 20, 25),
+            make_function("wrappedChild", 21, 24),
+            make_function("withInvalidChild", 28, 38),
+            make_function("invalidSpan", 35, 30),
+            make_function("overlapLeft", 40, 45),
+            make_function("overlapRight", 43, 48),
+        ],
+    );
+    let mut models = vec![language_model("typescript", vec![file])];
+    let report = NamedCoverageReport {
+        path: "lcov.info".to_owned(),
+        report: parse_coverage_report(
+            concat!(
+                "SF:src/edges.ts\n",
+                "DA:2,1\n",
+                "DA:5,0\n",
+                "DA:22,1\n",
+                "DA:23,0\n",
+                "DA:31,1\n",
+                "DA:32,0\n",
+                "DA:41,1\n",
+                "DA:44,0\n",
+                "DA:47,1\n",
+                "end_of_record\n",
+            )
+            .as_bytes(),
+        )
+        .expect("valid LCOV"),
+    };
+    let mut line_counts = BTreeMap::new();
+    line_counts.insert(repo_path("src/edges.ts"), 50);
+
+    apply_coverage_reports(&[report], &mut models, &line_counts)
+        .expect("edge-case coverage application should succeed");
+
+    let functions = &models[0].files[0].model.functions;
+    assert_eq!(
+        functions[0].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 1,
+            executed_lines: 1,
+        })
+    );
+    assert_eq!(
+        functions[1].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 1,
+            executed_lines: 0,
+        })
+    );
+    assert_eq!(
+        functions[2].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 1,
+            executed_lines: 0,
+        })
+    );
+    assert_eq!(
+        functions[3].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 0,
+            executed_lines: 0,
+        })
+    );
+    assert_eq!(
+        functions[4].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 2,
+            executed_lines: 1,
+        })
+    );
+    assert_eq!(
+        functions[5].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 2,
+            executed_lines: 1,
+        })
+    );
+    assert_eq!(
+        functions[6].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 0,
+            executed_lines: 0,
+        })
+    );
+    assert_eq!(
+        functions[7].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 2,
+            executed_lines: 1,
+        })
+    );
+    assert_eq!(
+        functions[8].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 2,
+            executed_lines: 1,
+        })
+    );
+}
+
+#[test]
+fn apply_separates_shell_script_lines_from_named_functions_across_merged_reports() {
+    let shell_file = source_file_with_functions(
+        "scripts/deploy.sh",
+        SourceSet::Production,
+        12,
+        vec![
+            make_function("<script>", 1, 12),
+            make_function("helper", 3, 6),
+            make_function("unlisted_fn", 8, 10),
+        ],
+    );
+    let omitted_file = source_file_with_functions(
+        "scripts/omitted.sh",
+        SourceSet::Production,
+        4,
+        vec![make_function("<script>", 1, 4)],
+    );
+    let mut models = vec![language_model("shell", vec![shell_file, omitted_file])];
+    let lcov = NamedCoverageReport {
+        path: "unit.info".to_owned(),
+        report: parse_coverage_report(
+            b"SF:scripts/deploy.sh\nDA:2,1\nDA:4,0\nDA:5,0\nDA:11,1\nend_of_record\n",
+        )
+        .expect("valid LCOV"),
+    };
+    let cobertura = NamedCoverageReport {
+        path: "e2e.xml".to_owned(),
+        report: parse_coverage_report(
+            br#"<coverage><packages><package><classes>
+                <class filename="scripts/deploy.sh"><lines>
+                    <line number="4" hits="2"/>
+                </lines></class>
+            </classes></package></packages></coverage>"#,
+        )
+        .expect("valid Cobertura"),
+    };
+    let mut line_counts = BTreeMap::new();
+    line_counts.insert(repo_path("scripts/deploy.sh"), 12);
+    line_counts.insert(repo_path("scripts/omitted.sh"), 4);
+
+    apply_coverage_reports(&[lcov, cobertura], &mut models, &line_counts)
+        .expect("shell merged coverage should succeed");
+
+    let functions = &models[0].files[0].model.functions;
+    assert_eq!(
+        functions[0].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 2,
+            executed_lines: 2,
+        })
+    );
+    assert_eq!(
+        functions[1].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 2,
+            executed_lines: 1,
+        })
+    );
+    assert_eq!(
+        functions[2].coverage,
+        Some(FunctionCoverage {
+            listed_lines: 0,
+            executed_lines: 0,
+        })
+    );
+    assert_eq!(models[0].files[1].model.functions[0].coverage, None);
+}

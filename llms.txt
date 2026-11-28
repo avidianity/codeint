@@ -69,3 +69,4 @@
 - [ADR 0036: Plugin contract 0.5.0](docs/adr/0036-plugin-contract-0-5-0.md)
 - [ADR 0037: Metric version 2 for Duplication and Import boundaries](docs/adr/0037-metric-v2-duplication-and-boundaries.md)
 - [ADR 0038: Client SDK architecture, parity, and Dart client SDK](docs/adr/0038-programmatic-sdks.md)
+- [ADR 0039: Metric version 2 for Test gap](docs/adr/0039-metric-v2-test-gap.md)

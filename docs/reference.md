@@ -1752,13 +1752,15 @@ Name one or more Coverage reports in `coverage_reports` (paths relative to the r
 When `--coverage-report` is present on the command line, `coverage_reports` from the configuration file is not used for that run.
 See [docs/guide/test-gap.md](./guide/test-gap.md) for copy-paste setup commands for each supported test tool.
 
-Test gap computes from the Code model alone after codeint fills per-function coverage facts from the named reports:
+Test gap computes from the Code model alone after codeint fills per-function coverage facts from the named reports (Metric version `2`, [ADR 0039](./adr/0039-metric-v2-test-gap.md)):
 
-- For each Production function, `untested_share` is its listed lines with hit count `0` divided by all its listed lines.
+- Each listed line in a covered file is attributed only to the innermost enclosing function span across all languages, excluding lines inside strictly nested child functions or closures from enclosing parent functions.
+  Functions sharing identical start and end lines both retain those lines because line-based Coverage reports carry no column information.
+- For each Production function, `untested_share` is its owned listed lines with hit count `0` divided by all its owned listed lines.
   Lines that no report lists count on neither side.
 - Test gap is the sum over Production functions of `Function mass * untested_share`, divided by the total Function mass of those functions.
 - A function whose file appears in no named report, in a language that at least one named report covers, counts as fully untested (`untested_share = 1`).
-- A function whose file appears in a report, but of which the report lists no line, is left out of Test gap on both sides.
+- A function whose file appears in a report, but that owns no listed line after excluding strictly nested child spans, is left out of Test gap on both sides.
 - When several Coverage reports (or several Cobertura `<class>` entries for one file) list the same line, the line counts as executed when any of them has a hit count above `0`.
 - Test gap covers the Production Source set only (repository total, each covered language, and each Workspace package) and never appears for Test, Generated, or Vendored files.
 - Test gap has no Reference range, and no Language plugin publishes one.

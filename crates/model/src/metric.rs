@@ -212,7 +212,7 @@ impl Metric {
             MetricDescriptor {
                 key: "test_gap",
                 display_name: "Test gap",
-                version: 1,
+                version: 2,
                 kind: MetricKind::SoftwareEntropy,
                 scope: MetricScope::ProductionOnly,
                 supports_diff_regression: false,
