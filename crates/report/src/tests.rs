@@ -1,7 +1,9 @@
 use codeint_config::{Budgets, DuplicationConfig, FindingsShown, MinSimilarity, ReportFormat};
 use codeint_model::{CodeModel, FileModel, ReferenceRanges, RepoPath, SourceFile, SourceSet};
 
-use super::{CommitMeasurement, Decimal, MeasuredLanguage, Report};
+use super::{
+    CommitMeasurement, CommitMeasurementOptions, Decimal, MeasuredLanguage, Report, ReportOptions,
+};
 
 #[test]
 fn a_negative_zero_from_an_empty_sum_is_reported_as_zero() {
@@ -38,7 +40,8 @@ fn tiny_positive_min_similarity_preserves_nonzero_json_toon_and_markdown_display
             scope_artifact: None,
         },
     });
-    let report = Report::summarize_with_config(
+    let budgets = Budgets::default();
+    let report = Report::summarize_with_options(
         vec![MeasuredLanguage::new(
             "typescript-javascript",
             model,
@@ -46,13 +49,12 @@ fn tiny_positive_min_similarity_preserves_nonzero_json_toon_and_markdown_display
             true,
         )],
         Vec::new(),
-        FindingsShown::default(),
-        &Budgets::default(),
-        &[],
-        None,
-        DuplicationConfig {
-            near_clones: true,
-            min_similarity: MinSimilarity::new(0.00001).expect("positive min_similarity"),
+        ReportOptions {
+            duplication: DuplicationConfig {
+                near_clones: true,
+                min_similarity: MinSimilarity::new(0.00001).expect("positive min_similarity"),
+            },
+            ..ReportOptions::new(FindingsShown::default(), &budgets)
         },
     )
     .expect("summarize");
@@ -116,7 +118,8 @@ fn parallel_measured_report_is_byte_identical_across_repeated_runs() {
         });
     }
     let build_json = || {
-        let report = Report::summarize_with_config(
+        let budgets = Budgets::default();
+        let report = Report::summarize_with_options(
             vec![MeasuredLanguage::new(
                 "typescript-javascript",
                 model.clone(),
@@ -124,11 +127,7 @@ fn parallel_measured_report_is_byte_identical_across_repeated_runs() {
                 true,
             )],
             Vec::new(),
-            FindingsShown::default(),
-            &Budgets::default(),
-            &[],
-            None,
-            DuplicationConfig::default(),
+            ReportOptions::new(FindingsShown::default(), &budgets),
         )
         .expect("summarize");
         report.render(ReportFormat::Json).expect("json")
@@ -196,14 +195,9 @@ fn summarize_polyglot_json(rust_model: &CodeModel, py_model: &CodeModel) -> serd
 }
 
 fn measure_polyglot_commit(rust_model: CodeModel, py_model: CodeModel) -> CommitMeasurement {
-    CommitMeasurement::of_languages_with_options(
+    CommitMeasurement::of_languages(
         vec![rust_model, py_model],
-        &[],
-        None,
-        &codeint_config::DependenciesConfig::default(),
-        DuplicationConfig::default(),
-        None,
-        None,
+        CommitMeasurementOptions::default(),
     )
     .expect("commit measurement")
 }

@@ -48,12 +48,12 @@ pub use trace::{DEFAULT_MAX_TRACE_PATHS, MultiFileImport, TraceError, TraceResul
 pub use verbosity::{FlaggedLineFinding, Verbosity};
 
 pub(crate) fn build_resolved_import_adjacency(
-    model: &codeint_model::CodeModel,
+    runtime_imports: &[codeint_model::RuntimeImport],
     node_count: usize,
     index_of: impl Fn(&codeint_model::RepoPath) -> Option<usize>,
 ) -> Vec<Vec<usize>> {
     let mut adjacency = vec![Vec::new(); node_count];
-    for runtime_import in &model.runtime_imports {
+    for runtime_import in runtime_imports {
         if let codeint_model::ImportResolution::Resolved(targets) = &runtime_import.resolution
             && let Some(from) = index_of(&runtime_import.importer)
         {

@@ -81,9 +81,10 @@ pub fn trace_imports(
             truncated: false,
         });
     }
-    let adjacency = crate::build_resolved_import_adjacency(model, modules.len(), |path| {
-        index_of.get(path).copied()
-    });
+    let adjacency =
+        crate::build_resolved_import_adjacency(&model.runtime_imports, modules.len(), |path| {
+            index_of.get(path).copied()
+        });
     let (dist, parents) = shortest_path_dag(&adjacency, from_idx, to_idx);
     let Some(target_distance) = dist[to_idx] else {
         return Ok(TraceResult {

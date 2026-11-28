@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use codeint_model::{
-    CodeModel, HazardLine, LanguageFacts, Package, SourceFile, SourceSet, Token, TokenKind,
+    HazardLine, LanguageFacts, Package, SourceFile, SourceSet, SourceSetModel, Token, TokenKind,
     Workspace, token_text_hash,
 };
 
@@ -41,12 +41,12 @@ fn with_tokens(mut file: SourceFile, pairs: &[(u32, &str)]) -> SourceFile {
     file
 }
 
-fn sql_model(files: Vec<SourceFile>, workspace: Workspace) -> CodeModel {
-    CodeModel {
+fn sql_model(files: Vec<SourceFile>, workspace: Workspace) -> SourceSetModel {
+    SourceSetModel {
         files,
         workspace,
         languages: vec![language_facts("sql", true, false)],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     }
 }
 
@@ -69,14 +69,14 @@ fn hazards_is_absent_when_no_language_has_hazard_rules() {
     assert_eq!(HAZARDS_METRIC_KEY, "hazards");
     let none_disabled = BTreeSet::new();
     assert_eq!(
-        Hazards::measure(&CodeModel::default(), &none_disabled),
+        Hazards::measure(&SourceSetModel::default(), &none_disabled),
         None
     );
 
-    let ts_model = CodeModel {
+    let ts_model = SourceSetModel {
         files: vec![empty_source_file("src/app.ts", SourceSet::Production, 20)],
         languages: vec![language_facts("typescript-javascript", false, true)],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
     assert_eq!(Hazards::measure(&ts_model, &none_disabled), None);
 }

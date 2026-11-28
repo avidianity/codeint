@@ -5,10 +5,15 @@ mod symfony;
 
 use std::collections::BTreeSet;
 
+use codeint_model::frameworks::{
+    find_package_manifest, package_rel_path, select_framework_profiles,
+};
 use codeint_model::language::{FrameworkProfileResult, FrameworkProfileSelection, Manifest};
 use serde_json::{Map, Value};
 
 use crate::workspaces::COMPOSER_MANIFEST;
+
+const IGNORED_DIRS: [&str; 1] = ["vendor"];
 
 pub(crate) struct ConventionRules {
     pub(crate) core_entries: &'static [&'static str],
@@ -111,18 +116,11 @@ impl<'a> ComposerPackage<'a> {
             .iter()
             .filter_map(|full| {
                 let full = full.as_ref();
-                let rel = relative_to_root(root, full)?;
-                (!contains_vendor(rel)).then_some((full, rel))
+                let rel = package_rel_path(root, full, &IGNORED_DIRS)?;
+                Some((full, rel))
             })
             .collect();
-        let manifest_path = if root.is_empty() {
-            COMPOSER_MANIFEST.to_owned()
-        } else {
-            format!("{root}/{COMPOSER_MANIFEST}")
-        };
-        let composer = manifests
-            .iter()
-            .find(|m| m.path == manifest_path && !contains_vendor(&m.path))
+        let composer = find_package_manifest(root, COMPOSER_MANIFEST, manifests, &IGNORED_DIRS)
             .and_then(|m| serde_json::from_str::<Value>(&m.text).ok())
             .and_then(|val| match val {
                 Value::Object(map) => Some(map),
@@ -171,18 +169,6 @@ impl<'a> ComposerPackage<'a> {
             .and_then(|obj| obj.get("type"))
             .and_then(Value::as_str)
     }
-}
-
-fn relative_to_root<'p>(root: &str, full: &'p str) -> Option<&'p str> {
-    if root.is_empty() {
-        Some(full)
-    } else {
-        full.strip_prefix(root)?.strip_prefix('/')
-    }
-}
-
-fn contains_vendor(path: &str) -> bool {
-    path.split('/').any(|segment| segment == "vendor")
 }
 
 fn is_under_dir(rel: &str, dir: &str) -> bool {
@@ -275,35 +261,14 @@ fn choose_frameworks(
     pkg: &ComposerPackage<'_>,
     selection: FrameworkProfileSelection,
 ) -> Result<BTreeSet<PhpFramework>, String> {
-    match selection {
-        FrameworkProfileSelection::Disabled => Ok(BTreeSet::new()),
-        FrameworkProfileSelection::Auto => Ok(detect_all(pkg, &BTreeSet::new())),
-        FrameworkProfileSelection::Exclude(names) => {
-            let skipped: BTreeSet<PhpFramework> = names
-                .iter()
-                .map(String::as_str)
-                .filter_map(PhpFramework::parse)
-                .collect();
-            Ok(detect_all(pkg, &skipped))
-        }
-        FrameworkProfileSelection::Only(names) => names
-            .iter()
-            .map(|raw| {
-                PhpFramework::parse(raw)
-                    .ok_or_else(|| format!("unknown PHP Framework profile {raw:?}"))
-            })
-            .collect(),
-    }
-}
-
-fn detect_all(
-    pkg: &ComposerPackage<'_>,
-    excluded: &BTreeSet<PhpFramework>,
-) -> BTreeSet<PhpFramework> {
-    PhpFramework::ALL
-        .into_iter()
-        .filter(|fw| !excluded.contains(fw) && fw.detect(pkg))
-        .collect()
+    let selected = select_framework_profiles(
+        &PhpFramework::ALL,
+        PhpFramework::name,
+        |fw| fw.detect(pkg),
+        selection,
+        |raw| format!("unknown PHP Framework profile {raw:?}"),
+    )?;
+    Ok(selected.into_iter().collect())
 }
 
 pub(crate) fn fallback_import_candidates(

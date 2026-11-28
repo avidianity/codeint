@@ -531,8 +531,53 @@ fn into_source_sets_preserves_language_facts_in_every_source_set() {
         SourceSet::Generated,
         SourceSet::Vendored,
     ] {
+        assert_eq!(source_sets.get(source_set).source_set, source_set);
         assert_eq!(source_sets.get(source_set).languages, expected);
     }
+}
+
+#[test]
+fn source_sets_merge_preserves_files_and_imports() {
+    let prod = path("src/app.rs");
+    let test = path("tests/app_test.rs");
+    let first = CodeModel {
+        files: vec![
+            file_in("src/app.rs", SourceSet::Production),
+            file_in("tests/app_test.rs", SourceSet::Test),
+        ],
+        runtime_imports: vec![
+            RuntimeImport {
+                importer: prod.clone(),
+                specifier: "./util".to_owned(),
+                resolution: ImportResolution::External("util".to_owned()),
+            },
+            RuntimeImport {
+                importer: test.clone(),
+                specifier: "../src/app".to_owned(),
+                resolution: ImportResolution::Resolved(vec![prod.clone()]),
+            },
+        ],
+        ..CodeModel::default()
+    };
+    let first_sets = first.into_source_sets();
+    let projected = first_sets.get(SourceSet::Production);
+    assert_eq!(projected.source_set, SourceSet::Production);
+    assert_eq!(projected.files.len(), 1);
+    assert_eq!(projected.runtime_imports.len(), 1);
+    assert_eq!(projected.runtime_imports[0].importer, prod);
+
+    let second = CodeModel {
+        files: vec![file_in("src/b.rs", SourceSet::Production)],
+        ..CodeModel::default()
+    };
+    let merged = crate::SourceSets::merge([first_sets, second.into_source_sets()]);
+    assert_eq!(merged.get(SourceSet::Production).files.len(), 2);
+    assert_eq!(merged.get(SourceSet::Test).files.len(), 1);
+    assert_eq!(merged.get(SourceSet::Production).runtime_imports.len(), 1);
+    assert_eq!(
+        merged.get(SourceSet::Production).runtime_imports[0].importer,
+        prod
+    );
 }
 
 #[test]

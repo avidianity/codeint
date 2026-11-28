@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use codeint_config::{
-    Budgets, CalendarDay, DependenciesConfig, DuplicationConfig, FindingsShown, RegressionLimits,
-    ReportFormat, TrendFormat,
+    Budgets, CalendarDay, DependenciesConfig, FindingsShown, RegressionLimits, ReportFormat,
+    TrendFormat,
 };
 use codeint_model::language::Function;
 use codeint_model::{
@@ -11,8 +11,8 @@ use codeint_model::{
     SourceFile, SourceSet, Workspace,
 };
 use codeint_report::{
-    BaseCommit, CommitMeasurement, DiffReport, FileDiagnosticEntry, Head, MeasuredLanguage,
-    OwnershipOptions, Report, ReportExtras, ReportOptions, ReportSchemaKind, ScopeSummaryEntry,
+    BaseCommit, CommitMeasurement, CommitMeasurementOptions, DiffReport, FileDiagnosticEntry, Head,
+    MeasuredLanguage, Report, ReportExtras, ReportOptions, ReportSchemaKind, ScopeSummaryEntry,
     TrendPoint, TrendReport, all_report_schemas, report_schema, schema_for,
     validate_json_against_schema, validate_report_json,
 };
@@ -97,37 +97,12 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
     let dependencies = DependenciesConfig::default();
     let budgets = Budgets::default();
 
-    let with_gap = Report::summarize_with_extras(
-        vec![MeasuredLanguage {
-            plugin: "typescript-javascript".to_owned(),
-            model: sample_model(true, true),
-            reference_ranges: ReferenceRanges::default(),
-            reference_range_note: None,
-            has_imports: true,
-            framework_profiles: vec!["react".to_owned()],
-            framework_profiles_by_package: BTreeMap::from([(
-                "packages/api".to_owned(),
-                vec!["react".to_owned()],
-            )]),
-        }],
-        Vec::new(),
-        ReportOptions {
-            findings: FindingsShown::default(),
-            budgets: &budgets,
-            metric_plugins: &[],
-            boundaries: None,
-            dependencies: &dependencies,
-            dependency_hygiene: None,
-            dependency_hygiene_by_language: None,
-            duplication: DuplicationConfig::default(),
-            orphan_files: None,
-            orphan_files_by_language: None,
-            ownership: OwnershipOptions::default(),
-            coverage_reports_named: true,
-            unmatched_coverage_paths: &["missing/file.ts".to_owned()],
-            baseline: None,
-        },
-        ReportExtras::default()
+    let unmatched = ["missing/file.ts".to_owned()];
+    let with_gap_options = ReportOptions {
+        dependencies: Some(&dependencies),
+        coverage_reports_named: true,
+        unmatched_coverage_paths: &unmatched,
+        extras: ReportExtras::default()
             .with_file_diagnostics(vec![FileDiagnosticEntry {
                 path: "packages/api/db/bad.sql".to_owned(),
                 line: 9,
@@ -144,6 +119,23 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
                     ("tables".to_owned(), "3".to_owned()),
                 ]),
             }]),
+        ..ReportOptions::new(FindingsShown::default(), &budgets)
+    };
+    let with_gap = Report::summarize_with_options(
+        vec![MeasuredLanguage {
+            plugin: "typescript-javascript".to_owned(),
+            model: sample_model(true, true),
+            reference_ranges: ReferenceRanges::default(),
+            reference_range_note: None,
+            has_imports: true,
+            framework_profiles: vec!["react".to_owned()],
+            framework_profiles_by_package: BTreeMap::from([(
+                "packages/api".to_owned(),
+                vec!["react".to_owned()],
+            )]),
+        }],
+        Vec::new(),
+        with_gap_options,
     )
     .expect("report with test gap and hazards");
     let with_gap_json: Value =
@@ -236,7 +228,7 @@ fn report_schema_validates_external_package_boundary_findings() {
     });
     let dependencies = DependenciesConfig::default();
     let budgets = Budgets::default();
-    let report = Report::summarize_with_extras(
+    let report = Report::summarize_with_options(
         vec![MeasuredLanguage {
             plugin: "typescript-javascript".to_owned(),
             model,
@@ -248,22 +240,10 @@ fn report_schema_validates_external_package_boundary_findings() {
         }],
         Vec::new(),
         ReportOptions {
-            findings: FindingsShown::default(),
-            budgets: &budgets,
-            metric_plugins: &[],
             boundaries: configuration.boundaries.as_ref(),
-            dependencies: &dependencies,
-            dependency_hygiene: None,
-            dependency_hygiene_by_language: None,
-            duplication: DuplicationConfig::default(),
-            orphan_files: None,
-            orphan_files_by_language: None,
-            ownership: OwnershipOptions::default(),
-            coverage_reports_named: false,
-            unmatched_coverage_paths: &[],
-            baseline: None,
+            dependencies: Some(&dependencies),
+            ..ReportOptions::new(FindingsShown::default(), &budgets)
         },
-        ReportExtras::default(),
     )
     .expect("report with external boundary finding");
     let report_json: Value =
@@ -326,7 +306,7 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
     let plugin = VersionedExternalMetricPlugin;
     let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
     let budgets = Budgets::default();
-    let report = Report::summarize_with_metrics(
+    let report = Report::summarize_with_options(
         vec![MeasuredLanguage::new(
             "typescript-javascript",
             model,
@@ -334,9 +314,10 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
             true,
         )],
         Vec::new(),
-        FindingsShown::default(),
-        &budgets,
-        &metric_plugins,
+        ReportOptions {
+            metric_plugins: &metric_plugins,
+            ..ReportOptions::new(FindingsShown::default(), &budgets)
+        },
     )
     .expect("report with external metric plugin");
 
@@ -413,11 +394,15 @@ fn sample_diff_with_external_metric() -> DiffReport {
     let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
     let budgets = Budgets::default();
     let limits = RegressionLimits::default();
+    let options = CommitMeasurementOptions {
+        metric_plugins: &metric_plugins,
+        ..CommitMeasurementOptions::default()
+    };
     let base_measurement =
-        CommitMeasurement::of_with_metrics(sample_model(false, true), &metric_plugins)
+        CommitMeasurement::of_languages(vec![sample_model(false, true)], options)
             .expect("base measurement");
     let head_measurement =
-        CommitMeasurement::of_with_metrics(sample_model(false, true), &metric_plugins)
+        CommitMeasurement::of_languages(vec![sample_model(false, true)], options)
             .expect("head measurement");
     DiffReport::compare(
         BaseCommit {
@@ -447,9 +432,14 @@ fn diff_and_trend_schemas_validate_reports_with_external_metrics() {
         3
     );
 
-    let trend_measurement =
-        CommitMeasurement::of_with_metrics(sample_model(false, true), &metric_plugins)
-            .expect("trend measurement");
+    let trend_measurement = CommitMeasurement::of_languages(
+        vec![sample_model(false, true)],
+        CommitMeasurementOptions {
+            metric_plugins: &metric_plugins,
+            ..CommitMeasurementOptions::default()
+        },
+    )
+    .expect("trend measurement");
     let trend = TrendReport::of(vec![TrendPoint {
         commit: "abc1234".to_owned(),
         committed_on: CalendarDay::containing(1_700_000_000),
@@ -474,7 +464,7 @@ fn report_schemas_and_validator_reject_malformed_payloads_and_invalid_schemas() 
     let plugin = VersionedExternalMetricPlugin;
     let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
     let budgets = Budgets::default();
-    let report = Report::summarize_with_metrics(
+    let report = Report::summarize_with_options(
         vec![MeasuredLanguage::new(
             "typescript-javascript",
             sample_model(true, true),
@@ -482,9 +472,10 @@ fn report_schemas_and_validator_reject_malformed_payloads_and_invalid_schemas() 
             true,
         )],
         Vec::new(),
-        FindingsShown::default(),
-        &budgets,
-        &metric_plugins,
+        ReportOptions {
+            metric_plugins: &metric_plugins,
+            ..ReportOptions::new(FindingsShown::default(), &budgets)
+        },
     )
     .expect("report");
     let valid_check: Value =

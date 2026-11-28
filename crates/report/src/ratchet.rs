@@ -3,31 +3,49 @@ use std::fmt;
 use codeint_config::{
     MeasuredRatchetMetric, RatchetFormat, RatchetUpdateSummary, RatchetViolation,
 };
-use codeint_model::Metric;
 use serde::{Deserialize, Serialize};
 
 use crate::{Decimal, ReportError, render_text_report};
 
 pub const RATCHET_PACKAGE_SKIPPED_NOTE: &str = "Ratchet enforcement skipped because --package scopes the run to one Workspace package; Ratchets apply to whole-repository runs only.";
 
-pub(crate) fn push_dependency_ratchet_metrics(
-    metrics: &mut Vec<MeasuredRatchetMetric>,
-    unused: (f64, u32),
-    unlisted: (f64, u32),
-    dev_in_prod: (f64, u32),
+pub(crate) fn push_ratchet_entries<'a>(
+    out: &mut Vec<MeasuredRatchetMetric>,
+    source_set: Option<codeint_model::SourceSet>,
+    entries: impl IntoIterator<Item = (&'a str, f64, u32)>,
 ) {
-    for (metric, (ratio, metric_version)) in [
-        (Metric::UnusedDependencies, unused),
-        (Metric::UnlistedDependencies, unlisted),
-        (Metric::DevInProductionDependencies, dev_in_prod),
-    ] {
-        metrics.push(MeasuredRatchetMetric {
-            source_set: None,
-            metric: metric.key().to_owned(),
-            ratio,
-            metric_version,
-        });
+    out.extend(
+        entries
+            .into_iter()
+            .map(|(key, ratio, metric_version)| MeasuredRatchetMetric {
+                source_set,
+                metric: key.to_owned(),
+                ratio,
+                metric_version,
+            }),
+    );
+}
+
+pub(crate) trait RatchetMetricsSource {
+    fn push_ratchet_metrics(
+        &self,
+        source_set: Option<codeint_model::SourceSet>,
+        out: &mut Vec<MeasuredRatchetMetric>,
+    );
+}
+
+pub(crate) fn collect_ratchet_metrics<S: RatchetMetricsSource, D: RatchetMetricsSource>(
+    source_sets: &crate::PerSourceSet<S>,
+    dependencies: Option<&D>,
+) -> Vec<MeasuredRatchetMetric> {
+    let mut metrics = Vec::new();
+    for (source_set, section) in source_sets.iter() {
+        section.push_ratchet_metrics(Some(source_set), &mut metrics);
     }
+    if let Some(deps) = dependencies {
+        deps.push_ratchet_metrics(None, &mut metrics);
+    }
+    metrics
 }
 
 pub(crate) fn evaluate_ratchet(

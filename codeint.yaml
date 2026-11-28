@@ -66,6 +66,7 @@ dependencies:
     - lints
     - markdownlint-cli2
     - skills
+    - typescript
 
 boundaries:
   strict_zones: true

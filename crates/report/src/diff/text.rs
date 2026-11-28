@@ -1,9 +1,8 @@
-use codeint_model::{Metric, SourceSet};
+use codeint_model::SourceSet;
 
 use super::types::{
     DependenciesChanges, DiffReport, HeadEntry, MetricChanges, RegressionRule, SourceSetChanges,
 };
-use crate::Findings;
 use crate::text::{
     align_table, format_boundary_finding, format_clone_family, format_clone_group,
     format_complex_function, format_eroded_function, format_external_finding, format_flagged_line,
@@ -163,38 +162,19 @@ fn diff_metric_status(source_set: Option<&str>, metric_key: &str, report: &DiffR
     format!("FAIL ({})", reasons.join(", "))
 }
 
-fn count_findings<T>(findings: &Findings<T>) -> usize {
-    findings.listed.len().saturating_add(findings.left_out)
-}
-
-fn diff_row<T>(
+fn diff_summary_row(
     source_set: Option<&str>,
-    name: &str,
-    metric_key: &str,
-    changes: &MetricChanges<T>,
+    summary: super::types::DiffMetricSummary<'_>,
     report: &DiffReport,
 ) -> Vec<String> {
     vec![
-        name.to_owned(),
-        changes.base_ratio.0.to_string(),
-        changes.head_ratio.0.to_string(),
-        count_findings(&changes.new).to_string(),
-        count_findings(&changes.resolved).to_string(),
-        diff_metric_status(source_set, metric_key, report),
+        summary.label.to_owned(),
+        summary.base_ratio.0.to_string(),
+        summary.head_ratio.0.to_string(),
+        summary.new_count.to_string(),
+        summary.resolved_count.to_string(),
+        diff_metric_status(source_set, summary.key, report),
     ]
-}
-
-fn push_optional_row<T>(
-    rows: &mut Vec<Vec<String>>,
-    source_set: Option<&str>,
-    name: &str,
-    metric: Metric,
-    changes: Option<&MetricChanges<T>>,
-    report: &DiffReport,
-) {
-    if let Some(changes) = changes {
-        rows.push(diff_row(source_set, name, metric.key(), changes, report));
-    }
 }
 
 fn source_set_diff_table(
@@ -203,77 +183,11 @@ fn source_set_diff_table(
     report: &DiffReport,
 ) -> String {
     let key = Some(source_set.key());
-    let mut rows = vec![
-        diff_row(
-            key,
-            "Erosion",
-            Metric::Erosion.key(),
-            &changes.erosion,
-            report,
-        ),
-        diff_row(
-            key,
-            "Cognitive complexity",
-            Metric::CognitiveComplexity.key(),
-            &changes.cognitive_complexity,
-            report,
-        ),
-        diff_row(
-            key,
-            "Duplication",
-            Metric::Duplication.key(),
-            &changes.duplication.groups,
-            report,
-        ),
-        diff_row(
-            key,
-            "Verbosity",
-            Metric::Verbosity.key(),
-            &changes.verbosity,
-            report,
-        ),
-    ];
-    push_optional_row(
-        &mut rows,
-        key,
-        "Import cycles",
-        Metric::ImportCycles,
-        changes.import_cycles.as_ref(),
-        report,
-    );
-    push_optional_row(
-        &mut rows,
-        key,
-        "Boundaries",
-        Metric::Boundaries,
-        changes.boundaries.as_ref(),
-        report,
-    );
-    push_optional_row(
-        &mut rows,
-        key,
-        "Orphan files",
-        Metric::OrphanFiles,
-        changes.orphan_files.as_ref(),
-        report,
-    );
-    push_optional_row(
-        &mut rows,
-        key,
-        "Hazards",
-        Metric::Hazards,
-        changes.hazards.as_ref(),
-        report,
-    );
-    for (metric_key, external) in &changes.external_metrics {
-        rows.push(diff_row(
-            key,
-            &external.name,
-            metric_key.as_str(),
-            &external.changes,
-            report,
-        ));
-    }
+    let rows: Vec<Vec<String>> = changes
+        .metric_summaries()
+        .into_iter()
+        .map(|summary| diff_summary_row(key, summary, report))
+        .collect();
     let mut lines = vec![source_set_heading(source_set).to_owned()];
     lines.extend(align_table(
         &["Metric", "Base", "Head", "New", "Resolved", "Status"],
@@ -284,29 +198,11 @@ fn source_set_diff_table(
 }
 
 fn dependencies_diff_table(dependencies: &DependenciesChanges, report: &DiffReport) -> String {
-    let rows = vec![
-        diff_row(
-            None,
-            "Unused dependencies",
-            Metric::UnusedDependencies.key(),
-            &dependencies.unused_dependencies,
-            report,
-        ),
-        diff_row(
-            None,
-            "Unlisted dependencies",
-            Metric::UnlistedDependencies.key(),
-            &dependencies.unlisted_dependencies,
-            report,
-        ),
-        diff_row(
-            None,
-            "Dev dependencies in production",
-            Metric::DevInProductionDependencies.key(),
-            &dependencies.dev_in_production_dependencies,
-            report,
-        ),
-    ];
+    let rows: Vec<Vec<String>> = dependencies
+        .metric_summaries()
+        .into_iter()
+        .map(|summary| diff_summary_row(None, summary, report))
+        .collect();
     let mut lines = vec!["Dependencies".to_owned()];
     lines.extend(align_table(
         &["Metric", "Base", "Head", "New", "Resolved", "Status"],

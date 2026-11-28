@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_config::{ChurnFormat, ChurnWindow, FindingsShown};
 use codeint_metrics::{Duplication, Erosion, MinimumCloneTokens, MinimumDistinctTokens};
-use codeint_model::{CodeModel, RepoPath, SourceSet};
+use codeint_model::{RepoPath, SourceSet};
 use serde::Serialize;
 
 use crate::{Decimal, FindingKind, Findings, MeasuredLanguage, ReportError};
@@ -121,7 +121,7 @@ impl ChurnReport {
             .collect();
         let mut source_sets = BTreeMap::new();
         for source_set in SourceSet::ALL {
-            let lang_parts: Vec<&CodeModel> = lang_source_sets
+            let lang_parts: Vec<&codeint_model::SourceSetModel> = lang_source_sets
                 .iter()
                 .map(|sets| sets.get(source_set))
                 .filter(|part| !part.files.is_empty())
@@ -136,7 +136,8 @@ impl ChurnReport {
                     MinimumDistinctTokens::DEFAULT,
                 )
             }));
-            let merged = CodeModel::merge(lang_parts.into_iter().cloned());
+            let merged =
+                codeint_model::SourceSetModel::merge(source_set, lang_parts.into_iter().cloned());
             source_sets.insert(
                 SourceSetKey::from_source_set(source_set),
                 SourceSetChurnSection::new(
@@ -170,7 +171,7 @@ impl ChurnReport {
 
 impl SourceSetChurnSection {
     fn new(
-        model: &CodeModel,
+        model: &codeint_model::SourceSetModel,
         duplication: &Duplication,
         touches_by_file: &BTreeMap<RepoPath, usize>,
         shown: FindingsShown,

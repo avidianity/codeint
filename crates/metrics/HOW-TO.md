@@ -16,7 +16,7 @@ for (package, masses) in erosion.by_package(&model) {
 }
 ```
 
-- `Erosion::measure` reads only the `CodeModel`; it never knows the source language.
+- `Erosion::measure` reads only the `SourceSetModel`; it never knows the source language.
 - The cyclomatic complexity of a function is 1 plus its decision points.
 - Function mass is the cyclomatic complexity times the square root of the function's source lines.
 - A function is eroded when its cyclomatic complexity is greater than 10.
@@ -49,12 +49,12 @@ for function in erosion.eroded_functions() {
 
 ## Report a Metric per Source set
 
-- A Metric measures one `CodeModel` and never reads the Source set of a file itself.
-- The report crate splits the Code model with `CodeModel::into_source_sets` and measures every Metric once per Source set.
-- To add a Metric to the report, add its section as a field of `SourceSetSection` in `crates/report/src/lib.rs`, built from the `CodeModel` of that Source set.
+- A per-Source-set Metric measures one `SourceSetModel` and never reads the Source set of a file itself.
+- The report crate splits the Code model with `CodeModel::into_source_sets` and measures every per-Source-set Metric once per `SourceSetModel`.
+- To add a Metric to the report, add its section as a field of `SourceSetSection` in `crates/report/src/sections.rs`, built from the `SourceSetModel` of that Source set, and register it in `SourceSetSection::metric_summaries`.
   The report then shows the Metric for each Source set that holds a file.
 - To show the Metric per workspace package too, give it a `by_package(&model)` method and add its numerator to `PackageSection`.
-  Every Source set's `CodeModel` keeps the whole workspace, so each Source set lists every package.
+  Every Source set's `SourceSetModel` keeps the whole workspace, so each Source set lists every package.
 
 ## Find Clone groups
 
@@ -70,7 +70,7 @@ println!("{} of {} source lines are clone lines", duplication.clone_lines.count(
 let ratio = duplication.ratio();
 ```
 
-- `Duplication::measure` reads only the token stream of each file in the `CodeModel`.
+- `Duplication::measure` reads only the token stream of each file in the `SourceSetModel`.
 - A Clone group holds two or more fragments with the same normalized token sequence, at least the minimum number of tokens long.
   Normalizing treats every identifier as one token and every literal as another, so copies that differ only in names and literal values form one Clone group; other tokens must have the same text hash.
   This finds type-1 and type-2 clones in one pass.
@@ -110,7 +110,7 @@ for finding in verbosity.flagged_lines() {
 }
 ```
 
-- `Verbosity::measure` reads only the Flagged lines of the `CodeModel`; the Flagged-line rules live in the Language plugin, and the Metric only counts distinct Flagged lines (independent of Duplication, as [ADR 0024](../../docs/adr/0024-verbosity-decoupling.md) decides).
+- `Verbosity::measure` reads only the Flagged lines of the `SourceSetModel`; the Flagged-line rules live in the Language plugin, and the Metric only counts distinct Flagged lines (independent of Duplication, as [ADR 0024](../../docs/adr/0024-verbosity-decoupling.md) decides).
 - `verbose_lines` and `flagged_line_count` both count each distinct Flagged line once, even when two rules match it.
 - `ratio` is the verbose lines divided by the source lines, and 0 when there are no source lines.
 - `flagged_lines` lists the Findings, one per line and rule, by path, line, and rule.
@@ -143,8 +143,8 @@ for cycle in import_cycles.cycles() {
 }
 ```
 
-- `ImportCycles::measure` reads only the `CodeModel`; it never knows the source language.
-- Every file of `CodeModel::files` is a module.
+- `ImportCycles::measure` reads only the `SourceSetModel`; it never knows the source language.
+- Every file of `SourceSetModel::files` is a module.
 - An edge is a `RuntimeImport` whose resolution is `Resolved` to another module; external, unresolved, and non-module targets add no edge.
 - An Import cycle is a strongly connected component of more than one module, or one module that imports itself.
 - `ratio` is the modules in at least one Import cycle divided by all modules, and 0 when there are no modules.

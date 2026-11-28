@@ -48,7 +48,7 @@ if !outcome.passed {
    - Loads user-named LCOV or Cobertura XML Coverage reports from CLI flags or configuration (never guessing paths).
    - Evaluates cross-package Orphan files and Dependency hygiene before filtering the snapshot to `--package` and refreshing package-scoped Framework profiles and Reference ranges.
 6. **Reporting, Baseline, and Ratchet (`src/baseline.rs`, `src/ratchet.rs`)**:
-   - Summarizes the report via `codeint_report::Report::summarize_with_extras`, verifies `Test gap` Budget requirements and Baseline Metric versions, and enforces whole-repository Ratchets.
+   - Summarizes the report via `codeint_report::Report::summarize_with_options`, verifies `Test gap` Budget requirements and Baseline Metric versions, and enforces whole-repository Ratchets.
 
 ## MCP stdio server
 

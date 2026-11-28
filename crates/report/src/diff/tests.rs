@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use codeint_config::RegressionLimit;
 
@@ -117,8 +117,7 @@ fn single_file_model(
 #[test]
 fn no_imports_only_models_omit_import_cycles_and_dependencies_in_diff_and_trend() {
     use codeint_config::{
-        Budgets, CalendarDay, DependenciesConfig, DuplicationConfig, FindingsShown,
-        RegressionLimits, ReportFormat, TrendFormat,
+        Budgets, CalendarDay, FindingsShown, RegressionLimits, ReportFormat, TrendFormat,
     };
     use codeint_model::{CodeModel, DeclaredDep, DepKind, DependencyManifest, RepoPath};
 
@@ -141,16 +140,8 @@ fn no_imports_only_models_omit_import_cycles_and_dependencies_in_diff_and_trend(
     };
 
     let measurement = |models: Vec<CodeModel>| {
-        CommitMeasurement::of_languages_with_options(
-            models,
-            &[],
-            None,
-            &DependenciesConfig::default(),
-            DuplicationConfig::default(),
-            None,
-            None,
-        )
-        .expect("commit measurement")
+        CommitMeasurement::of_languages(models, crate::CommitMeasurementOptions::default())
+            .expect("commit measurement")
     };
     let base_m = measurement(vec![
         no_imports_model.clone(),
@@ -278,6 +269,8 @@ fn diff_report_evaluates_new_file_budgets_and_round_trips_saved_report() {
         ..CodeModel::default()
     };
 
+    let budgets = Budgets::default();
+    let limits = RegressionLimits::default();
     let diff = DiffReport::compare_with_options(
         BaseCommit {
             git_ref: "main".to_owned(),
@@ -287,15 +280,9 @@ fn diff_report_evaluates_new_file_budgets_and_round_trips_saved_report() {
         CommitMeasurement::of(CodeModel::default()),
         CommitMeasurement::of(new_file_model.clone()),
         DiffReportOptions {
-            findings: FindingsShown::default(),
-            budgets: &Budgets::default(),
-            new_file_budgets: &config.new_file_budgets,
+            new_file_budgets: Some(&config.new_file_budgets),
             new_files: Some(CommitMeasurement::of(new_file_model)),
-            changed_files: BTreeSet::new(),
-            limits: &RegressionLimits::default(),
-            ownership: crate::OwnershipOptions::default(),
-            baseline: None,
-            include_test_gap_note: false,
+            ..DiffReportOptions::new(FindingsShown::default(), &budgets, &limits)
         },
     );
     assert_eq!(diff.over_new_file_budget().len(), 1);

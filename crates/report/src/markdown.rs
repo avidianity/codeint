@@ -1,11 +1,17 @@
+use codeint_model::Metric;
+
 use crate::ownership::OwnedFinding;
+use crate::sections::{
+    BoundariesSection, DependencyMetricSummary, OrphanFilesSection, SourceSetMetricSummary,
+    TestGapSection,
+};
 use crate::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
     CognitiveComplexityFinding, DependenciesSection, ErodedFunctionFinding, ExternalMetricFinding,
     FileDiagnosticEntry, Findings, FlaggedLineRow, HazardLineRow, HazardsSection,
-    ImportCycleFinding, ImportCyclesSection, ImportedDependencyRow, MeasuredSection, MetricHeader,
-    OrphanFileRow, PackageSection, ReferenceRangeEntry, Report, ScopeSummaryEntry,
-    SourceSetSection, TestGapFindingRow, UnresolvedImportRow, UnusedDependencyRow,
+    ImportCycleFinding, ImportCyclesSection, ImportedDependencyRow, MeasuredSection, OrphanFileRow,
+    PackageSection, ReferenceRangeEntry, Report, ScopeSummaryEntry, SourceSetSection,
+    TestGapFindingRow, UnresolvedImportRow, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -481,19 +487,92 @@ fn files_and_lines(files: usize, source_lines: u64) -> String {
 }
 
 fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>> {
-    let row = |metric: &str, header: &MetricHeader, behind: String| {
-        vec![
-            source_set.to_string(),
-            metric.to_string(),
-            header.ratio.0.to_string(),
-            behind,
-            reference_range(&header.reference_range),
-        ]
-    };
-    let erosion = &section.erosion;
-    let cognitive = &section.cognitive_complexity;
+    section
+        .metric_summaries()
+        .into_iter()
+        .map(|summary| {
+            vec![
+                source_set.to_string(),
+                summary.label.to_string(),
+                summary.ratio.0.to_string(),
+                metric_behind_the_value(section, summary.key),
+                metric_reference_range(&summary),
+            ]
+        })
+        .collect()
+}
+
+fn metric_reference_range(summary: &SourceSetMetricSummary<'_>) -> String {
+    match summary.reference_range {
+        Some(range) => reference_range(range),
+        None if summary.key == Metric::TestGap.key() => "no published Reference range".to_string(),
+        None => "not applicable".to_string(),
+    }
+}
+
+fn metric_behind_the_value(section: &SourceSetSection, key: &str) -> String {
+    match Metric::from_key(key) {
+        Some(Metric::Erosion) => format!(
+            "{} of {} Function mass in eroded functions",
+            section.erosion.totals.eroded_function_mass.0,
+            section.erosion.totals.total_function_mass.0
+        ),
+        Some(Metric::CognitiveComplexity) => format!(
+            "{} of {} cognitive complexity in functions over 15",
+            section
+                .cognitive_complexity
+                .totals
+                .complex_cognitive_complexity,
+            section
+                .cognitive_complexity
+                .totals
+                .total_cognitive_complexity
+        ),
+        Some(Metric::Duplication) => duplication_behind_the_value(section),
+        Some(Metric::Verbosity) => format!(
+            "{} of {}",
+            FLAGGED_LINE.counted(section.verbosity.totals.flagged_lines),
+            SOURCE_LINE.counted(section.source_lines),
+        ),
+        Some(metric) => optional_metric_behind_the_value(section, metric),
+        None => section
+            .external_metrics
+            .get(key)
+            .map_or_else(String::new, |external| {
+                format!("{} of {}", external.numerator.0, external.denominator.0)
+            }),
+    }
+}
+
+fn optional_metric_behind_the_value(section: &SourceSetSection, metric: Metric) -> String {
+    match metric {
+        Metric::ImportCycles => section
+            .import_cycles
+            .as_ref()
+            .map_or_else(String::new, import_cycles_behind_the_value),
+        Metric::Boundaries => section
+            .boundaries
+            .as_ref()
+            .map_or_else(String::new, boundaries_behind_the_value),
+        Metric::OrphanFiles => section
+            .orphan_files
+            .as_ref()
+            .map_or_else(String::new, orphan_files_behind_the_value),
+        Metric::TestGap => section
+            .test_gap
+            .as_ref()
+            .map_or_else(String::new, test_gap_behind_the_value),
+        Metric::Hazards => section
+            .hazards
+            .as_ref()
+            .map_or_else(String::new, hazards_behind_the_value),
+        _ => String::new(),
+    }
+}
+
+fn duplication_behind_the_value(section: &SourceSetSection) -> String {
     let duplication = &section.duplication;
-    let duplication_behind = match &duplication.near_clones {
+    match &duplication.near_clones {
         Some(mode) => format!(
             "{} of {} (near-clones >= {})",
             CLONE_LINE.counted(duplication.clone_lines),
@@ -505,115 +584,46 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
             CLONE_LINE.counted(duplication.clone_lines),
             SOURCE_LINE.counted(section.source_lines)
         ),
-    };
-    let verbosity = &section.verbosity;
-    let mut rows = vec![
-        row(
-            "Erosion",
-            &erosion.header,
-            format!(
-                "{} of {} Function mass in eroded functions",
-                erosion.totals.eroded_function_mass.0, erosion.totals.total_function_mass.0
-            ),
-        ),
-        row(
-            "Cognitive complexity",
-            &cognitive.header,
-            format!(
-                "{} of {} cognitive complexity in functions over 15",
-                cognitive.totals.complex_cognitive_complexity,
-                cognitive.totals.total_cognitive_complexity
-            ),
-        ),
-        row("Duplication", &duplication.header, duplication_behind),
-        row(
-            "Verbosity",
-            &verbosity.header,
-            format!(
-                "{} of {}",
-                FLAGGED_LINE.counted(verbosity.totals.flagged_lines),
-                SOURCE_LINE.counted(section.source_lines),
-            ),
-        ),
-    ];
-    if let Some(import_cycles) = &section.import_cycles {
-        rows.push(row(
-            "Import cycles",
-            &import_cycles.header,
-            import_cycles_behind_the_value(import_cycles),
-        ));
     }
-    if let Some(boundaries) = &section.boundaries {
-        let total_findings = boundaries
-            .findings
-            .listed
-            .len()
-            .saturating_add(boundaries.findings.left_out);
-        rows.push(vec![
-            source_set.to_string(),
-            "Boundaries".to_string(),
-            boundaries.header.ratio.0.to_string(),
-            format!(
-                "{} across {} resolved imports",
-                FINDING.counted(total_findings as u64),
-                boundaries.resolved_imports
-            ),
-            "not applicable".to_string(),
-        ]);
-    }
-    if let Some(orphan_files) = &section.orphan_files {
-        rows.push(vec![
-            source_set.to_string(),
-            "Orphan files".to_string(),
-            orphan_files.header.ratio.0.to_string(),
-            format!(
-                "{} of {} evaluated files unreachable ({} unreferenced, {} test-only)",
-                orphan_files.orphan_files,
-                orphan_files.evaluated_files,
-                orphan_files.unreferenced,
-                orphan_files.test_only
-            ),
-            "not applicable".to_string(),
-        ]);
-    }
-    if let Some(test_gap) = &section.test_gap {
-        rows.push(vec![
-            source_set.to_string(),
-            "Test gap".to_string(),
-            test_gap.header.ratio.0.to_string(),
-            format!(
-                "{} of {} Function mass untested across {}",
-                test_gap.untested_function_mass.0,
-                test_gap.total_function_mass.0,
-                MEASURED_FUNCTION.counted(test_gap.measured_functions as u64)
-            ),
-            "no published Reference range".to_string(),
-        ]);
-    }
-    if let Some(hazards) = &section.hazards {
-        rows.push(hazards_metric_row(source_set, hazards));
-    }
-    for external in section.external_metrics.values() {
-        rows.push(row(
-            &external.name,
-            &external.header,
-            format!("{} of {}", external.numerator.0, external.denominator.0),
-        ));
-    }
-    rows
 }
 
-fn hazards_metric_row(source_set: &str, hazards: &HazardsSection) -> Vec<String> {
-    vec![
-        source_set.to_string(),
-        "Hazards".to_string(),
-        hazards.header.ratio.0.to_string(),
-        format!(
-            "{} of {} Hazard lines",
-            hazards.hazard_lines, hazards.source_lines
-        ),
-        "not applicable".to_string(),
-    ]
+fn boundaries_behind_the_value(boundaries: &BoundariesSection) -> String {
+    let total_findings = boundaries
+        .findings
+        .listed
+        .len()
+        .saturating_add(boundaries.findings.left_out);
+    format!(
+        "{} across {} resolved imports",
+        FINDING.counted(total_findings as u64),
+        boundaries.resolved_imports
+    )
+}
+
+fn orphan_files_behind_the_value(orphan_files: &OrphanFilesSection) -> String {
+    format!(
+        "{} of {} evaluated files unreachable ({} unreferenced, {} test-only)",
+        orphan_files.orphan_files,
+        orphan_files.evaluated_files,
+        orphan_files.unreferenced,
+        orphan_files.test_only
+    )
+}
+
+fn test_gap_behind_the_value(test_gap: &TestGapSection) -> String {
+    format!(
+        "{} of {} Function mass untested across {}",
+        test_gap.untested_function_mass.0,
+        test_gap.total_function_mass.0,
+        MEASURED_FUNCTION.counted(test_gap.measured_functions as u64)
+    )
+}
+
+fn hazards_behind_the_value(hazards: &HazardsSection) -> String {
+    format!(
+        "{} of {} Hazard lines",
+        hazards.hazard_lines, hazards.source_lines
+    )
 }
 
 fn import_cycles_behind_the_value(section: &ImportCyclesSection) -> String {
@@ -934,38 +944,27 @@ pub(crate) fn boundary_finding_row(row: &BoundaryFindingRow) -> Vec<String> {
 }
 
 fn dependencies_summary_table(dependencies: &DependenciesSection) -> String {
-    let unused = &dependencies.unused_dependencies;
-    let unlisted = &dependencies.unlisted_dependencies;
-    let dev_in_prod = &dependencies.dev_in_production_dependencies;
-    table(
-        &DEPENDENCY_SUMMARY_COLUMNS,
-        vec![
+    let rows = dependencies
+        .metric_summaries()
+        .into_iter()
+        .map(|summary| {
             vec![
-                "Unused dependencies".to_string(),
-                unused.header.ratio.0.to_string(),
-                format!(
-                    "{} of {} declared dependencies unused",
-                    unused.unused, unused.declared
-                ),
-            ],
-            vec![
-                "Unlisted dependencies".to_string(),
-                unlisted.header.ratio.0.to_string(),
-                format!(
-                    "{} of {} imported external packages unlisted",
-                    unlisted.unlisted, unlisted.imported
-                ),
-            ],
-            vec![
-                "Dev dependencies in production".to_string(),
-                dev_in_prod.header.ratio.0.to_string(),
-                format!(
-                    "{} of {} production-imported external packages dev-only",
-                    dev_in_prod.dev_in_production, dev_in_prod.production_imported
-                ),
-            ],
-        ],
-    )
+                summary.label.to_string(),
+                summary.ratio.0.to_string(),
+                dependency_behind_the_value(&summary),
+            ]
+        })
+        .collect();
+    table(&DEPENDENCY_SUMMARY_COLUMNS, rows)
+}
+
+fn dependency_behind_the_value(summary: &DependencyMetricSummary) -> String {
+    let suffix = match Metric::from_key(summary.key) {
+        Some(Metric::UnusedDependencies) => "declared dependencies unused",
+        Some(Metric::UnlistedDependencies) => "imported external packages unlisted",
+        _ => "production-imported external packages dev-only",
+    };
+    format!("{} of {} {suffix}", summary.numerator, summary.denominator)
 }
 
 fn dependency_findings_blocks(dependencies: &DependenciesSection) -> Vec<String> {

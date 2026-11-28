@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use codeint_model::{CodeModel, ImportResolution, Metric, Package, RepoPath};
+use codeint_model::{ImportResolution, Metric, Package, RepoPath, SourceSetModel};
 
 use crate::FindingId;
 use crate::finding_id::{FindingContext, FindingIds};
@@ -60,16 +60,17 @@ impl ImportCycle {
 }
 
 impl ImportCycles {
-    pub fn measure(model: &CodeModel) -> ImportCycles {
+    pub fn measure(model: &SourceSetModel) -> ImportCycles {
         let modules: Vec<&RepoPath> = model.files.iter().map(|file| &file.path).collect();
         let index_of: HashMap<&RepoPath, usize> = modules
             .iter()
             .enumerate()
             .map(|(index, path)| (*path, index))
             .collect();
-        let imports = crate::build_resolved_import_adjacency(model, modules.len(), |path| {
-            index_of.get(path).copied()
-        });
+        let imports =
+            crate::build_resolved_import_adjacency(&model.runtime_imports, modules.len(), |path| {
+                index_of.get(path).copied()
+            });
         let mut cycle_modules: Vec<Vec<RepoPath>> = strongly_connected_components(&imports)
             .into_iter()
             .filter(|component| match component.as_slice() {
@@ -128,7 +129,7 @@ impl ImportCycles {
 
     pub fn by_package<'model>(
         &self,
-        model: &'model CodeModel,
+        model: &'model SourceSetModel,
     ) -> BTreeMap<Package<'model>, ModuleShare> {
         let workspace = &model.workspace;
         let mut shares: BTreeMap<Package<'model>, ModuleShare> = workspace
@@ -155,7 +156,7 @@ impl ImportCycles {
     }
 }
 
-fn unresolved_imports(model: &CodeModel) -> Vec<UnresolvedImport> {
+fn unresolved_imports(model: &SourceSetModel) -> Vec<UnresolvedImport> {
     let mut unresolved: Vec<UnresolvedImport> = model
         .runtime_imports
         .iter()

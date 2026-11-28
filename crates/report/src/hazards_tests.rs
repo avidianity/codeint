@@ -1,9 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_config::{
-    Budgets, CalendarDay, CliSchema, Codeowners, DependenciesConfig, DuplicationConfig,
-    FindingsShown, OwnerFilter, RegressionLimits, ReportFormat, ReportRenderFormat, SchemaFormat,
-    TrendFormat,
+    Budgets, CalendarDay, CliSchema, Codeowners, DependenciesConfig, FindingsShown, OwnerFilter,
+    RegressionLimits, ReportFormat, ReportRenderFormat, SchemaFormat, TrendFormat,
 };
 use codeint_model::{
     CodeModel, FileModel, HazardLine, LanguageFacts, ReferenceRanges, RepoPath, SkippedFile,
@@ -109,20 +108,8 @@ fn default_report_options<'a>(
     dependencies: &'a DependenciesConfig,
 ) -> ReportOptions<'a> {
     ReportOptions {
-        findings: FindingsShown::default(),
-        budgets,
-        metric_plugins: &[],
-        boundaries: None,
-        dependencies,
-        dependency_hygiene: None,
-        dependency_hygiene_by_language: None,
-        duplication: DuplicationConfig::default(),
-        orphan_files: None,
-        orphan_files_by_language: None,
-        ownership: OwnershipOptions::default(),
-        coverage_reports_named: false,
-        unmatched_coverage_paths: &[],
-        baseline: None,
+        dependencies: Some(dependencies),
+        ..ReportOptions::new(FindingsShown::default(), budgets)
     }
 }
 
@@ -305,22 +292,20 @@ fn disabled_hazard_rules_and_budgets_equal_and_over() {
     let dependencies = DependenciesConfig::default();
 
     let equal_budget = budgets_from_json(r#"{ "budgets": { "production": { "hazards": 0.2 } } }"#);
-    let equal_report = Report::summarize_with_extras(
+    let equal_report = Report::summarize_with_options(
         vec![measured_sql(model.clone())],
         Vec::new(),
         default_report_options(&equal_budget, &dependencies),
-        ReportExtras::default(),
     )
     .expect("equal budget report");
     assert!(equal_report.over_budget().is_empty());
 
     let tighter_budget =
         budgets_from_json(r#"{ "budgets": { "production": { "hazards": 0.1 } } }"#);
-    let over_report = Report::summarize_with_extras(
+    let over_report = Report::summarize_with_options(
         vec![measured_sql(model.clone())],
         Vec::new(),
         default_report_options(&tighter_budget, &dependencies),
-        ReportExtras::default(),
     )
     .expect("over budget report");
     assert_eq!(over_report.over_budget().len(), 1);
@@ -331,11 +316,13 @@ fn disabled_hazard_rules_and_budgets_equal_and_over() {
     );
 
     let disabled = BTreeSet::from(["select-star".to_owned()]);
-    let disabled_report = Report::summarize_with_extras(
+    let disabled_report = Report::summarize_with_options(
         vec![measured_sql(model)],
         Vec::new(),
-        default_report_options(&tighter_budget, &dependencies),
-        ReportExtras::default().with_disabled_hazard_rules(disabled),
+        ReportOptions {
+            extras: ReportExtras::default().with_disabled_hazard_rules(disabled),
+            ..default_report_options(&tighter_budget, &dependencies)
+        },
     )
     .expect("disabled rule report");
     assert!(disabled_report.over_budget().is_empty());
@@ -411,9 +398,12 @@ fn file_diagnostics_scope_summaries_templated_skipped_and_zero_secret_leakage() 
             },
         ]);
 
-    let report =
-        Report::summarize_with_extras(vec![measured_sql(model)], Vec::new(), options, extras)
-            .expect("summarize");
+    let report = Report::summarize_with_options(
+        vec![measured_sql(model)],
+        Vec::new(),
+        ReportOptions { extras, ..options },
+    )
+    .expect("summarize");
 
     let json_text = report.render(ReportFormat::Json).expect("json");
     let toon_text = report.render(ReportFormat::Toon).expect("toon");
@@ -527,16 +517,12 @@ fn diff_and_trend_measure_hazards_only_on_hazard_languages_with_limits_budgets_a
     let dependencies = DependenciesConfig::default();
     let empty_disabled = BTreeSet::new();
     let measure = |models: Vec<CodeModel>, disabled: &BTreeSet<String>| {
-        CommitMeasurement::of_languages_with_full_options(
+        CommitMeasurement::of_languages(
             models,
             CommitMeasurementOptions {
-                metric_plugins: &[],
-                boundaries: None,
-                dependencies: &dependencies,
-                duplication: DuplicationConfig::default(),
-                orphan_files: None,
-                dependency_hygiene: None,
-                disabled_hazard_rules: disabled,
+                dependencies: Some(&dependencies),
+                disabled_hazard_rules: Some(disabled),
+                ..CommitMeasurementOptions::default()
             },
         )
         .expect("commit measurement")

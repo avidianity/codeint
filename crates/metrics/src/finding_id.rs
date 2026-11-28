@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use codeint_model::language::Function;
-use codeint_model::{CodeModel, Metric, Package, RepoPath, StableHasher, Token};
+use codeint_model::{Metric, Package, RepoPath, SourceSetModel, StableHasher, Token};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FindingId(u64);
@@ -179,7 +179,7 @@ fn length_prefixed(hasher: StableHasher, bytes: &[u8]) -> StableHasher {
 }
 
 pub(crate) fn group_by_package<'model, T: Default + Copy>(
-    model: &'model CodeModel,
+    model: &'model SourceSetModel,
     by_file: &BTreeMap<RepoPath, T>,
     merge: fn(&mut T, T),
 ) -> BTreeMap<Package<'model>, T> {

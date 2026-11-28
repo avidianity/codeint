@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use codeint_model::{CodeModel, ImportResolution, RepoPath, RuntimeImport, SourceFile, SourceSet};
+use codeint_model::{
+    ImportResolution, RepoPath, RuntimeImport, SourceFile, SourceSet, SourceSetModel,
+};
 
 use super::{Boundaries, BoundaryEdgeCheck, BoundaryFindingKind, BoundaryPolicy};
 use crate::test_support::{empty_source_file, repo_path as path};
@@ -106,15 +108,15 @@ fn model_with_multi_target_import(
     importer: &str,
     specifier: &str,
     targets: &[&str],
-) -> CodeModel {
-    CodeModel {
+) -> SourceSetModel {
+    SourceSetModel {
         files: files.iter().copied().map(production_file).collect(),
         runtime_imports: vec![RuntimeImport {
             importer: path(importer),
             specifier: specifier.to_owned(),
             resolution: ImportResolution::Resolved(targets.iter().copied().map(path).collect()),
         }],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     }
 }
 
@@ -253,7 +255,7 @@ fn duplicate_targets_in_a_single_resolved_import_are_counted_once() {
 
 #[test]
 fn external_imports_are_ignored_when_no_external_rules_exist_and_checked_when_configured() {
-    let model = CodeModel {
+    let model = SourceSetModel {
         files: vec![
             production_file("src/domain/order.ts"),
             production_file("src/domain/helper.ts"),
@@ -280,7 +282,7 @@ fn external_imports_are_ignored_when_no_external_rules_exist_and_checked_when_co
                 resolution: ImportResolution::External("prisma".to_owned()),
             },
         ],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
 
     let internal_only = StubPolicy::new(&[
@@ -372,7 +374,7 @@ impl BoundaryPolicy for CountingPolicy {
 
 #[test]
 fn boundary_evaluation_memoizes_zone_lookup_once_per_unique_file() {
-    let model = CodeModel {
+    let model = SourceSetModel {
         files: vec![
             production_file("ui/page.ts"),
             production_file("core/a.ts"),
@@ -406,7 +408,7 @@ fn boundary_evaluation_memoizes_zone_lookup_once_per_unique_file() {
                 resolution: ImportResolution::Resolved(vec![path("core/a.ts")]),
             },
         ],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
     let policy = CountingPolicy {
         inner: StubPolicy::new(&[
@@ -447,7 +449,7 @@ fn strict_counting_policy(zones: &[(&str, &str)]) -> CountingPolicy {
 #[test]
 fn strict_zones_uses_combined_denominator_without_clamping_while_non_strict_keeps_resolved_imports()
 {
-    let model = CodeModel {
+    let model = SourceSetModel {
         files: vec![
             production_file("src/domain/a.ts"),
             production_file("src/unzoned_one.ts"),
@@ -458,7 +460,7 @@ fn strict_zones_uses_combined_denominator_without_clamping_while_non_strict_keep
             specifier: "./a".to_owned(),
             resolution: ImportResolution::Resolved(vec![path("src/domain/a.ts")]),
         }],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
 
     let strict_measured = Boundaries::measure(
@@ -498,7 +500,7 @@ fn strict_zones_uses_combined_denominator_without_clamping_while_non_strict_keep
 
 #[test]
 fn strict_zones_empty_model_reports_zero_ratio() {
-    let measured = Boundaries::measure(&CodeModel::default(), &strict_counting_policy(&[]));
+    let measured = Boundaries::measure(&SourceSetModel::default(), &strict_counting_policy(&[]));
     assert_eq!(measured.resolved_imports(), 0);
     assert_eq!(measured.evaluated_files(), 0);
     assert_eq!(measured.denominator(), 0);
@@ -508,13 +510,13 @@ fn strict_zones_empty_model_reports_zero_ratio() {
 
 #[test]
 fn strict_zones_without_imports_divides_unzoned_files_by_evaluated_files() {
-    let model = CodeModel {
+    let model = SourceSetModel {
         files: vec![
             production_file("src/domain/a.ts"),
             production_file("src/unzoned_one.ts"),
             production_file("src/unzoned_two.ts"),
         ],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
     let measured = Boundaries::measure(
         &model,

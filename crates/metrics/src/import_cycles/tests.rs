@@ -1,4 +1,6 @@
-use codeint_model::{CodeModel, ImportResolution, RepoPath, RuntimeImport, SourceFile, SourceSet};
+use codeint_model::{
+    ImportResolution, RepoPath, RuntimeImport, SourceFile, SourceSet, SourceSetModel,
+};
 
 use super::{ImportCycles, UnresolvedImport};
 use crate::test_support::{empty_source_file, repo_path as path};
@@ -15,14 +17,14 @@ fn resolved(importer: &str, target: &str) -> RuntimeImport {
     }
 }
 
-fn graph(modules: &[&str], imports: &[(&str, &str)]) -> CodeModel {
-    CodeModel {
+fn graph(modules: &[&str], imports: &[(&str, &str)]) -> SourceSetModel {
+    SourceSetModel {
         files: modules.iter().copied().map(module).collect(),
         runtime_imports: imports
             .iter()
             .map(|(importer, target)| resolved(importer, target))
             .collect(),
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     }
 }
 
@@ -121,7 +123,7 @@ fn a_ring_of_a_hundred_thousand_modules_is_one_import_cycle_without_overflowing_
 
 #[test]
 fn an_empty_code_model_has_no_modules_and_no_import_cycles() {
-    let cycles = ImportCycles::measure(&CodeModel::default());
+    let cycles = ImportCycles::measure(&SourceSetModel::default());
 
     assert_eq!(cycles.modules(), 0);
     assert!(cycles.cycles().is_empty());
@@ -186,7 +188,7 @@ fn resolved_many(importer: &str, specifier: &str, targets: &[&str]) -> RuntimeIm
 
 #[test]
 fn multi_file_resolved_import_cycle_includes_only_participating_modules() {
-    let model = CodeModel {
+    let model = SourceSetModel {
         files: ["a/a1.fld", "a/a2.fld", "b/b1.fld", "b/b2.fld", "c/c1.fld"]
             .into_iter()
             .map(module)
@@ -196,7 +198,7 @@ fn multi_file_resolved_import_cycle_includes_only_participating_modules() {
             resolved_many("b/b1.fld", "c", &["c/c1.fld"]),
             resolved_many("b/b2.fld", "a", &["a/a1.fld", "a/a2.fld"]),
         ],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
 
     let cycles = ImportCycles::measure(&model);
@@ -208,7 +210,7 @@ fn multi_file_resolved_import_cycle_includes_only_participating_modules() {
 
 #[test]
 fn duplicate_and_reordered_multi_file_targets_produce_identical_cycles_and_ids() {
-    let canonical = CodeModel {
+    let canonical = SourceSetModel {
         files: ["a/a1.fld", "a/a2.fld", "b/b1.fld", "b/b2.fld"]
             .into_iter()
             .map(module)
@@ -217,9 +219,9 @@ fn duplicate_and_reordered_multi_file_targets_produce_identical_cycles_and_ids()
             resolved_many("a/a1.fld", "b", &["b/b1.fld", "b/b2.fld"]),
             resolved_many("b/b2.fld", "a", &["a/a1.fld", "a/a2.fld"]),
         ],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
-    let duplicated = CodeModel {
+    let duplicated = SourceSetModel {
         files: ["b/b2.fld", "a/a2.fld", "b/b1.fld", "a/a1.fld"]
             .into_iter()
             .map(module)
@@ -229,7 +231,7 @@ fn duplicate_and_reordered_multi_file_targets_produce_identical_cycles_and_ids()
             resolved_many("a/a1.fld", "b", &["b/b2.fld", "b/b1.fld", "b/b2.fld"]),
             resolved_many("a/a1.fld", "b", &["b/b2.fld", "b/b1.fld"]),
         ],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
 
     let canonical_cycles = ImportCycles::measure(&canonical);
@@ -245,7 +247,7 @@ fn duplicate_and_reordered_multi_file_targets_produce_identical_cycles_and_ids()
 
 #[test]
 fn acyclic_multi_file_resolved_imports_form_no_import_cycle() {
-    let model = CodeModel {
+    let model = SourceSetModel {
         files: [
             "app/main.fld",
             "left/l1.fld",
@@ -268,7 +270,7 @@ fn acyclic_multi_file_resolved_imports_form_no_import_cycle() {
                 &["shared/s1.fld", "shared/s2.fld"],
             ),
         ],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
 
     let cycles = ImportCycles::measure(&model);
@@ -302,15 +304,15 @@ fn unresolved_imports_with_same_importer_sort_deterministically_regardless_of_in
         },
     };
 
-    let model_a = CodeModel {
+    let model_a = SourceSetModel {
         files: vec![module("src/a.ts")],
         runtime_imports: vec![third.clone(), second.clone(), first.clone()],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
-    let model_b = CodeModel {
+    let model_b = SourceSetModel {
         files: vec![module("src/a.ts")],
         runtime_imports: vec![first, second, third],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
 
     let cycles_a = ImportCycles::measure(&model_a);
