@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 use crate::RegressionLimits;
 use crate::boundaries::BoundariesFile;
 use crate::dependencies::DependenciesFile;
+use crate::dialects::DialectEntryFile;
 use crate::framework_profiles::{FrameworkProfileRuleFile, PackageConfigFile};
 use crate::hazards::HazardsConfigFile;
 use crate::ratchet::RatchetConfigFile;
 use crate::regression_limits::RegressionLimitSetting;
-use crate::sql::SqlConfigFile;
 
 pub(super) const DEFAULT_MIN_SIMILARITY: f64 = 0.85;
 
@@ -161,9 +161,11 @@ pub(super) struct ConfigurationFile {
         description = "Paths relative to the repository root of LCOV or Cobertura XML Coverage reports used to measure Test gap."
     )]
     coverage_reports: Vec<String>,
-    #[serde(default, skip_serializing_if = "SqlConfigFile::is_unset")]
-    #[schemars(description = "SQL settings, including Dialect mappings for folders or files.")]
-    sql: SqlConfigFile,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(
+        description = "Per-language Dialect mappings keyed by Language plugin name (such as \"sql\"). Each language maps to a list of Dialect rules pairing a Dialect name with repository-relative include globs."
+    )]
+    dialects: BTreeMap<String, Vec<DialectEntryFile>>,
     #[serde(default, skip_serializing_if = "crate::hazards::is_hazards_unset")]
     #[schemars(
         description = "Hazards Metric settings, including Hazard line rules turned off across the repository."
@@ -195,7 +197,7 @@ pub(super) struct ConfigurationFileSections {
     pub(super) boundaries: Option<BoundariesFile>,
     pub(super) dependencies: DependenciesFile,
     pub(super) duplication: DuplicationConfigFile,
-    pub(super) sql: SqlConfigFile,
+    pub(super) dialects: BTreeMap<String, Vec<DialectEntryFile>>,
     pub(super) hazards: HazardsConfigFile,
     pub(super) framework_profiles: Option<FrameworkProfileRuleFile>,
     pub(super) packages: BTreeMap<String, PackageConfigFile>,
@@ -224,11 +226,18 @@ impl ConfigurationFile {
     }
 
     pub(super) fn without_schema_address(&self) -> ConfigurationFile {
+        let dialects = self
+            .dialects
+            .iter()
+            .filter(|(_, entries)| !entries.is_empty())
+            .map(|(language, entries)| (language.clone(), entries.clone()))
+            .collect();
         ConfigurationFile {
             _schema: None,
             format: None,
             regression_limits: self.regression_limits.clone().normalized(),
             duplication: self.duplication.clone().normalized(),
+            dialects,
             ..self.clone()
         }
     }
@@ -246,7 +255,7 @@ impl ConfigurationFile {
             boundaries: self.boundaries,
             dependencies: self.dependencies,
             duplication: self.duplication,
-            sql: self.sql,
+            dialects: self.dialects,
             hazards: self.hazards,
             framework_profiles: self.framework_profiles,
             packages: self.packages,

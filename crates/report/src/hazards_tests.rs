@@ -12,9 +12,9 @@ use codeint_model::{
 use serde_json::Value;
 
 use crate::{
-    BaseCommit, CommitMeasurement, CommitMeasurementOptions, DiffReport, Head, LanguageSchema,
-    MeasuredLanguage, OwnershipOptions, RejectedStatementEntry, Report, ReportExtras,
-    ReportOptions, SavedReport, SchemaReport, SqlSchemaSummary, TrendPoint, TrendReport,
+    BaseCommit, CommitMeasurement, CommitMeasurementOptions, DiffReport, FileDiagnosticEntry, Head,
+    LanguageSchema, MeasuredLanguage, OwnershipOptions, Report, ReportExtras, ReportOptions,
+    SavedReport, SchemaReport, ScopeSummaryEntry, TrendPoint, TrendReport,
 };
 
 fn sql_file(
@@ -352,7 +352,7 @@ fn disabled_hazard_rules_and_budgets_equal_and_over() {
 }
 
 #[test]
-fn rejected_statements_sql_schemas_templated_skipped_and_zero_secret_leakage() {
+fn file_diagnostics_scope_summaries_templated_skipped_and_zero_secret_leakage() {
     let secret = "SUPER_SECRET_PASSWORD_987654";
     let mut model = sql_model(
         vec![sql_file(
@@ -370,7 +370,7 @@ fn rejected_statements_sql_schemas_templated_skipped_and_zero_secret_leakage() {
     );
     model.skipped.push(SkippedFile {
         path: RepoPath::new("db/template.sql").expect("path"),
-        reason: "templated SQL".to_owned(),
+        reason: "cannot parse: templated SQL".to_owned(),
     });
     let budgets = Budgets::default();
     let dependencies = DependenciesConfig::default();
@@ -382,21 +382,32 @@ fn rejected_statements_sql_schemas_templated_skipped_and_zero_secret_leakage() {
         owner_filter: Some(&owner_filter),
     };
     let extras = ReportExtras::default()
-        .with_rejected_statements(vec![RejectedStatementEntry {
+        .with_file_diagnostics(vec![FileDiagnosticEntry {
             path: "db/broken.sql".to_owned(),
             line: 14,
-            dialect: "postgresql".to_owned(),
+            kind: "rejected-statement".to_owned(),
+            message: "could not parse statement as postgresql".to_owned(),
         }])
-        .with_sql_schemas(vec![
-            SqlSchemaSummary {
+        .with_scope_summaries(vec![
+            ScopeSummaryEntry {
+                language: "sql".to_owned(),
                 package: None,
-                dialect: "postgresql".to_owned(),
-                tables: 4,
+                dialect: Some("postgresql".to_owned()),
+                kind: "sql-schema".to_owned(),
+                fields: BTreeMap::from([
+                    ("dialect".to_owned(), "postgresql".to_owned()),
+                    ("tables".to_owned(), "4".to_owned()),
+                ]),
             },
-            SqlSchemaSummary {
+            ScopeSummaryEntry {
+                language: "sql".to_owned(),
                 package: Some("packages/billing".to_owned()),
-                dialect: "generic".to_owned(),
-                tables: 2,
+                dialect: None,
+                kind: "sql-schema".to_owned(),
+                fields: BTreeMap::from([
+                    ("dialect".to_owned(), "generic SQL".to_owned()),
+                    ("tables".to_owned(), "2".to_owned()),
+                ]),
             },
         ]);
 
@@ -419,14 +430,20 @@ fn rejected_statements_sql_schemas_templated_skipped_and_zero_secret_leakage() {
     }
 
     let json: Value = serde_json::from_str(&json_text).expect("parse json");
-    assert_eq!(json["rejected_statements"][0]["path"], "db/broken.sql");
-    assert_eq!(json["rejected_statements"][0]["line"], 14);
-    assert_eq!(json["rejected_statements"][0]["dialect"], "postgresql");
-    assert!(json["sql_schemas"][0].get("package").is_none());
-    assert_eq!(json["sql_schemas"][0]["dialect"], "postgresql");
-    assert_eq!(json["sql_schemas"][0]["tables"], 4);
-    assert_eq!(json["sql_schemas"][1]["package"], "packages/billing");
-    assert_eq!(json["skipped"][0]["reason"], "templated SQL");
+    assert_eq!(json["file_diagnostics"][0]["path"], "db/broken.sql");
+    assert_eq!(json["file_diagnostics"][0]["line"], 14);
+    assert_eq!(json["file_diagnostics"][0]["kind"], "rejected-statement");
+    assert_eq!(
+        json["file_diagnostics"][0]["message"],
+        "could not parse statement as postgresql"
+    );
+    assert!(json["scope_summaries"][0].get("package").is_none());
+    assert_eq!(json["scope_summaries"][0]["language"], "sql");
+    assert_eq!(json["scope_summaries"][0]["dialect"], "postgresql");
+    assert_eq!(json["scope_summaries"][0]["kind"], "sql-schema");
+    assert_eq!(json["scope_summaries"][0]["fields"]["tables"], "4");
+    assert_eq!(json["scope_summaries"][1]["package"], "packages/billing");
+    assert_eq!(json["skipped"][0]["reason"], "cannot parse: templated SQL");
 
     let finding = &json["source_sets"]["production"]["hazards"]["findings"][0];
     let finding_keys: BTreeSet<&str> = finding
@@ -442,12 +459,18 @@ fn rejected_statements_sql_schemas_templated_skipped_and_zero_secret_leakage() {
 
     assert!(md_text.contains("| Path | Line | Rule | Owners |"));
     assert!(md_text.contains("| `db/auth.sql` | 3 | plain-text-secret | `@data-team` |"));
-    assert!(md_text.contains("## Rejected statements"));
-    assert!(md_text.contains("- `db/broken.sql:14`: dialect `postgresql`"));
-    assert!(md_text.contains("## SQL schemas"));
-    assert!(md_text.contains("| root | `postgresql` | 4 |"));
-    assert!(md_text.contains("| `packages/billing` | `generic` | 2 |"));
-    assert!(md_text.contains("- `db/template.sql`: templated SQL"));
+    assert!(md_text.contains("## File diagnostics"));
+    assert!(md_text.contains(
+        "- `db/broken.sql:14` (`rejected-statement`): could not parse statement as postgresql"
+    ));
+    assert!(md_text.contains("## Scope summaries"));
+    assert!(md_text.contains(
+        "| `sql` | root | `postgresql` | `sql-schema` | `dialect`=postgresql, `tables`=4 |"
+    ));
+    assert!(md_text.contains(
+        "| `sql` | `packages/billing` | - | `sql-schema` | `dialect`=generic SQL, `tables`=2 |"
+    ));
+    assert!(md_text.contains("- `db/template.sql`: cannot parse: templated SQL"));
 
     let saved = SavedReport::from_json(&json_text).expect("saved report round trip");
     assert_eq!(

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use codeint_config::{Codeowners, FindingAnchor};
 use codeint_metrics::{
@@ -14,18 +14,23 @@ use crate::ownership::OwnedFinding;
 use crate::render::{Decimal, FindingKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RejectedStatementEntry {
+pub struct FileDiagnosticEntry {
     pub path: String,
     pub line: u32,
-    pub dialect: String,
+    pub kind: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SqlSchemaSummary {
+pub struct ScopeSummaryEntry {
+    pub language: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
-    pub dialect: String,
-    pub tables: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dialect: Option<String>,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fields: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

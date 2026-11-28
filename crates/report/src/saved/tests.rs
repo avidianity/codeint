@@ -188,3 +188,56 @@ fn saved_check_and_diff_reports_preserve_metric_versions_across_json_and_toon_ro
         4
     );
 }
+
+#[test]
+fn saved_report_deserializes_legacy_sql_schemas_and_rejected_statements_into_generic_keys() {
+    let historical = serde_json::json!({
+        "files": 2,
+        "source_lines": 10,
+        "source_sets": {},
+        "rejected_statements": [
+            { "path": "queries/mixed.sql", "line": 2, "dialect": "generic SQL" }
+        ],
+        "sql_schemas": [
+            { "package": "packages/billing", "dialect": "postgresql", "tables": 3 }
+        ]
+    })
+    .to_string();
+
+    let (saved, rerendered) = rerender_saved_json(&historical);
+    assert!(rerendered.get("rejected_statements").is_none());
+    assert!(rerendered.get("sql_schemas").is_none());
+    assert_eq!(
+        rerendered["file_diagnostics"][0]["path"],
+        "queries/mixed.sql"
+    );
+    assert_eq!(rerendered["file_diagnostics"][0]["line"], 2);
+    assert_eq!(
+        rerendered["file_diagnostics"][0]["kind"],
+        "rejected-statement"
+    );
+    assert_eq!(
+        rerendered["file_diagnostics"][0]["message"],
+        "could not parse statement as generic SQL"
+    );
+    assert_eq!(rerendered["scope_summaries"][0]["language"], "sql");
+    assert_eq!(
+        rerendered["scope_summaries"][0]["package"],
+        "packages/billing"
+    );
+    assert_eq!(rerendered["scope_summaries"][0]["dialect"], "postgresql");
+    assert_eq!(rerendered["scope_summaries"][0]["kind"], "sql-schema");
+    assert_eq!(rerendered["scope_summaries"][0]["fields"]["tables"], "3");
+
+    let text = saved
+        .render(codeint_config::ReportRenderFormat::Text)
+        .expect("render text");
+    assert!(text.contains("file diagnostics (1)"));
+    assert!(text.contains("scope summaries:"));
+
+    let markdown = saved
+        .render(codeint_config::ReportRenderFormat::Markdown)
+        .expect("render markdown");
+    assert!(markdown.contains("## Scope summaries"));
+    assert!(markdown.contains("## File diagnostics"));
+}

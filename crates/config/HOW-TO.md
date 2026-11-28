@@ -169,6 +169,7 @@ use codeint_config::{DetectedLanguage, StarterBoundaries, write_starter_configur
 let languages = vec![DetectedLanguage {
     plugin: "typescript-javascript".to_owned(),
     include: vec![RepoPath::new("packages")?],
+    known_dialects: Vec::new(),
 }];
 let written = write_starter_configuration(tree.root(), &languages, None)?;
 ```

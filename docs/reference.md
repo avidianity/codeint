@@ -137,7 +137,7 @@ codeint init --format yaml
 ```
 
 When no file belongs to a Language plugin, the file leaves `languages` out, so every Language plugin measures the whole repository.
-When `sql` files are detected, `codeint init` adds a commented `sql.dialects` hint to the starter file.
+When a detected Language plugin declares Dialects (such as `sql`), `codeint init` adds a commented `dialects.<language>` hint to the starter file.
 `codeint init` also adds a commented-out Import boundary starter block only when high-confidence signals exist:
 when built-in Language plugins discover two or more Workspace packages, it suggests commented-out `boundaries.zones` entries for each Workspace package;
 in a single-package repository whose Production source files match at least two zones of the `layered` or `hexagonal` preset, it suggests the matching commented-out `boundaries.preset`;
@@ -752,7 +752,7 @@ Invalid `format` values and `trace` calls with `max_paths` less than `1` are rej
 The `check` MCP tool takes `path`, `package`, `coverage_reports`, `all`, `ignore_baseline` (boolean, `false` by default; the same meaning as `codeint check --ignore-baseline`), and `format`.
 Its stale-Baseline error names `ignore_baseline: true` as the way to show every Finding.
 It uses `coverage_reports` from `codeint.json`, returning Test gap (or its absent form and reason), Test gap Findings ordered heaviest untested Function mass first, any Test gap Budget failure, and the missing-report error when `budgets.production.test_gap` is set with Test gap absent.
-When a measured language defines Hazard line rules (such as SQL), `check`, `diff`, and `trend` also return `hazards`, Hazard line Findings (path, line, and rule name only), `sql_schemas`, and `rejected_statements`.
+When a measured language defines Hazard line rules (such as SQL), `check`, `diff`, and `trend` also return `hazards`, Hazard line Findings (path, line, and rule name only), `scope_summaries`, and `file_diagnostics`.
 When standard input closes, the server exits with code 0:
 
 ```sh exit=0
@@ -1219,10 +1219,10 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `duplication.min_similarity` | number in (0, 1] | Minimum Jaccard shingle similarity required for two blocks to match as a near-clone; `0.85` by default |
 | `entry_points` | list of strings | Globs of repository-relative paths treated as additional Production entry points for Orphan files detection; empty by default |
 | `coverage_reports` | list of strings | Paths relative to the repository root of LCOV or Cobertura XML Coverage reports used to measure Test gap; empty by default; see [Test gap](#test-gap) |
-| `sql` | object | SQL settings, including Dialect mappings for folders or files; see [SQL](#sql) |
-| `sql.dialects` | list of objects | Folder or file patterns mapped to a SQL Dialect; files covered by no entry use generic SQL |
-| `sql.dialects[].dialect` | string | SQL Dialect for matching files: `postgresql`, `mysql` (covers MariaDB), `sqlite`, or `duckdb` |
-| `sql.dialects[].include` | list of strings | Globs of repository-relative folders or files that use this SQL Dialect; a folder covers every file below it |
+| `dialects` | object | Per-language Dialect mappings keyed by Language plugin name (such as `dialects.sql`); see [SQL](#sql) |
+| `dialects.<language>` | list of objects | Folder or file patterns mapped to a Dialect supported by `<language>`; files covered by no entry use the plugin's default Dialect |
+| `dialects.<language>[].dialect` | string | Dialect name accepted by the Language plugin's `known-dialects` export (for `sql`: `postgresql`, `mysql`, `sqlite`, `duckdb`, or `generic`) |
+| `dialects.<language>[].include` | list of strings | Globs of repository-relative folders or files that use this Dialect; a folder covers every file below it |
 | `hazards` | object | Hazards Metric settings; see [Hazards](#hazards) |
 | `hazards.disabled_rules` | list of strings | Names of Hazard line rules turned off across the repository; empty by default |
 | `framework_profiles` | boolean, list of strings, or object | Global Framework profile selection (`false` to disable all, `true` for auto-detection, a list of profile names or `{"only": [...]}` to allow-list, or `{"exclude": [...]}` to exclude named profiles); auto-detected by default; see [Framework profiles](#framework-profiles) |
@@ -1805,14 +1805,14 @@ See [docs/guide/sql.md](./guide/sql.md) for a walkthrough and monorepo examples.
 - **Decision points and Cognitive complexity**: each `WHEN` arm of a `CASE`, each `AND` and `OR` in a condition (excluding `BETWEEN ... AND`, transaction `AND CHAIN`, and `CREATE OR REPLACE`), each `JOIN` (including `STRAIGHT_JOIN`), each subquery (`(SELECT ...)` or `(WITH ...)`), and each set operation (`UNION`, `INTERSECT`, or `EXCEPT`, excluding wildcard `EXCEPT`) adds `1`; window functions and `GROUP BY` add `0`.
   Inside a stored routine (function, procedure, or trigger, including PostgreSQL dollar-quoted SQL/PLpgSQL bodies, MySQL `DELIMITER`-delimited routines, and SQLite triggers), each `IF`, `ELSIF`/`ELSEIF`, loop (`WHILE`, `FOR`, `REPEAT`, `LOOP`), and error handler (`EXCEPTION`, `HANDLER`) adds `1` and deepens block nesting.
   Cognitive complexity uses subquery depth plus routine block depth.
-- **Dialects (`sql.dialects`)**: map repository-relative folder or file globs to `postgresql`, `mysql` (covers MariaDB), `sqlite`, or `duckdb`.
+- **Dialects (`dialects.sql`)**: map repository-relative folder or file globs to `postgresql`, `mysql` (covers MariaDB), `sqlite`, `duckdb`, or `generic`.
   Files covered by no entry use generic SQL (`generic`); ClickHouse, SQL Server, Oracle, BigQuery, and Snowflake stay generic SQL.
   An unknown Dialect name, an empty `include` list, or one file matched by entries with different Dialects stops the run with exit code 2.
   PostgreSQL `psql` backslash commands and DuckDB CLI dot-commands count as source lines and are not parsed as statements.
-- **Templated SQL and rejected statements**: files containing `{{`, `{%`, `%}`, `<%`, or `%>` outside SQL strings and comments are skipped under `skipped` with reason `templated SQL`.
-  A single statement that the parser rejects still counts in every token-layer Metric, receives no Flagged line or Hazard line rules, and is listed under `rejected_statements` with `path`, `line`, and `dialect`.
-- **SQL Schema (`sql_schemas`)**: built automatically in repository-relative path order from `CREATE TABLE` (excluding `CREATE TEMP` / `CREATE TEMPORARY TABLE`), `CREATE INDEX`, `ALTER TABLE`, `DROP TABLE`, and `DROP INDEX` across Production, Test, and Generated SQL (never Vendored, and skipping rollback down-migration files named `down.sql` or ending in `.down.sql`), scoped per Workspace package and Dialect (plus root per Dialect; generic SQL is its own Dialect).
-  Reports list each scope's table count under `sql_schemas`.
+- **Templated SQL and file diagnostics**: files containing `{{`, `{%`, `%}`, `<%`, or `%>` outside SQL strings and comments are skipped under `skipped` with reason `cannot parse: templated SQL`.
+  A single statement that the parser rejects still counts in every token-layer Metric, receives no Flagged line or Hazard line rules, and is listed under `file_diagnostics` with `path`, `line`, `kind` (`rejected-statement`), and `message`.
+- **SQL Schema (`scope_summaries`)**: built automatically in repository-relative path order from `CREATE TABLE` (excluding `CREATE TEMP` / `CREATE TEMPORARY TABLE`), `CREATE INDEX`, `ALTER TABLE`, `DROP TABLE`, and `DROP INDEX` across Production, Test, and Generated SQL (never Vendored, and skipping rollback down-migration files named `down.sql` or ending in `.down.sql`), scoped per Workspace package and Dialect (plus root per Dialect; generic SQL is its own Dialect).
+  Reports list each scope's table count under `scope_summaries`.
   The 5 schema-backed Hazard line rules stay silent when a table is unknown or an unqualified column is ambiguous.
 - **Flagged line rules (Verbosity)**:
   - `or-chain-collapses-to-in`: three or more `OR` equality comparisons of the same column against constant literals.
@@ -2241,8 +2241,8 @@ The top-level object has these fields:
 | `dependencies` | object, optional | Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) when manifests are present for a language with imports |
 | `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, `source_sets`, and optional `import_metrics_note`, `test_gap_note`, and `dependencies` for that plugin's files |
 | `skipped` | array, optional | Files that codeint could not measure, each with its `path` and the `reason` (such as `templated SQL`) |
-| `rejected_statements` | array, optional | Statements that a Language plugin's parser could not parse (still counted in token Metrics, no statement rules applied), each with `path`, `line`, and `dialect` |
-| `sql_schemas` | array, optional | Table counts of each SQL schema built per Workspace package (optional `package`, omitted for root) and `dialect`, with `tables` count |
+| `file_diagnostics` | array, optional | Non-fatal per-file diagnostics emitted while lowering source files (such as unparsed SQL statements), each with `path`, `line`, `kind`, and `message` |
+| `scope_summaries` | array, optional | Language-neutral summaries emitted by cross-file scope analysis per Workspace package (optional `package`, omitted for root) and optional `dialect`, each with `language`, `kind`, and `fields` |
 | `declaration_only` | array of strings, optional | Paths of files that hold only type declarations and add no source lines |
 | `over_budget` | array, optional | Metrics over their Budget, each with its `source_set`, `metric`, the `ratio` as the report shows it, and the `budget` |
 
@@ -2302,7 +2302,7 @@ The content behind the `id` of each kind:
 Every `path` is relative to the root of the Git repository and uses `/` as the separator.
 Line numbers start at 1.
 
-An optional field is left out when it has no content: a Source set without files, an empty `skipped`, `rejected_statements`, `sql_schemas`, `declaration_only`, or `over_budget` list, `hazards` when no measured language defines Hazard line rules, import Metrics for a language with no imports, `findings_left_out` when no Finding is left out, `baselined_findings` when the Baseline hides no Finding of the Metric, and `baseline` when `.codeint/baseline.json` is absent or `--ignore-baseline` is passed.
+An optional field is left out when it has no content: a Source set without files, an empty `skipped`, `file_diagnostics`, `scope_summaries`, `declaration_only`, or `over_budget` list, `hazards` when no measured language defines Hazard line rules, import Metrics for a language with no imports, `findings_left_out` when no Finding is left out, `baselined_findings` when the Baseline hides no Finding of the Metric, and `baseline` when `.codeint/baseline.json` is absent or `--ignore-baseline` is passed.
 
 #### Compatibility rule
 

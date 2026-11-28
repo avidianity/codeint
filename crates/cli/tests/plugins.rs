@@ -2277,3 +2277,70 @@ fn plugin_trap_in_workspace_packages_stays_fatal_for_every_plugin_name() {
         );
     }
 }
+
+#[test]
+fn external_v05_wasm_plugin_supports_dialects_diagnostics_and_analyze_scope_end_to_end() {
+    let extra_config = r#"
+      "dialects": {
+        "v05-lang": [
+          { "dialect": "alpha", "include": ["alpha/**"] },
+          { "dialect": "beta", "include": ["beta/**"] }
+        ]
+      }
+    "#;
+    let (repo, _hash) = init_single_probe_repo(
+        "v05-lang",
+        None,
+        "v0_5_0_features_language_plugin.wasm",
+        extra_config,
+    );
+    write_file(repo.path(), "alpha/a.v05", "DIAG_NOTE\nSCOPE_RISK\n");
+    write_file(repo.path(), "beta/b.v05", "ok\n");
+    write_file(repo.path(), "plain/c.v05", "ok\n");
+
+    let report = run_check_json_report(repo.path());
+    assert_eq!(report["files"], 3, "report: {report}");
+    assert_eq!(report["file_diagnostics"][0]["path"], "alpha/a.v05");
+    assert_eq!(report["file_diagnostics"][0]["line"], 1);
+    assert_eq!(report["file_diagnostics"][0]["kind"], "note");
+    assert_eq!(report["file_diagnostics"][0]["message"], "v05 diagnostic");
+
+    let hazards = report["source_sets"]["production"]["hazards"]["findings"]
+        .as_array()
+        .expect("hazard findings");
+    assert!(
+        hazards.iter().any(|f| f["path"] == "alpha/a.v05"
+            && f["line"] == 1
+            && f["rule"] == "cross-file-risk"),
+        "expected cross-file-risk from analyze-scope: {report}"
+    );
+
+    let summaries = report["scope_summaries"]
+        .as_array()
+        .expect("scope_summaries");
+    assert_eq!(summaries.len(), 3, "summaries: {summaries:?}");
+    let dialects: Vec<&str> = summaries
+        .iter()
+        .filter_map(|s| s["fields"]["dialect"].as_str())
+        .collect();
+    assert_eq!(dialects, ["none", "alpha", "beta"]);
+    assert!(
+        summaries
+            .iter()
+            .all(|s| s["language"] == "v05-lang" && s["kind"] == "v05-scope")
+    );
+
+    let (bad_dialect_repo, _) = init_single_probe_repo(
+        "v05-lang",
+        None,
+        "v0_5_0_features_language_plugin.wasm",
+        r#""dialects": { "v05-lang": [{ "dialect": "gamma", "include": ["src/**"] }] }"#,
+    );
+    write_file(bad_dialect_repo.path(), "src/a.v05", "ok\n");
+    assert_check_exits_2(bad_dialect_repo.path(), &["gamma", "alpha, beta"]);
+
+    let (bad_line_repo, _) =
+        init_single_probe_repo("v05-lang", None, "v0_5_0_features_language_plugin.wasm", "");
+    write_file(bad_line_repo.path(), "src/bad.v05", "SCOPE_BAD_LINE\n");
+    assert_check_exits_2(bad_line_repo.path(), &["outside the file's", "4000000000"]);
+}

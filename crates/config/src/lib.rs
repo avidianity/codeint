@@ -13,6 +13,7 @@ mod command;
 mod config_error;
 mod coupling;
 mod dependencies;
+mod dialects;
 mod finding_anchor;
 mod framework_profiles;
 mod hazards;
@@ -21,7 +22,6 @@ mod regression_limits;
 mod repo_state;
 mod resolved;
 mod result_cache_folder;
-mod sql;
 
 pub use baseline::{
     BASELINE_PATH, BASELINE_SCHEMA_VERSION, Baseline, BaselineEntry, BaselineFileError,
@@ -67,6 +67,7 @@ pub use coupling::{
     DEFAULT_MIN_CO_CHANGES, DEFAULT_MIN_COUPLING_RATIO,
 };
 pub use dependencies::DependenciesConfig;
+pub use dialects::{DialectConflict, DialectRules, validate_dialects};
 pub use finding_anchor::{AnchorMatch, FindingAnchor, match_anchors};
 pub use framework_profiles::{FrameworkProfilesConfig, display_package_key};
 pub use hazards::HazardsConfig;
@@ -83,4 +84,3 @@ pub use resolved::{
     BudgetOverride, ConfigOverrides, ConfigProvenance, ResolvedConfiguration, ResolvedSetting,
     SourceSetOverride,
 };
-pub use sql::{KNOWN_SQL_DIALECTS, SqlConfig, SqlDialect, SqlDialectConflict};

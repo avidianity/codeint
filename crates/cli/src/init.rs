@@ -330,6 +330,7 @@ fn detect_languages(
             detected.push(DetectedLanguage {
                 plugin: named.name.to_owned(),
                 include: top_level_paths.into_iter().collect(),
+                known_dialects: named.plugin.known_dialects(),
             });
         }
     }

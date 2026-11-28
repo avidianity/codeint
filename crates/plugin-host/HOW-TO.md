@@ -26,22 +26,10 @@ let ts_plugin = built_in_language_plugin("typescript-javascript");
 - `built_in_language_hazard_rules` returns the map of built-in Language plugins that expose Hazard line rules to their declared rule names.
 - `built_in_language_framework_profiles` returns the map of built-in Language plugins that expose Framework profiles to their declared profile names.
 
-## Lower SQL files and run the cross-file SQL schema pass
+## Dialects and cross-file scope analysis
 
-```rust
-use std::collections::BTreeMap;
-
-use codeint_config::SqlDialect;
-use codeint_plugin_host::{apply_sql_schema_pass, lower_sql_source};
-
-let lowered = lower_sql_source(&path, source, SqlDialect::Postgresql)?;
-let mut parsed_by_path = BTreeMap::new();
-parsed_by_path.insert(path, lowered.parsed);
-let summaries = apply_sql_schema_pass(&mut sql_model, &parsed_by_path);
-```
-
-- `lower_sql_source` lowers a SQL source file with the configured `codeint_config::SqlDialect` and returns its `FileModel`, opaque `SqlParsedFile`, and any `SqlRejectedStatement` entries.
-- `apply_sql_schema_pass` builds per-(package, dialect) schemas from non-vendored, non-down-migration SQL files, appends cross-file schema Hazard lines to `sql_model`, and returns sorted `SqlSchemaScopeSummary` records.
+- Built-in and external Language plugins declare selectable Dialects through `LanguagePlugin::known_dialects` and receive the resolved optional Dialect name in `LanguagePlugin::lower(path, text, dialect)`.
+- When `LanguagePlugin::has_scope_analysis` returns `true`, `lower` returns opaque `scope_artifact` bytes and the caller groups them by `(Workspace package, Dialect)` before calling `LanguagePlugin::analyze_scope(package_root, dialect, artifacts)` and validating the returned `ScopeAnalysis` via `codeint_model::validate_scope_analysis`.
 
 ## Resolve Framework profiles
 

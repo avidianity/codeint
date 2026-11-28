@@ -7,6 +7,7 @@ use sqlparser::ast::{
 };
 
 use crate::ParsedSqlStatement;
+use crate::schema::artifact::{AlterOp, DdlOp};
 use crate::schema::types::{
     ColumnTypeClass, IndexSchema, SqlSchema, TableKey, TableSchema, normalize_ident,
     object_name_last_ident, split_object_name,
@@ -18,40 +19,59 @@ impl SqlSchema {
     ) -> SqlSchema {
         let mut schema = SqlSchema::default();
         for statements in files_in_path_order {
-            for parsed in statements {
-                apply_statement(&mut schema, &parsed.statement);
-            }
+            let ops = extract_ddl_ops(statements);
+            schema.apply_ddl_ops(&ops);
         }
         schema
     }
+
+    pub(crate) fn apply_ddl_ops(&mut self, ops: &[DdlOp]) {
+        for op in ops {
+            apply_ddl_op(self, op);
+        }
+    }
 }
 
-fn apply_statement(schema: &mut SqlSchema, stmt: &Statement) {
+pub(crate) fn extract_ddl_ops(statements: &[ParsedSqlStatement]) -> Vec<DdlOp> {
+    let mut ops = Vec::new();
+    for parsed in statements {
+        extract_statement_ddl(&parsed.statement, &mut ops);
+    }
+    ops
+}
+
+fn extract_statement_ddl(stmt: &Statement, out: &mut Vec<DdlOp>) {
     match stmt {
-        Statement::CreateTable(create_table) => apply_create_table(schema, create_table),
-        Statement::CreateIndex(create_index) => apply_create_index(schema, create_index),
-        Statement::AlterTable(alter_table) => apply_alter_table(schema, alter_table),
+        Statement::CreateTable(create_table) => {
+            if let Some(op) = extract_create_table(create_table) {
+                out.push(op);
+            }
+        }
+        Statement::CreateIndex(create_index) => {
+            if let Some(op) = extract_create_index(create_index) {
+                out.push(op);
+            }
+        }
+        Statement::AlterTable(alter_table) => {
+            if let Some(op) = extract_alter_table(alter_table) {
+                out.push(op);
+            }
+        }
         Statement::Drop {
             object_type,
             names,
             table,
             ..
-        } => apply_drop(schema, *object_type, names, table.as_ref()),
+        } => extract_drop(*object_type, names, table.as_ref(), out),
         _ => {}
     }
 }
 
-fn apply_create_table(schema: &mut SqlSchema, create: &CreateTable) {
+fn extract_create_table(create: &CreateTable) -> Option<DdlOp> {
     if create.temporary || (create.columns.is_empty() && create.query.is_some()) {
-        return;
+        return None;
     }
-    let Some((table_schema, table_name)) = split_object_name(&create.name) else {
-        return;
-    };
-    let key = (table_schema.clone(), table_name.clone());
-    if create.if_not_exists && schema.tables.contains_key(&key) {
-        return;
-    }
+    let (table_schema, table_name) = split_object_name(&create.name)?;
     let mut table = TableSchema {
         schema: table_schema,
         name: table_name,
@@ -70,7 +90,436 @@ fn apply_create_table(schema: &mut SqlSchema, create: &CreateTable) {
     {
         table.primary_key = extract_pk_expr_columns(expr);
     }
-    schema.tables.insert(key, table);
+    Some(DdlOp::CreateTable {
+        if_not_exists: create.if_not_exists,
+        table,
+    })
+}
+
+fn extract_create_index(create: &CreateIndex) -> Option<DdlOp> {
+    let (table_schema, table_name) = split_object_name(&create.table_name)?;
+    let columns = extract_index_columns(&create.columns);
+    if columns.is_empty() {
+        return None;
+    }
+    let name = create.name.as_ref().and_then(object_name_last_ident);
+    Some(DdlOp::CreateIndex {
+        table_schema,
+        table_name,
+        index: IndexSchema { name, columns },
+    })
+}
+
+fn extract_alter_table(alter: &AlterTable) -> Option<DdlOp> {
+    let (table_schema, table_name) = split_object_name(&alter.name)?;
+    let mut ops = Vec::new();
+    for operation in &alter.operations {
+        extract_alter_operation(operation, &mut ops);
+    }
+    (!ops.is_empty()).then_some(DdlOp::AlterTable {
+        table_schema,
+        table_name,
+        ops,
+    })
+}
+
+fn extract_column_flags(
+    options: &[ColumnOption],
+    constraint_names: &[Option<String>],
+) -> (bool, Option<Option<String>>) {
+    let mut is_pk = false;
+    let mut unique_index = None;
+    for (idx, option) in options.iter().enumerate() {
+        match option {
+            ColumnOption::PrimaryKey(_) => is_pk = true,
+            ColumnOption::Unique(unique) => {
+                let name = unique
+                    .name
+                    .as_ref()
+                    .or(unique.index_name.as_ref())
+                    .map(normalize_ident)
+                    .or_else(|| constraint_names.get(idx).cloned().flatten());
+                unique_index = Some(name);
+            }
+            _ => {}
+        }
+    }
+    (is_pk, unique_index)
+}
+
+fn extract_alter_operation(operation: &AlterTableOperation, out: &mut Vec<AlterOp>) {
+    match operation {
+        AlterTableOperation::RenameTable { table_name } => {
+            let target_name = match table_name {
+                RenameTableNameKind::As(name) | RenameTableNameKind::To(name) => name,
+            };
+            if let Some((new_schema, new_name)) = split_object_name(target_name) {
+                out.push(AlterOp::RenameTable {
+                    new_schema,
+                    new_name,
+                });
+            }
+        }
+        AlterTableOperation::AddColumn { column_def, .. } => {
+            let opts: Vec<ColumnOption> = column_def
+                .options
+                .iter()
+                .map(|o| o.option.clone())
+                .collect();
+            let cnames: Vec<Option<String>> = column_def
+                .options
+                .iter()
+                .map(|o| o.name.as_ref().map(normalize_ident))
+                .collect();
+            let (is_pk, unique_index) = extract_column_flags(&opts, &cnames);
+            out.push(AlterOp::AddColumn {
+                name: normalize_ident(&column_def.name),
+                ty: classify_data_type(&column_def.data_type),
+                is_pk,
+                unique_index,
+            });
+        }
+        AlterTableOperation::DropColumn { column_names, .. } => {
+            for ident in column_names {
+                out.push(AlterOp::DropColumn {
+                    name: normalize_ident(ident),
+                });
+            }
+        }
+        AlterTableOperation::RenameColumn {
+            old_column_name,
+            new_column_name,
+        } => out.push(AlterOp::RenameColumn {
+            old: normalize_ident(old_column_name),
+            new: normalize_ident(new_column_name),
+        }),
+        AlterTableOperation::ChangeColumn {
+            old_name,
+            new_name,
+            data_type,
+            options,
+            ..
+        } => {
+            let (is_pk, unique_index) = extract_column_flags(options, &[]);
+            out.push(AlterOp::ChangeColumn {
+                old: normalize_ident(old_name),
+                new: normalize_ident(new_name),
+                ty: classify_data_type(data_type),
+                is_pk,
+                unique_index,
+            });
+        }
+        AlterTableOperation::ModifyColumn {
+            col_name,
+            data_type,
+            options,
+            ..
+        } => {
+            let (is_pk, unique_index) = extract_column_flags(options, &[]);
+            out.push(AlterOp::ModifyColumn {
+                name: normalize_ident(col_name),
+                ty: classify_data_type(data_type),
+                is_pk,
+                unique_index,
+            });
+        }
+        AlterTableOperation::AlterColumn {
+            column_name,
+            op: AlterColumnOperation::SetDataType { data_type, .. },
+        } => out.push(AlterOp::SetColumnType {
+            name: normalize_ident(column_name),
+            ty: classify_data_type(data_type),
+        }),
+        _ => extract_constraint_alter(operation, out),
+    }
+}
+
+fn extract_constraint_alter(operation: &AlterTableOperation, out: &mut Vec<AlterOp>) {
+    match operation {
+        AlterTableOperation::AddConstraint { constraint, .. } => {
+            extract_table_constraint_alter(constraint, out);
+        }
+        AlterTableOperation::DropConstraint { name, .. }
+        | AlterTableOperation::DropIndex { name } => out.push(AlterOp::DropNamedIndex {
+            name: normalize_ident(name),
+        }),
+        AlterTableOperation::DropPrimaryKey { .. } => out.push(AlterOp::DropPrimaryKey),
+        _ => {}
+    }
+}
+
+fn extract_table_constraint_alter(constraint: &TableConstraint, out: &mut Vec<AlterOp>) {
+    match constraint {
+        TableConstraint::PrimaryKey(pk) => {
+            let columns = extract_index_columns(&pk.columns);
+            if !columns.is_empty() {
+                out.push(AlterOp::SetPrimaryKey { columns });
+            }
+        }
+        TableConstraint::Unique(unique) => {
+            let columns = extract_index_columns(&unique.columns);
+            if !columns.is_empty() {
+                let name = unique
+                    .name
+                    .as_ref()
+                    .or(unique.index_name.as_ref())
+                    .map(normalize_ident);
+                out.push(AlterOp::AddIndex {
+                    index: IndexSchema { name, columns },
+                });
+            }
+        }
+        TableConstraint::Index(index) => {
+            let columns = extract_index_columns(&index.columns);
+            if !columns.is_empty() {
+                out.push(AlterOp::AddIndex {
+                    index: IndexSchema {
+                        name: index.name.as_ref().map(normalize_ident),
+                        columns,
+                    },
+                });
+            }
+        }
+        TableConstraint::FulltextOrSpatial(index) => {
+            let columns = extract_index_columns(&index.columns);
+            if !columns.is_empty() {
+                out.push(AlterOp::AddIndex {
+                    index: IndexSchema {
+                        name: index.opt_index_name.as_ref().map(normalize_ident),
+                        columns,
+                    },
+                });
+            }
+        }
+        TableConstraint::PrimaryKeyUsingIndex(using_idx) => {
+            out.push(AlterOp::PromoteIndexToPk {
+                index_name: normalize_ident(&using_idx.index_name),
+            });
+        }
+        _ => {}
+    }
+}
+
+fn extract_drop(
+    object_type: ObjectType,
+    names: &[ObjectName],
+    table_target: Option<&ObjectName>,
+    out: &mut Vec<DdlOp>,
+) {
+    match object_type {
+        ObjectType::Table => extract_drop_tables(names, out),
+        ObjectType::Index => extract_drop_indexes(names, table_target, out),
+        _ => {}
+    }
+}
+
+fn extract_drop_tables(names: &[ObjectName], out: &mut Vec<DdlOp>) {
+    for (schema, name) in names.iter().filter_map(split_object_name) {
+        out.push(DdlOp::DropTable { schema, name });
+    }
+}
+
+fn extract_drop_indexes(
+    names: &[ObjectName],
+    table_target: Option<&ObjectName>,
+    out: &mut Vec<DdlOp>,
+) {
+    if let Some(target) = table_target {
+        let Some((table_schema, table_name)) = split_object_name(target) else {
+            return;
+        };
+        for index_name in names.iter().filter_map(object_name_last_ident) {
+            out.push(DdlOp::DropIndexOnTable {
+                table_schema: table_schema.clone(),
+                table_name: table_name.clone(),
+                index_name,
+            });
+        }
+        return;
+    }
+    for (index_schema, index_name) in names.iter().filter_map(split_object_name) {
+        out.push(DdlOp::DropIndexAcrossTables {
+            index_schema,
+            index_name,
+        });
+    }
+}
+
+fn apply_ddl_op(schema: &mut SqlSchema, op: &DdlOp) {
+    match op {
+        DdlOp::CreateTable {
+            if_not_exists,
+            table,
+        } => apply_create_table_op(schema, *if_not_exists, table),
+        DdlOp::CreateIndex {
+            table_schema,
+            table_name,
+            index,
+        } => apply_create_index_op(schema, table_schema.as_deref(), table_name, index),
+        DdlOp::AlterTable {
+            table_schema,
+            table_name,
+            ops,
+        } => apply_alter_table_op(schema, table_schema.as_deref(), table_name, ops),
+        other => apply_drop_ddl_op(schema, other),
+    }
+}
+
+fn apply_create_table_op(schema: &mut SqlSchema, if_not_exists: bool, table: &TableSchema) {
+    let key = (table.schema.clone(), table.name.clone());
+    if !(if_not_exists && schema.tables.contains_key(&key)) {
+        schema.tables.insert(key, table.clone());
+    }
+}
+
+fn apply_create_index_op(
+    schema: &mut SqlSchema,
+    table_schema: Option<&str>,
+    table_name: &str,
+    index: &IndexSchema,
+) {
+    if let Some(key) = schema.resolve_table_key(table_schema, table_name)
+        && let Some(table) = schema.tables.get_mut(&key)
+    {
+        upsert_index(&mut table.indexes, index.clone());
+    }
+}
+
+fn apply_alter_table_op(
+    schema: &mut SqlSchema,
+    table_schema: Option<&str>,
+    table_name: &str,
+    ops: &[AlterOp],
+) {
+    let Some(mut key) = schema.resolve_table_key(table_schema, table_name) else {
+        return;
+    };
+    for alter_op in ops {
+        key = apply_extracted_alter(schema, key, alter_op);
+    }
+}
+
+fn apply_drop_ddl_op(schema: &mut SqlSchema, op: &DdlOp) {
+    match op {
+        DdlOp::DropTable { schema: s, name } => {
+            if let Some(key) = schema.resolve_table_key(s.as_deref(), name) {
+                schema.tables.remove(&key);
+            }
+        }
+        DdlOp::DropIndexOnTable {
+            table_schema,
+            table_name,
+            index_name,
+        } => {
+            if let Some(key) = schema.resolve_table_key(table_schema.as_deref(), table_name)
+                && let Some(table) = schema.tables.get_mut(&key)
+            {
+                remove_named_index(table, index_name);
+            }
+        }
+        DdlOp::DropIndexAcrossTables {
+            index_schema,
+            index_name,
+        } => {
+            for table in schema.tables.values_mut() {
+                if index_schema.is_none() || table.schema == *index_schema {
+                    remove_named_index(table, index_name);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn apply_extracted_alter(schema: &mut SqlSchema, key: TableKey, op: &AlterOp) -> TableKey {
+    if let AlterOp::RenameTable {
+        new_schema,
+        new_name,
+    } = op
+    {
+        let Some(mut table) = schema.tables.remove(&key) else {
+            return key;
+        };
+        let effective_schema = new_schema.clone().or(table.schema.clone());
+        table.schema = effective_schema.clone();
+        table.name = new_name.clone();
+        let new_key = (effective_schema, new_name.clone());
+        schema.tables.insert(new_key.clone(), table);
+        return new_key;
+    }
+    let Some(table) = schema.tables.get_mut(&key) else {
+        return key;
+    };
+    apply_table_alter_op(table, op);
+    key
+}
+
+fn apply_column_flags(
+    table: &mut TableSchema,
+    col: &str,
+    ty: ColumnTypeClass,
+    is_pk: bool,
+    unique_index: &Option<Option<String>>,
+) {
+    table.columns.insert(col.to_owned(), ty);
+    if is_pk {
+        table.primary_key = vec![col.to_owned()];
+    }
+    if let Some(name) = unique_index {
+        upsert_index(
+            &mut table.indexes,
+            IndexSchema {
+                name: name.clone(),
+                columns: vec![col.to_owned()],
+            },
+        );
+    }
+}
+
+fn apply_table_alter_op(table: &mut TableSchema, op: &AlterOp) {
+    match op {
+        AlterOp::AddColumn {
+            name,
+            ty,
+            is_pk,
+            unique_index,
+        }
+        | AlterOp::ModifyColumn {
+            name,
+            ty,
+            is_pk,
+            unique_index,
+        } => apply_column_flags(table, name, *ty, *is_pk, unique_index),
+        AlterOp::DropColumn { name } => drop_column_from_table(table, name),
+        AlterOp::RenameColumn { old, new } => rename_column_in_table(table, old, new),
+        AlterOp::ChangeColumn {
+            old,
+            new,
+            ty,
+            is_pk,
+            unique_index,
+        } => {
+            rename_column_in_table(table, old, new);
+            apply_column_flags(table, new, *ty, *is_pk, unique_index);
+        }
+        AlterOp::SetColumnType { name, ty } => {
+            if table.columns.contains_key(name) {
+                table.columns.insert(name.clone(), *ty);
+            }
+        }
+        other => apply_constraint_alter_op(table, other),
+    }
+}
+
+fn apply_constraint_alter_op(table: &mut TableSchema, op: &AlterOp) {
+    match op {
+        AlterOp::SetPrimaryKey { columns } => table.primary_key = columns.clone(),
+        AlterOp::AddIndex { index } => upsert_index(&mut table.indexes, index.clone()),
+        AlterOp::PromoteIndexToPk { index_name } => promote_index_to_pk(table, index_name),
+        AlterOp::DropNamedIndex { name } => remove_named_index(table, name),
+        AlterOp::DropPrimaryKey => table.primary_key.clear(),
+        _ => {}
+    }
 }
 
 fn apply_column_def(table: &mut TableSchema, column: &ColumnDef) {
@@ -167,157 +616,6 @@ fn promote_index_to_pk(table: &mut TableSchema, idx_name: &str) {
     }
 }
 
-fn apply_create_index(schema: &mut SqlSchema, create: &CreateIndex) {
-    let Some((table_schema, table_name)) = split_object_name(&create.table_name) else {
-        return;
-    };
-    let Some(key) = schema.resolve_table_key(table_schema.as_deref(), &table_name) else {
-        return;
-    };
-    let columns = extract_index_columns(&create.columns);
-    if columns.is_empty() {
-        return;
-    }
-    let name = create.name.as_ref().and_then(object_name_last_ident);
-    if let Some(table) = schema.tables.get_mut(&key) {
-        upsert_index(&mut table.indexes, IndexSchema { name, columns });
-    }
-}
-
-fn apply_alter_table(schema: &mut SqlSchema, alter: &AlterTable) {
-    let Some((table_schema, table_name)) = split_object_name(&alter.name) else {
-        return;
-    };
-    let Some(mut key) = schema.resolve_table_key(table_schema.as_deref(), &table_name) else {
-        return;
-    };
-    for operation in &alter.operations {
-        key = apply_alter_operation(schema, key, operation);
-    }
-}
-
-fn apply_alter_operation(
-    schema: &mut SqlSchema,
-    key: TableKey,
-    operation: &AlterTableOperation,
-) -> TableKey {
-    if let AlterTableOperation::RenameTable { table_name } = operation {
-        return rename_table_entry(schema, key, table_name);
-    }
-    let Some(table) = schema.tables.get_mut(&key) else {
-        return key;
-    };
-    apply_table_mutation(table, operation);
-    key
-}
-
-fn rename_table_entry(
-    schema: &mut SqlSchema,
-    old_key: TableKey,
-    target: &RenameTableNameKind,
-) -> TableKey {
-    let target_name = match target {
-        RenameTableNameKind::As(name) | RenameTableNameKind::To(name) => name,
-    };
-    let Some((new_schema, new_name)) = split_object_name(target_name) else {
-        return old_key;
-    };
-    let Some(mut table) = schema.tables.remove(&old_key) else {
-        return old_key;
-    };
-    let effective_schema = new_schema.or(table.schema.clone());
-    table.schema = effective_schema.clone();
-    table.name = new_name.clone();
-    let new_key = (effective_schema, new_name);
-    schema.tables.insert(new_key.clone(), table);
-    new_key
-}
-
-fn apply_table_mutation(table: &mut TableSchema, operation: &AlterTableOperation) {
-    match operation {
-        AlterTableOperation::AddColumn { column_def, .. } => apply_column_def(table, column_def),
-        AlterTableOperation::DropColumn { column_names, .. } => {
-            for ident in column_names {
-                drop_column_from_table(table, &normalize_ident(ident));
-            }
-        }
-        AlterTableOperation::RenameColumn {
-            old_column_name,
-            new_column_name,
-        } => rename_column_in_table(
-            table,
-            &normalize_ident(old_column_name),
-            &normalize_ident(new_column_name),
-        ),
-        AlterTableOperation::ChangeColumn { .. }
-        | AlterTableOperation::ModifyColumn { .. }
-        | AlterTableOperation::AlterColumn { .. } => apply_column_type_alter(table, operation),
-        _ => apply_constraint_alter(table, operation),
-    }
-}
-
-fn apply_column_type_alter(table: &mut TableSchema, operation: &AlterTableOperation) {
-    match operation {
-        AlterTableOperation::ChangeColumn {
-            old_name,
-            new_name,
-            data_type,
-            options,
-            ..
-        } => {
-            let new = normalize_ident(new_name);
-            rename_column_in_table(table, &normalize_ident(old_name), &new);
-            update_column_type_and_options(table, &new, data_type, options);
-        }
-        AlterTableOperation::ModifyColumn {
-            col_name,
-            data_type,
-            options,
-            ..
-        } => {
-            update_column_type_and_options(table, &normalize_ident(col_name), data_type, options);
-        }
-        AlterTableOperation::AlterColumn {
-            column_name,
-            op: AlterColumnOperation::SetDataType { data_type, .. },
-        } => {
-            let col = normalize_ident(column_name);
-            if table.columns.contains_key(&col) {
-                table.columns.insert(col, classify_data_type(data_type));
-            }
-        }
-        _ => {}
-    }
-}
-
-fn update_column_type_and_options(
-    table: &mut TableSchema,
-    col: &str,
-    data_type: &DataType,
-    options: &[ColumnOption],
-) {
-    table
-        .columns
-        .insert(col.to_owned(), classify_data_type(data_type));
-    for option in options {
-        apply_column_option(table, col, None, option);
-    }
-}
-
-fn apply_constraint_alter(table: &mut TableSchema, operation: &AlterTableOperation) {
-    match operation {
-        AlterTableOperation::AddConstraint { constraint, .. } => {
-            apply_table_constraint(table, constraint);
-        }
-        AlterTableOperation::DropConstraint { name, .. }
-        | AlterTableOperation::DropIndex { name } => {
-            remove_named_index(table, &normalize_ident(name));
-        }
-        AlterTableOperation::DropPrimaryKey { .. } => table.primary_key.clear(),
-        _ => {}
-    }
-}
-
 fn remove_named_index(table: &mut TableSchema, target: &str) {
     table
         .indexes
@@ -346,57 +644,6 @@ fn rename_column_in_table(table: &mut TableSchema, old: &str, new: &str) {
         for col in &mut idx.columns {
             if col == old {
                 *col = new.to_owned();
-            }
-        }
-    }
-}
-
-fn apply_drop(
-    schema: &mut SqlSchema,
-    object_type: ObjectType,
-    names: &[ObjectName],
-    table_target: Option<&ObjectName>,
-) {
-    match object_type {
-        ObjectType::Table => drop_tables(schema, names),
-        ObjectType::Index => match table_target {
-            Some(target) => drop_indexes_on_table(schema, names, target),
-            None => drop_indexes_across_tables(schema, names),
-        },
-        _ => {}
-    }
-}
-
-fn drop_tables(schema: &mut SqlSchema, names: &[ObjectName]) {
-    for obj_name in names {
-        if let Some((table_schema, table_name)) = split_object_name(obj_name)
-            && let Some(key) = schema.resolve_table_key(table_schema.as_deref(), &table_name)
-        {
-            schema.tables.remove(&key);
-        }
-    }
-}
-
-fn drop_indexes_on_table(schema: &mut SqlSchema, names: &[ObjectName], target_obj: &ObjectName) {
-    let Some((table_schema, table_name)) = split_object_name(target_obj) else {
-        return;
-    };
-    let Some(key) = schema.resolve_table_key(table_schema.as_deref(), &table_name) else {
-        return;
-    };
-    let Some(table) = schema.tables.get_mut(&key) else {
-        return;
-    };
-    for idx_name in names.iter().filter_map(object_name_last_ident) {
-        remove_named_index(table, &idx_name);
-    }
-}
-
-fn drop_indexes_across_tables(schema: &mut SqlSchema, names: &[ObjectName]) {
-    for (idx_schema, idx_name) in names.iter().filter_map(split_object_name) {
-        for table in schema.tables.values_mut() {
-            if idx_schema.is_none() || table.schema == idx_schema {
-                remove_named_index(table, &idx_name);
             }
         }
     }

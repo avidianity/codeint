@@ -279,7 +279,7 @@ fn hazards_diff_regression_limits_diff_sarif_trend_and_result_cache_invalidation
         cached_base_hazards_ratio(
             root,
             &cache_options,
-            r#"{"sql":{"dialects":[{"dialect":"postgresql","include":["queries/**"]}]}}"#,
+            r#"{"dialects":{"sql":[{"dialect":"postgresql","include":["queries/**"]}]}}"#,
         ),
         0.5
     );

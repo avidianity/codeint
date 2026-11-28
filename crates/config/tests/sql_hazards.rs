@@ -1,12 +1,12 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use codeint_config::{
-    BudgetOverride, ConfigOverrides, ConfigProvenance, Configuration, ConfigurationFileError,
-    HAZARDS_METRIC_KEY, HazardsConfig, KNOWN_SQL_DIALECTS, NewFindingsRule, RatioRise,
-    RegressionLimit, ResolvedConfiguration, SqlDialect, SqlDialectConflict, configuration_schema,
-    read_configuration, read_resolved_configuration,
+    BudgetOverride, ConfigFileKind, ConfigOverrides, ConfigProvenance, Configuration,
+    ConfigurationFileError, DialectConflict, HAZARDS_METRIC_KEY, HazardsConfig, NewFindingsRule,
+    RatioRise, RegressionLimit, ResolvedConfiguration, configuration_schema, read_configuration,
+    read_resolved_configuration, validate_dialects,
 };
 use codeint_model::{RepoPath, SourceSet};
 use serde_json::{Value, json};
@@ -76,34 +76,13 @@ fn expect_invalid(
 }
 
 #[test]
-fn sql_dialects_defaults_to_generic_and_resolves_folder_file_and_multi_dialect_mappings() {
-    assert_eq!(
-        KNOWN_SQL_DIALECTS,
-        ["postgresql", "mysql", "sqlite", "duckdb"]
-    );
-    assert_eq!(SqlDialect::default(), SqlDialect::Generic);
-    assert_eq!(SqlDialect::Generic.as_str(), "generic");
-    for (name, expected) in [
-        ("postgresql", Some(SqlDialect::Postgresql)),
-        ("mysql", Some(SqlDialect::Mysql)),
-        ("sqlite", Some(SqlDialect::Sqlite)),
-        ("duckdb", Some(SqlDialect::Duckdb)),
-        ("generic", None),
-        ("oracle", None),
-    ] {
-        assert_eq!(SqlDialect::parse_configured(name), expected);
-    }
-
+fn dialects_config_defaults_empty_and_resolves_folder_file_and_multi_dialect_mappings() {
     let default_config = Configuration::default();
-    assert!(default_config.sql.is_empty());
-    assert_eq!(
-        default_config.sql.dialect_for(&repo_path("db/query.sql")),
-        Ok(SqlDialect::Generic)
-    );
+    assert!(default_config.dialects.is_empty());
 
     let raw = json!({
-        "sql": {
-            "dialects": [
+        "dialects": {
+            "sql": [
                 { "dialect": "postgresql", "include": ["db/pg", "shared/pg_*.sql"] },
                 { "dialect": "postgresql", "include": ["db/pg/migrations/**"] },
                 { "dialect": "mysql", "include": ["db/mysql/**"] },
@@ -117,34 +96,42 @@ fn sql_dialects_defaults_to_generic_and_resolves_folder_file_and_multi_dialect_m
     let resolved = TempConfigRoot::create(Some(("codeint.json", &raw)))
         .resolve(&ConfigOverrides::default())
         .expect("valid multi-dialect config");
-    let sql = &resolved.configuration.sql;
+    let sql = resolved
+        .configuration
+        .dialects
+        .get("sql")
+        .expect("dialects.sql present");
     assert!(!sql.is_empty());
     for (path, expected) in [
-        ("db/pg/migrations/001.sql", SqlDialect::Postgresql),
-        ("shared/pg_views.sql", SqlDialect::Postgresql),
-        ("db/mysql/init.sql", SqlDialect::Mysql),
-        ("mobile/local.sql", SqlDialect::Sqlite),
-        ("analytics/monthly/revenue.sql", SqlDialect::Duckdb),
-        ("db/pg_other/schema.sql", SqlDialect::Generic),
-        ("unmapped/query.sql", SqlDialect::Generic),
+        ("db/pg/migrations/001.sql", Some("postgresql")),
+        ("shared/pg_views.sql", Some("postgresql")),
+        ("db/mysql/init.sql", Some("mysql")),
+        ("mobile/local.sql", Some("sqlite")),
+        ("analytics/monthly/revenue.sql", Some("duckdb")),
+        ("db/pg_other/schema.sql", None),
+        ("unmapped/query.sql", None),
     ] {
-        assert_eq!(sql.dialect_for(&repo_path(path)), Ok(expected), "{path}");
+        assert_eq!(
+            sql.dialect_for("sql", &repo_path(path)),
+            Ok(expected),
+            "{path}"
+        );
     }
 
     let setting = resolved
         .settings
         .iter()
-        .find(|item| item.key == "sql.dialects")
-        .expect("sql.dialects setting present");
+        .find(|item| item.key == "dialects.sql")
+        .expect("dialects.sql setting present");
     assert_eq!(setting.source, ConfigProvenance::File);
     assert_eq!(setting.value.as_array().map(Vec::len), Some(5));
 }
 
 #[test]
-fn sql_dialect_conflict_reports_both_patterns_and_dialects() {
+fn dialect_conflict_reports_both_patterns_and_dialects() {
     let raw = json!({
-        "sql": {
-            "dialects": [
+        "dialects": {
+            "sql": [
                 { "dialect": "postgresql", "include": ["db/**"] },
                 { "dialect": "duckdb", "include": ["db/analytics/**"] }
             ]
@@ -156,16 +143,19 @@ fn sql_dialect_conflict_reports_both_patterns_and_dialects() {
         .read()
         .expect("syntactically valid config");
     let conflict = config
-        .sql
-        .dialect_for(&repo_path("db/analytics/report.sql"))
+        .dialects
+        .get("sql")
+        .expect("sql rules")
+        .dialect_for("sql", &repo_path("db/analytics/report.sql"))
         .expect_err("overlapping different dialects must conflict");
     assert_eq!(
-        conflict,
-        SqlDialectConflict {
+        *conflict,
+        DialectConflict {
+            language: "sql".to_owned(),
             path: repo_path("db/analytics/report.sql"),
-            first_dialect: SqlDialect::Postgresql,
+            first_dialect: "postgresql".to_owned(),
             first_pattern: "db/**".to_owned(),
-            second_dialect: SqlDialect::Duckdb,
+            second_dialect: "duckdb".to_owned(),
             second_pattern: "db/analytics/**".to_owned(),
         }
     );
@@ -181,69 +171,102 @@ fn sql_dialect_conflict_reports_both_patterns_and_dialects() {
     }
 }
 
+fn assert_invalid_dialect_config(
+    payload: &Value,
+    expected_substrings: &[&str],
+    check: fn(&ConfigurationFileError) -> bool,
+) {
+    let err = expect_invalid("codeint.json", payload, expected_substrings);
+    assert!(check(&err), "unexpected error variant: {err:?}");
+}
+
+fn assert_validate_dialects_err(
+    file_name: &str,
+    kind: ConfigFileKind,
+    payload: &Value,
+    known: &BTreeMap<String, Vec<String>>,
+    check: fn(&ConfigurationFileError) -> bool,
+) -> ConfigurationFileError {
+    let cfg = TempConfigRoot::create(Some((file_name, &payload.to_string())))
+        .read()
+        .expect("syntactically valid config");
+    let err = validate_dialects(kind, &cfg.dialects, known).expect_err("expected dialect error");
+    assert!(check(&err), "unexpected error variant: {err:?}");
+    err
+}
+
+type ErrorPredicate = fn(&ConfigurationFileError) -> bool;
+
+fn sql_dialect_payload(dialect: &str, include: &[&str]) -> Value {
+    json!({ "dialects": { "sql": [{ "dialect": dialect, "include": include }] } })
+}
+
 #[test]
-fn sql_dialects_rejects_unknown_dialect_empty_include_empty_pattern_and_invalid_glob() {
-    let err = expect_invalid(
+fn dialects_rejects_legacy_sql_key_empty_fields_invalid_glob_and_validates_known_dialects() {
+    let invalid_cases: [(Value, &[&str], ErrorPredicate); 5] = [
+        (
+            json!({
+                "sql": {
+                    "dialects": [{ "dialect": "postgresql", "include": ["db/**"] }]
+                }
+            }),
+            &["sql"],
+            |err| matches!(err, ConfigurationFileError::UnknownKey { .. }),
+        ),
+        (
+            sql_dialect_payload("   ", &["db/**"]),
+            &["dialects.sql[0].dialect"],
+            |err| matches!(err, ConfigurationFileError::EmptyDialectName { .. }),
+        ),
+        (
+            sql_dialect_payload("sqlite", &[]),
+            &["dialects.sql[0].include", "sqlite"],
+            |err| matches!(err, ConfigurationFileError::EmptyDialectInclude { .. }),
+        ),
+        (
+            sql_dialect_payload("mysql", &["db/**", "   "]),
+            &["dialects.sql[0].include[1]"],
+            |err| matches!(err, ConfigurationFileError::EmptyDialectPattern { .. }),
+        ),
+        (
+            sql_dialect_payload("duckdb", &["db/[unclosed"]),
+            &["dialects.sql[0].include[0]"],
+            |err| matches!(err, ConfigurationFileError::InvalidGlob { .. }),
+        ),
+    ];
+    for (payload, expected_substrings, check) in invalid_cases {
+        assert_invalid_dialect_config(&payload, expected_substrings, check);
+    }
+
+    let known = BTreeMap::from([
+        (
+            "sql".to_owned(),
+            vec![
+                "postgresql".to_owned(),
+                "mysql".to_owned(),
+                "sqlite".to_owned(),
+                "duckdb".to_owned(),
+                "generic".to_owned(),
+            ],
+        ),
+        ("rust".to_owned(), Vec::new()),
+    ]);
+    let unknown_err = assert_validate_dialects_err(
         "codeint.jsonc",
-        &json!({
-            "sql": {
-                "dialects": [
-                    { "dialect": "postgresql", "include": ["db/pg/**"] },
-                    { "dialect": "oracle", "include": ["db/ora/**"] }
-                ]
-            }
-        }),
-        &[
-            "codeint.jsonc",
-            "sql.dialects[1].dialect",
-            "postgresql, mysql, sqlite, duckdb",
-            "oracle",
-        ],
+        ConfigFileKind::Jsonc,
+        &json!({ "dialects": { "sql": [{ "dialect": "oracle", "include": ["db/**"] }] } }),
+        &known,
+        |err| matches!(err, ConfigurationFileError::UnknownDialect { .. }),
     );
-    assert!(matches!(err, ConfigurationFileError::NotOneOf { .. }));
+    assert!(unknown_err.to_string().contains("postgresql"));
 
-    let generic_err = expect_invalid(
+    assert_validate_dialects_err(
         "codeint.json",
-        &json!({ "sql": { "dialects": [{ "dialect": "generic", "include": ["db/**"] }] } }),
-        &[
-            "sql.dialects[0].dialect",
-            "postgresql, mysql, sqlite, duckdb",
-        ],
+        ConfigFileKind::Json,
+        &json!({ "dialects": { "cobol": [{ "dialect": "ansi", "include": ["src/**"] }] } }),
+        &known,
+        |err| matches!(err, ConfigurationFileError::UnknownDialectLanguage { .. }),
     );
-    assert!(matches!(
-        generic_err,
-        ConfigurationFileError::NotOneOf { .. }
-    ));
-
-    let empty_include_err = expect_invalid(
-        "codeint.json",
-        &json!({ "sql": { "dialects": [{ "dialect": "sqlite", "include": [] }] } }),
-        &["sql.dialects[0].include", "sqlite"],
-    );
-    assert!(matches!(
-        empty_include_err,
-        ConfigurationFileError::EmptySqlDialectInclude { .. }
-    ));
-
-    let empty_pattern_err = expect_invalid(
-        "codeint.json",
-        &json!({ "sql": { "dialects": [{ "dialect": "mysql", "include": ["db/**", "   "] }] } }),
-        &["sql.dialects[0].include[1]"],
-    );
-    assert!(matches!(
-        empty_pattern_err,
-        ConfigurationFileError::EmptySqlDialectPattern { .. }
-    ));
-
-    let bad_glob_err = expect_invalid(
-        "codeint.json",
-        &json!({ "sql": { "dialects": [{ "dialect": "duckdb", "include": ["db/[unclosed"] }] } }),
-        &["sql.dialects[0].include[0]"],
-    );
-    assert!(matches!(
-        bad_glob_err,
-        ConfigurationFileError::InvalidGlob { .. }
-    ));
 }
 
 #[test]
@@ -460,13 +483,13 @@ fn hazards_regression_limits_default_and_override_globally_and_per_source_set() 
 }
 
 #[test]
-fn empty_sql_and_hazards_sections_serialize_identically_to_default() {
+fn empty_dialects_and_hazards_sections_serialize_identically_to_default() {
     let explicit_empty = TempConfigRoot::create(Some((
         "codeint.json",
-        r#"{ "sql": { "dialects": [] }, "hazards": { "disabled_rules": [] } }"#,
+        r#"{ "dialects": { "sql": [] }, "hazards": { "disabled_rules": [] } }"#,
     )))
     .read()
-    .expect("empty sql and hazards sections parse");
+    .expect("empty dialects and hazards sections parse");
     assert_eq!(
         serde_json::to_string(&Configuration::default()).expect("serialize default"),
         serde_json::to_string(&explicit_empty).expect("serialize explicit empty")
@@ -474,17 +497,18 @@ fn empty_sql_and_hazards_sections_serialize_identically_to_default() {
 }
 
 #[test]
-fn configuration_schema_exposes_sql_hazards_budgets_and_regression_limits() {
+fn configuration_schema_exposes_dialects_hazards_budgets_and_regression_limits() {
     let schema: Value = serde_json::from_str(&configuration_schema()).expect("valid JSON schema");
 
-    assert_eq!(schema["properties"]["sql"]["$ref"], "#/$defs/SqlConfigFile");
+    assert!(schema["properties"].get("sql").is_none());
+    assert_eq!(schema["properties"]["dialects"]["type"], "object");
+    assert_eq!(
+        schema["properties"]["dialects"]["additionalProperties"]["items"]["$ref"],
+        "#/$defs/DialectEntryFile"
+    );
     assert_eq!(
         schema["properties"]["hazards"]["$ref"],
         "#/$defs/HazardsConfigFile"
-    );
-    assert_eq!(
-        schema["$defs"]["ConfiguredSqlDialect"]["enum"],
-        json!(["postgresql", "mysql", "sqlite", "duckdb"])
     );
     for def_name in [
         "ProductionMetricBudgets",

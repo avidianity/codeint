@@ -12,7 +12,7 @@ pub(super) enum StructuredSyntax {
 
 pub(super) struct StarterRenderInput<'a> {
     pub(super) schema_address: &'a str,
-    pub(super) languages: &'a [(String, Vec<RepoPath>)],
+    pub(super) languages: &'a [(String, Vec<RepoPath>, Vec<String>)],
     pub(super) boundary_zones: Option<&'a [(String, String)]>,
     pub(super) boundary_preset: Option<BoundaryPreset>,
     pub(super) adoption: bool,
@@ -58,7 +58,7 @@ fn write_toml_body(out: &mut String, input: &StarterRenderInput<'_>) {
     if input.adoption {
         out.push_str("per_file = true\n");
     }
-    for (plugin, include) in input.languages {
+    for (plugin, include, _) in input.languages {
         let includes: Vec<String> = include
             .iter()
             .map(|path| quote_scalar(&globset::escape(path.as_str())))
@@ -94,7 +94,7 @@ fn write_yaml_body(out: &mut String, input: &StarterRenderInput<'_>) {
     }
     if !input.languages.is_empty() {
         out.push_str("languages:\n");
-        for (plugin, include) in input.languages {
+        for (plugin, include, _) in input.languages {
             let _ = writeln!(out, "  - plugin: {}", quote_scalar(plugin));
             if include.is_empty() {
                 out.push_str("    include: []\n");
@@ -156,14 +156,19 @@ fn write_optional_hints(
             "{lead}# Optional: uncomment to hold every new file to a strict bar in codeint diff.\n{body}"
         );
     }
-    if input.languages.iter().any(|(plugin, _)| plugin == "sql") {
+    for (plugin, _, known_dialects) in input
+        .languages
+        .iter()
+        .filter(|(_, _, dialects)| !dialects.is_empty())
+    {
         let body = match syntax {
-            StructuredSyntax::Toml => "# [sql]\n# dialects = []\n",
-            StructuredSyntax::Yaml => "# sql:\n#   dialects: []\n",
+            StructuredSyntax::Toml => format!("# [dialects]\n# {} = []\n", quote_scalar(plugin)),
+            StructuredSyntax::Yaml => format!("# dialects:\n#   {}: []\n", quote_scalar(plugin)),
         };
         let _ = write!(
             out,
-            "{lead}# Optional: map SQL folders to a Dialect with sql.dialects (postgresql, mysql, sqlite, or duckdb).\n{body}"
+            "{lead}# Optional: map {plugin} folders to a Dialect with dialects.{plugin} ({}).\n{body}",
+            known_dialects.join(", ")
         );
     }
     write_boundary_hints(

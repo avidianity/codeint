@@ -12,9 +12,13 @@ mod tokenize;
 use std::collections::BTreeSet;
 use std::fmt;
 
-use codeint_model::language::{FileModel, Function};
+use codeint_model::language::{
+    FileDiagnostic, FileModel, FileScopeArtifact, Function, ScopeAnalysis,
+};
 use codeint_model::scan::CoreReferenceRanges;
-use codeint_model::{LowerError, RepoPath, Token};
+use codeint_model::{
+    LanguagePlugin, LanguagePluginError, LowerError, ReferenceRanges, RepoPath, Token,
+};
 
 pub use flagged::flagged_line_rules;
 pub use hazards::{SQL_HAZARD_RULES, hazard_line_rules};
@@ -39,7 +43,7 @@ impl SqlDialect {
         SqlDialect::Duckdb,
     ];
 
-    fn from_name(name: &str) -> Option<SqlDialect> {
+    pub(crate) fn from_name(name: &str) -> Option<SqlDialect> {
         SqlDialect::ALL
             .into_iter()
             .find(|dialect| dialect.as_str() == name)
@@ -83,7 +87,7 @@ pub struct Sql {
 }
 
 impl Sql {
-    pub fn new() -> Sql {
+    pub const fn new() -> Sql {
         Sql {
             dialect: SqlDialect::Generic,
         }
@@ -129,6 +133,22 @@ impl Sql {
         let flagged_lines = flagged::evaluate(&parsed_statements, &code_lines);
         let hazard_lines = hazards::collect_statement_hazards(&parsed_statements, self.dialect);
         let source_set = source_set::classify(path, source);
+        let diagnostics = rejected_statements
+            .iter()
+            .map(|entry| FileDiagnostic {
+                line: entry.line,
+                kind: "rejected-statement".to_owned(),
+                message: format!(
+                    "could not parse statement as {}",
+                    entry.dialect.display_name()
+                ),
+            })
+            .collect();
+        let scope_artifact = Some(schema::encode_file_artifact(
+            path,
+            &parsed_statements,
+            self.dialect,
+        ));
 
         Ok(SqlLowerOutput {
             file_model: FileModel {
@@ -137,6 +157,8 @@ impl Sql {
                 tokens: duplication_tokens,
                 functions,
                 source_lines,
+                diagnostics,
+                scope_artifact,
                 ..codeint_model::empty_file_model(source_set)
             },
             rejected_statements,
@@ -153,33 +175,76 @@ const SQL_RANGES: CoreReferenceRanges = CoreReferenceRanges::new(
     None,
 );
 
-fn lower_sql(
-    plugin: &Sql,
-    path: &RepoPath,
-    text: &str,
-    dialect: Option<&str>,
-) -> Result<FileModel, LowerError> {
-    let selected = match dialect {
-        Some(name) => SqlDialect::from_name(name).ok_or_else(|| LowerError::UnsupportedFile {
-            message: format!("unknown SQL dialect {name:?}"),
-        })?,
-        None => plugin.dialect,
-    };
-    Sql::with_dialect(selected)
-        .lower_with_details(path, text)
-        .map(|output| output.file_model)
-}
+impl LanguagePlugin for Sql {
+    fn extensions(&self) -> Vec<String> {
+        vec!["sql".to_owned()]
+    }
 
-codeint_model::impl_builtin_language_plugin!(
-    Sql,
-    ["sql"],
-    lower_sql,
-    SQL_RANGES.build("codeint stratified panel of 77 SQL repositories, ADR 0035, codeint 0.8.0"),
-    flagged_lines(flagged_line_rules()),
-    imports(none),
-    frameworks(none),
-    hazards(SQL_HAZARD_RULES),
-);
+    fn known_dialects(&self) -> Vec<String> {
+        vec![
+            "postgresql".to_owned(),
+            "mysql".to_owned(),
+            "sqlite".to_owned(),
+            "duckdb".to_owned(),
+            "generic".to_owned(),
+        ]
+    }
+
+    fn lower(
+        &self,
+        path: &RepoPath,
+        text: &str,
+        dialect: Option<&str>,
+    ) -> Result<FileModel, LowerError> {
+        let selected = match dialect {
+            Some(name) => {
+                SqlDialect::from_name(name).ok_or_else(|| LowerError::UnsupportedFile {
+                    message: format!("unknown SQL dialect {name:?}"),
+                })?
+            }
+            None => self.dialect,
+        };
+        Sql::with_dialect(selected)
+            .lower_with_details(path, text)
+            .map(|output| output.file_model)
+    }
+
+    fn flagged_line_rules(&self) -> Vec<String> {
+        flagged_line_rules().map(str::to_owned).collect()
+    }
+
+    fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError> {
+        ReferenceRanges::new(
+            SQL_RANGES
+                .build("codeint stratified panel of 77 SQL repositories, ADR 0035, codeint 0.8.0"),
+        )
+        .map_err(LanguagePluginError::InvalidReferenceRange)
+    }
+
+    fn has_hazard_rules(&self) -> bool {
+        true
+    }
+
+    fn hazard_rules(&self) -> Vec<String> {
+        SQL_HAZARD_RULES
+            .iter()
+            .map(|rule| (*rule).to_owned())
+            .collect()
+    }
+
+    fn has_scope_analysis(&self) -> bool {
+        true
+    }
+
+    fn analyze_scope(
+        &self,
+        _package_root: &str,
+        dialect: Option<&str>,
+        artifacts: Vec<FileScopeArtifact>,
+    ) -> Result<ScopeAnalysis, LanguagePluginError> {
+        Ok(schema::analyze_scope_artifacts(dialect, artifacts))
+    }
+}
 
 fn collect_lines_and_tokens(
     extracted: &[statements::ExtractedStatement],

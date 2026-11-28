@@ -6,13 +6,13 @@ use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
 use codeint_lang_shell::Shell;
+use codeint_lang_sql::Sql;
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::LanguagePlugin;
 
-use crate::sql::BuiltInSql;
-
 pub const TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME: &str = "typescript-javascript";
-pub const SQL_PLUGIN_NAME: &str = "sql";
+
+const BUILT_IN_SQL: Sql = Sql::new();
 
 #[derive(Clone, Copy)]
 pub struct NamedLanguagePlugin<'plugin> {
@@ -52,8 +52,8 @@ const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 8] = [
         plugin: &Go,
     },
     NamedLanguagePlugin {
-        name: SQL_PLUGIN_NAME,
-        plugin: &BuiltInSql,
+        name: "sql",
+        plugin: &BUILT_IN_SQL,
     },
     NamedLanguagePlugin {
         name: "shell",

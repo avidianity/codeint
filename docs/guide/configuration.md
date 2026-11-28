@@ -159,7 +159,7 @@ If your config file pins an official schema tag newer than the running binary, c
   By default, `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, and external Metrics use `numerator_rise` (failing whenever the numerator rises, rounded to 4 decimal places, while keeping the `0.01` `ratio_rise` buffer when the numerator is flat), whereas `import_cycles`, `boundaries`, `orphan_files`, `hazards`, `unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies` fail on `any_new_finding` (plus numerator rise).
   Setting `orphan_files` under `regression_limits.test`, `regression_limits.generated`, or `regression_limits.vendored` stops the run with exit code `2`, because Orphan files applies to the Production Source set only.
   Setting `test_gap` under `regression_limits` stops the run with exit code `2`, because `codeint diff` leaves Test gap out.
-- **`sql`**: map folders or file globs under `sql.dialects` to `postgresql`, `mysql` (covering MariaDB), `sqlite`, or `duckdb`; unmatched `.sql` files stay generic SQL.
+- **`dialects`**: map folders or file globs under `dialects.<language>` (for example `dialects.sql`) to Dialect names exported by that Language plugin (`postgresql`, `mysql`, `sqlite`, `duckdb`, or `generic` for SQL); unmatched files use the plugin's default Dialect.
   See [SQL](./sql.md).
 - **`hazards`**: list Hazard line rule names under `hazards.disabled_rules` to turn them off across the repository.
   See [Hazards](./hazards.md).

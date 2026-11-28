@@ -1,8 +1,8 @@
 use std::fmt;
 
 use codeint_config::{
-    BASELINE_PATH, CodeownersError, ConfigFileKind, ConfigurationFileError, RatchetVersionMismatch,
-    SqlDialectConflict, StateFileError,
+    BASELINE_PATH, CodeownersError, ConfigFileKind, ConfigurationFileError, DialectConflict,
+    RatchetVersionMismatch, StateFileError,
 };
 use codeint_git::GitError;
 use codeint_metrics::{CoverageApplyError, CoverageParseError};
@@ -93,10 +93,10 @@ pub(crate) enum CheckError {
         "budgets.production.test_gap ({budget}) is set, but Test gap is absent; the Test gap Budget needs a Coverage report"
     )]
     TestGapBudgetWithoutCoverage { budget: f64 },
-    #[error("{config_file}: sql.dialects conflict: {conflict}")]
-    SqlDialectConflict {
+    #[error("{config_file}: dialects.{} conflict: {conflict}", conflict.language)]
+    DialectConflict {
         config_file: ConfigFileKind,
-        conflict: SqlDialectConflict,
+        conflict: Box<DialectConflict>,
     },
     #[error("{config_file} names an unknown Hazard line rule {rule:?} in hazards.disabled_rules")]
     UnknownHazardRule {

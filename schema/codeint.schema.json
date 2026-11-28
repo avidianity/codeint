@@ -90,9 +90,15 @@
       },
       "description": "Paths relative to the repository root of LCOV or Cobertura XML Coverage reports used to measure Test gap."
     },
-    "sql": {
-      "$ref": "#/$defs/SqlConfigFile",
-      "description": "SQL settings, including Dialect mappings for folders or files."
+    "dialects": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/DialectEntryFile"
+        }
+      },
+      "description": "Per-language Dialect mappings keyed by Language plugin name (such as \"sql\"). Each language maps to a list of Dialect rules pairing a Dialect name with repository-relative include globs."
     },
     "hazards": {
       "$ref": "#/$defs/HazardsConfigFile",
@@ -790,47 +796,25 @@
         }
       }
     },
-    "SqlConfigFile": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "dialects": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/SqlDialectEntryFile"
-          },
-          "description": "Folder or file patterns mapped to a SQL Dialect (postgresql, mysql, sqlite, or duckdb). Files covered by no entry use generic SQL."
-        }
-      }
-    },
-    "SqlDialectEntryFile": {
+    "DialectEntryFile": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "dialect": {
-          "$ref": "#/$defs/ConfiguredSqlDialect",
-          "description": "SQL Dialect for matching files: postgresql, mysql (including MariaDB), sqlite, or duckdb."
+          "type": "string",
+          "description": "Dialect name accepted by this Language plugin's known-dialects export."
         },
         "include": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "Globs of repository-relative folders or files that use this SQL Dialect; a folder covers every file below it."
+          "description": "Globs of repository-relative folders or files that use this Dialect; a folder covers every file below it."
         }
       },
       "required": [
         "dialect",
         "include"
-      ]
-    },
-    "ConfiguredSqlDialect": {
-      "type": "string",
-      "enum": [
-        "postgresql",
-        "mysql",
-        "sqlite",
-        "duckdb"
       ]
     },
     "HazardsConfigFile": {

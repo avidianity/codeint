@@ -33,38 +33,47 @@ fn the_starter_configuration_passes_the_shape_check_of_the_published_schema_with
     let detected = [DetectedLanguage {
         plugin: "typescript-javascript".to_owned(),
         include: vec![path("[draft]"), path("src")],
+        known_dialects: Vec::new(),
     }];
 
     for languages in [&detected[..], &[]] {
         let text = starter_configuration_text(languages);
         assert!(text.contains("\"coverage_reports\": []"), "{text}");
         assert!(text.contains("// \"test_gap\": 0.2"), "{text}");
-        assert!(!text.contains("sql.dialects"), "{text}");
+        assert!(!text.contains("dialects."), "{text}");
         let starter: Value = parse_jsonc(&text).expect("the starter configuration is valid JSONC");
 
         shape::check_shape(&starter, &schema).expect("the starter configuration fits the schema");
         let parsed = parse(&text).expect("the starter configuration parses cleanly");
         assert!(parsed.budgets.production_test_gap().is_none());
         assert!(parsed.coverage_reports.is_empty());
-        assert!(parsed.sql.is_empty());
+        assert!(parsed.dialects.is_empty());
     }
 }
 
 #[test]
-fn the_starter_configuration_mentions_optional_sql_dialects_only_when_sql_is_detected() {
+fn the_starter_configuration_mentions_optional_dialects_only_when_detected_language_declares_them()
+{
     let schema = published_schema();
     let detected = [DetectedLanguage {
         plugin: "sql".to_owned(),
         include: vec![path("db")],
+        known_dialects: vec![
+            "postgresql".to_owned(),
+            "mysql".to_owned(),
+            "sqlite".to_owned(),
+            "duckdb".to_owned(),
+            "generic".to_owned(),
+        ],
     }];
 
     let text = starter_configuration_text(&detected);
-    assert!(text.contains("sql.dialects"), "{text}");
-    assert!(text.contains("// \"sql\": { \"dialects\": [] }"), "{text}");
+    assert!(text.contains("dialects.sql"), "{text}");
+    assert!(text.contains("// \"dialects\": { \"sql\": [] }"), "{text}");
     let starter: Value = parse_jsonc(&text).expect("the starter configuration is valid JSONC");
     shape::check_shape(&starter, &schema).expect("the starter configuration fits the schema");
     let parsed = parse(&text).expect("the starter configuration parses cleanly");
-    assert!(parsed.sql.is_empty());
+    assert!(parsed.dialects.is_empty());
 }
 
 fn uncomment_boundaries_hint(text: &str) -> String {
@@ -74,7 +83,7 @@ fn uncomment_boundaries_hint(text: &str) -> String {
             output.push_str("  \"coverage_reports\": [],\n");
         } else if let Some(rest) = line.strip_prefix("  // ")
             && !rest.starts_with("Optional:")
-            && !rest.starts_with("\"sql\":")
+            && !rest.starts_with("\"dialects\":")
         {
             output.push_str("  ");
             output.push_str(rest);
@@ -198,10 +207,12 @@ fn starter_configuration_with_commented_boundaries_stays_valid_jsonc_and_activat
         DetectedLanguage {
             plugin: "typescript-javascript".to_owned(),
             include: vec![path("packages")],
+            known_dialects: Vec::new(),
         },
         DetectedLanguage {
             plugin: "sql".to_owned(),
             include: vec![path("db")],
+            known_dialects: vec!["postgresql".to_owned()],
         },
     ];
     let workspace_boundaries =
@@ -219,7 +230,7 @@ fn starter_configuration_with_commented_boundaries_stays_valid_jsonc_and_activat
             StarterKind::Standard,
             &ZeroBudgetKeys::none(),
         );
-        assert!(text.contains("sql.dialects"), "{text}");
+        assert!(text.contains("dialects.sql"), "{text}");
         let starter: Value = parse_jsonc(&text).expect("starter with boundaries is valid JSONC");
         shape::check_shape(&starter, &schema).expect("starter fits schema");
         let parsed = parse(&text).expect("starter parses cleanly");
