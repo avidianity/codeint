@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codeint trend JSON report",
+  "description": "The JSON output of `codeint trend --format json`.",
+  "type": "object",
+  "required": [
+    "commits",
+    "source_sets"
+  ],
+  "properties": {
+    "commits": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "metric_versions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "source_sets": {
+      "$ref": "#/$defs/SourceSetTrends"
+    },
+    "test_gap_note": {
+      "type": "string"
+    },
+    "manifest_warnings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CommitManifestWarnings"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "CommitManifestWarnings": {
+      "type": "object",
+      "required": [
+        "commit",
+        "warnings"
+      ],
+      "properties": {
+        "commit": {
+          "type": "string"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SourceSetTrends": {
+      "type": "object",
+      "properties": {
+        "production": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrendRow"
+          }
+        },
+        "test": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrendRow"
+          }
+        },
+        "generated": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrendRow"
+          }
+        },
+        "vendored": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrendRow"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "TrendRow": {
+      "type": "object",
+      "required": [
+        "commit",
+        "committed_on",
+        "files",
+        "erosion",
+        "cognitive_complexity",
+        "duplication",
+        "verbosity"
+      ],
+      "properties": {
+        "commit": {
+          "type": "string"
+        },
+        "committed_on": {
+          "type": "string"
+        },
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "erosion": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "cognitive_complexity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "duplication": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "verbosity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "import_cycles": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "hazards": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    }
+  }
+}

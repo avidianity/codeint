@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codeint agent install JSON report",
+  "description": "The JSON output of `codeint agent install --format json`.",
+  "type": "object",
+  "required": [
+    "config_root",
+    "dry_run",
+    "results"
+  ],
+  "properties": {
+    "config_root": {
+      "type": "string"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/AgentInstallEntry"
+      }
+    },
+    "note": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "AgentInstallEntry": {
+      "type": "object",
+      "required": [
+        "client",
+        "name",
+        "config_path",
+        "action",
+        "written"
+      ],
+      "properties": {
+        "client": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "create",
+            "update",
+            "unchanged"
+          ]
+        },
+        "written": {
+          "type": "boolean"
+        },
+        "preview": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

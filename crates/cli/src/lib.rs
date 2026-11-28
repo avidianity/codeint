@@ -29,24 +29,28 @@ use std::process::ExitCode;
 
 use codeint_config::{
     AgentCommand, BaselineCommand, Command, ConfigError, ConfigFileKind, DEFAULT_MAX_TRACE_PATHS,
-    OutputFormat, PluginCommand, RatchetCommand, ReportDestination, ReportInput,
-    ReportRenderFormat, cli_schema, read_configuration, read_invocation,
+    OutputFormat, PluginCommand, RatchetCommand, ReportDestination, ReportInput, cli_schema,
+    read_configuration, read_invocation,
 };
 use codeint_git::{GitError, Repository, ResultCache};
-use codeint_report::{ExitCodeSchema, ReportError, render_baseline_update};
+use codeint_report::{ExitCodeSchema, ReportError};
 
+pub use crate::init::AdoptedFiles;
 pub use codeint_config::{
-    AgentClient, AgentFormat, BaselineFormat, BudgetOverride, CalendarDay, ChurnFormat, ChurnSince,
-    ChurnWindow, ConfigFormat, ConfigOverrides, CouplingRatio, CouplingRatioError,
-    CouplingSettings, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, InitFormat,
-    PluginHostConfig, RatchetFormat, ReportFormat, SchemaFormat, SourceSetOverride, TraceFormat,
-    TrendFormat, TrendRange,
+    AgentClient, AgentFormat, BaselineFormat, BaselineUpdateSummary, BudgetOverride, CalendarDay,
+    ChurnFormat, ChurnSince, ChurnWindow, ConfigFormat, ConfigOverrides, CouplingRatio,
+    CouplingRatioError, CouplingSettings, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat,
+    InitFormat, PluginHostConfig, PluginKind, PluginLimits, PluginTestFormat, RatchetFormat,
+    ReportFormat, ReportRenderFormat, SchemaFormat, SourceSetOverride, TraceFormat, TrendFormat,
+    TrendRange,
 };
 pub use codeint_report::{
     AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
     ChurnReport, ConfigReport, CouplingReport, DiffReport, DoctorCheck, DoctorReport, DoctorStatus,
-    DoctorSummary, GuardReport, ImpactReport, RatchetFailure, RatchetUpdateReport, Report,
-    SavedReport, SchemaReport, TraceReport, TrendReport,
+    DoctorSummary, GuardReport, ImpactReport, PluginTestCheck, PluginTestReport, PluginTestStatus,
+    PluginTestSummary, RatchetFailure, RatchetUpdateReport, Report, ReportSchemaKind, SavedReport,
+    SchemaReport, TraceReport, TrendReport, all_report_schemas, render_baseline_update,
+    report_schema, schema_for,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -129,17 +133,73 @@ pub struct CouplingOptions {
     pub findings: FindingsShown,
     pub plugin_host: PluginHostConfig,
 }
-pub struct CheckOutcome {
-    pub passed: bool,
-    pub failures: Vec<String>,
-    pub report: Report,
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct InitOptions {
+    pub format: InitFormat,
+    pub adopt: bool,
+    pub plugin_host: PluginHostConfig,
 }
 
-pub struct DiffOutcome {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InitOutcome {
+    pub configuration: PathBuf,
+    pub adopted: Option<AdoptedFiles>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StateUpdateOptions {
+    pub reset: bool,
+    pub coverage_reports: Vec<PathBuf>,
+    pub plugin_host: PluginHostConfig,
+}
+
+pub type RatchetUpdateOptions = StateUpdateOptions;
+pub type BaselineUpdateOptions = StateUpdateOptions;
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RerenderReportOptions {
+    pub format: Option<ReportRenderFormat>,
+    pub all: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginTestOptions {
+    pub kind: PluginKind,
+    pub sources: Vec<PathBuf>,
+    pub limits: PluginLimits,
+}
+
+impl PluginTestOptions {
+    pub fn new(kind: PluginKind) -> PluginTestOptions {
+        PluginTestOptions {
+            kind,
+            sources: Vec::new(),
+            limits: PluginLimits::default(),
+        }
+    }
+}
+
+pub struct GatedOutcome<T> {
     pub passed: bool,
     pub failures: Vec<String>,
-    pub report: DiffReport,
+    pub report: T,
 }
+
+impl<T> GatedOutcome<T> {
+    fn from_report(report: T, failures: Vec<String>) -> GatedOutcome<T> {
+        let passed = failures.is_empty();
+        GatedOutcome {
+            passed,
+            failures,
+            report,
+        }
+    }
+}
+
+pub type CheckOutcome = GatedOutcome<Report>;
+pub type DiffOutcome = GatedOutcome<DiffReport>;
+pub type DoctorOutcome = GatedOutcome<DoctorReport>;
+pub type PluginTestOutcome = GatedOutcome<PluginTestReport>;
 
 #[derive(Debug)]
 pub struct CodeintError {
@@ -182,12 +242,7 @@ pub fn check(folder: &Path, options: &CheckOptions) -> Result<CheckOutcome, Code
     let report = check::check(folder, options.scope(), &options.plugin_host)
         .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
     let failures = report.failure_messages();
-    let passed = failures.is_empty();
-    Ok(CheckOutcome {
-        passed,
-        failures,
-        report,
-    })
+    Ok(GatedOutcome::from_report(report, failures))
 }
 
 pub fn diff(
@@ -198,12 +253,7 @@ pub fn diff(
     let report = measure_diff(folder, base_ref, options)
         .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
     let failures = report.failure_messages();
-    let passed = failures.is_empty();
-    Ok(DiffOutcome {
-        passed,
-        failures,
-        report,
-    })
+    Ok(GatedOutcome::from_report(report, failures))
 }
 
 fn measure_diff(
@@ -263,9 +313,21 @@ pub fn trace(
     .map_err(|err| CodeintError::from_cli_error(CliError::Trace(err)))
 }
 
-pub fn init(folder: &Path) -> Result<PathBuf, CodeintError> {
-    init::init(folder, InitFormat::Jsonc)
-        .map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))
+pub fn init(folder: &Path, options: &InitOptions) -> Result<InitOutcome, CodeintError> {
+    if options.adopt {
+        let adopted = init::adopt(folder, options.format, &options.plugin_host)
+            .map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))?;
+        return Ok(InitOutcome {
+            configuration: adopted.configuration.clone(),
+            adopted: Some(adopted),
+        });
+    }
+    let configuration = init::init(folder, options.format)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))?;
+    Ok(InitOutcome {
+        configuration,
+        adopted: None,
+    })
 }
 
 pub fn guard(folder: &Path, target: &Path) -> Result<GuardReport, CodeintError> {
@@ -291,8 +353,39 @@ pub fn resolved_config(
         .map_err(|err| CodeintError::from_cli_error(CliError::ConfigCommand(err)))
 }
 
-pub fn doctor(folder: &Path, plugin_host: &PluginHostConfig) -> DoctorReport {
-    doctor::doctor(folder, plugin_host)
+fn require_existing_folder(folder: &Path) -> Result<(), CodeintError> {
+    let metadata = std::fs::metadata(folder).map_err(|source| {
+        let error = if source.kind() == std::io::ErrorKind::NotFound {
+            ConfigError::MissingPath {
+                path: folder.to_path_buf(),
+            }
+        } else {
+            ConfigError::UnreadablePath {
+                path: folder.to_path_buf(),
+                source,
+            }
+        };
+        CodeintError::from_cli_error(CliError::Config(error))
+    })?;
+    if metadata.is_dir() {
+        Ok(())
+    } else {
+        Err(CodeintError::from_cli_error(CliError::Config(
+            ConfigError::NotAFolder {
+                path: folder.to_path_buf(),
+            },
+        )))
+    }
+}
+
+pub fn doctor(
+    folder: &Path,
+    plugin_host: &PluginHostConfig,
+) -> Result<DoctorOutcome, CodeintError> {
+    require_existing_folder(folder)?;
+    let report = doctor::doctor(folder, plugin_host);
+    let failures = report.blocking_error_messages();
+    Ok(GatedOutcome::from_report(report, failures))
 }
 
 pub fn agent_status(
@@ -330,6 +423,50 @@ pub fn coupling(folder: &Path, options: &CouplingOptions) -> Result<CouplingRepo
         &options.plugin_host,
     )
     .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
+}
+
+pub fn ratchet_update(
+    folder: &Path,
+    options: &RatchetUpdateOptions,
+) -> Result<RatchetUpdateReport, CodeintError> {
+    let (context, measured) =
+        check::load_and_measure_whole_repo(folder, &options.coverage_reports, &options.plugin_host)
+            .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
+    ratchet::update_from_report(&context, &measured, options.reset)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Ratchet(err)))
+}
+
+pub fn baseline_update(
+    folder: &Path,
+    options: &BaselineUpdateOptions,
+) -> Result<BaselineUpdateSummary, CodeintError> {
+    let (context, measured) =
+        check::load_and_measure_whole_repo(folder, &options.coverage_reports, &options.plugin_host)
+            .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
+    baseline::update_from_report(&context, &measured, options.reset)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
+}
+
+pub fn rerender_report(
+    folder: &Path,
+    input: &Path,
+    options: &RerenderReportOptions,
+) -> Result<String, CodeintError> {
+    let format =
+        resolve_report_format(folder, options.format).map_err(CodeintError::from_cli_error)?;
+    let source = ReportInput::File(input.to_path_buf());
+    report::rerender(&source, format, options.all)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Rerender(err)))
+}
+
+pub fn plugin_test(
+    path: &Path,
+    options: &PluginTestOptions,
+) -> Result<PluginTestOutcome, CodeintError> {
+    let report = plugin_test::plugin_test(path, options.kind, &options.sources, options.limits)
+        .map_err(|err| CodeintError::from_cli_error(CliError::PluginTest(err)))?;
+    let failures = report.failure_messages();
+    Ok(GatedOutcome::from_report(report, failures))
 }
 
 #[derive(Debug, thiserror::Error)]

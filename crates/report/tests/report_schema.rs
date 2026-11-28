@@ -1,108 +1,34 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use codeint_config::{Budgets, DependenciesConfig, DuplicationConfig, FindingsShown, ReportFormat};
+use codeint_config::{
+    Budgets, CalendarDay, DependenciesConfig, DuplicationConfig, FindingsShown, RegressionLimits,
+    ReportFormat, TrendFormat,
+};
 use codeint_model::language::Function;
 use codeint_model::{
     CodeModel, FileModel, FunctionCoverage, HazardLine, LanguageFacts, ReferenceRanges, RepoPath,
     SourceFile, SourceSet, Workspace,
 };
 use codeint_report::{
-    FileDiagnosticEntry, MeasuredLanguage, OwnershipOptions, Report, ReportExtras, ReportOptions,
-    ScopeSummaryEntry, report_schema,
+    BaseCommit, CommitMeasurement, DiffReport, FileDiagnosticEntry, Head, MeasuredLanguage,
+    OwnershipOptions, Report, ReportExtras, ReportOptions, ReportSchemaKind, ScopeSummaryEntry,
+    TrendPoint, TrendReport, all_report_schemas, report_schema, schema_for,
+    validate_json_against_schema,
 };
 use serde_json::Value;
 
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
 fn published_report_schema_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../schema/codeint-report.schema.json")
+    repo_root().join(ReportSchemaKind::Check.relative_path())
 }
 
-fn validate_against_schema(value: &Value, schema: &Value, root: &Value, path: &str) {
-    if let Some(allowed) = schema.as_bool() {
-        assert!(allowed, "value disallowed by schema at {path}: {value}");
-        return;
-    }
-    if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
-        let def_name = reference
-            .strip_prefix("#/$defs/")
-            .expect("local $defs reference");
-        validate_against_schema(value, &root["$defs"][def_name], root, path);
-        return;
-    }
-    check_json_type(value, schema, path);
-    check_number_bounds(value, schema, path);
-    check_object_schema(value, schema, root, path);
-    check_array_schema(value, schema, root, path);
-}
-
-fn check_json_type(value: &Value, schema: &Value, path: &str) {
-    let Some(expected_type) = schema.get("type").and_then(Value::as_str) else {
-        return;
-    };
-    let ok = match expected_type {
-        "object" => value.is_object(),
-        "array" => value.is_array(),
-        "string" => value.is_string(),
-        "number" => value.is_number(),
-        "integer" => value.is_u64() || value.is_i64(),
-        "boolean" => value.is_boolean(),
-        other => panic!("unsupported schema type {other} at {path}"),
-    };
-    assert!(ok, "expected {expected_type} at {path}, got {value}");
-}
-
-fn check_number_bounds(value: &Value, schema: &Value, path: &str) {
-    let Some(number) = value.as_f64() else {
-        return;
-    };
-    if let Some(min) = schema.get("minimum").and_then(Value::as_f64) {
-        assert!(
-            number >= min,
-            "value {number} below minimum {min} at {path}"
-        );
-    }
-    if let Some(max) = schema.get("maximum").and_then(Value::as_f64) {
-        assert!(
-            number <= max,
-            "value {number} above maximum {max} at {path}"
-        );
-    }
-}
-
-fn check_object_schema(value: &Value, schema: &Value, root: &Value, path: &str) {
-    let Some(object) = value.as_object() else {
-        return;
-    };
-    for key in schema
-        .get("required")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        let key_str = key.as_str().expect("required key string");
-        assert!(
-            object.contains_key(key_str),
-            "missing required key {key_str:?} at {path}"
-        );
-    }
-    let properties = schema.get("properties").and_then(Value::as_object);
-    for (key, child) in object {
-        let child_path = format!("{path}.{key}");
-        let child_schema = properties
-            .and_then(|props| props.get(key))
-            .or_else(|| schema.get("additionalProperties"));
-        if let Some(target) = child_schema {
-            validate_against_schema(child, target, root, &child_path);
-        }
-    }
-}
-
-fn check_array_schema(value: &Value, schema: &Value, root: &Value, path: &str) {
-    let (Some(items), Some(item_schema)) = (value.as_array(), schema.get("items")) else {
-        return;
-    };
-    for (index, item) in items.iter().enumerate() {
-        validate_against_schema(item, item_schema, root, &format!("{path}[{index}]"));
+fn validate_against_schema(value: &Value, schema: &Value, _root: &Value, _path: &str) {
+    if let Err(message) = validate_json_against_schema(value, schema) {
+        panic!("{message}");
     }
 }
 
@@ -447,4 +373,85 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
     assert!(toon_text.contains("metric_version: 1"));
     assert!(toon_text.contains("metric_version: 2"));
     assert!(toon_text.contains("metric_version: 3"));
+}
+
+#[test]
+fn published_report_schemas_match_generated_output_for_all_commands() {
+    let root = repo_root();
+    let mut drifted = Vec::new();
+    for (kind, generated) in all_report_schemas() {
+        let path = root.join(kind.relative_path());
+        let published = std::fs::read_to_string(&path).unwrap_or_default();
+        if published != generated {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("create schema dir");
+            }
+            std::fs::write(&path, &generated).expect("write published report schema");
+            drifted.push(path.display().to_string());
+        }
+        let parsed: Value = serde_json::from_str(&generated).expect("schema is valid JSON");
+        assert_eq!(
+            parsed["$schema"],
+            "https://json-schema.org/draft/2020-12/schema"
+        );
+    }
+    assert!(
+        drifted.is_empty(),
+        "report schemas drifted and were rewritten: {drifted:?}; review and re-run"
+    );
+}
+
+fn parse_and_validate(kind: ReportSchemaKind, rendered: String) -> Value {
+    let schema: Value = serde_json::from_str(&schema_for(kind)).expect("schema");
+    let value: Value = serde_json::from_str(&rendered).expect("rendered json");
+    validate_against_schema(&value, &schema, &schema, "$");
+    value
+}
+
+#[test]
+fn diff_and_trend_schemas_validate_reports_with_external_metrics() {
+    let plugin = VersionedExternalMetricPlugin;
+    let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
+    let budgets = Budgets::default();
+    let limits = RegressionLimits::default();
+    let base_measurement =
+        CommitMeasurement::of_with_metrics(sample_model(false, true), &metric_plugins)
+            .expect("base measurement");
+    let head_measurement =
+        CommitMeasurement::of_with_metrics(sample_model(false, true), &metric_plugins)
+            .expect("head measurement");
+    let diff = DiffReport::compare(
+        BaseCommit {
+            git_ref: "main".to_owned(),
+            merge_base: "abc1234".to_owned(),
+        },
+        Head::WorkingTree,
+        base_measurement,
+        head_measurement,
+        FindingsShown::default(),
+        &budgets,
+        &limits,
+    );
+    let diff_json = parse_and_validate(
+        ReportSchemaKind::Diff,
+        diff.render(ReportFormat::Json).expect("diff json"),
+    );
+    assert_eq!(
+        diff_json["source_sets"]["production"]["custom_depth"]["metric_version"],
+        3
+    );
+
+    let trend_measurement =
+        CommitMeasurement::of_with_metrics(sample_model(false, true), &metric_plugins)
+            .expect("trend measurement");
+    let trend = TrendReport::of(vec![TrendPoint {
+        commit: "abc1234".to_owned(),
+        committed_on: CalendarDay::containing(1_700_000_000),
+        measurement: trend_measurement,
+    }]);
+    let trend_json = parse_and_validate(
+        ReportSchemaKind::Trend,
+        trend.render(TrendFormat::Json).expect("trend json"),
+    );
+    assert_eq!(trend_json["metric_versions"]["custom_depth"], 3);
 }
