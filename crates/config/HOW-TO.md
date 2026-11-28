@@ -1,6 +1,6 @@
 # How to read the configuration
 
-## Read codeint.json
+## Read the configuration file
 
 ```rust
 use codeint_config::read_configuration;
@@ -16,12 +16,12 @@ let configuration = read_configuration(repository.root())?;
 - `read_resolved_configuration` runs the same merge pipeline with `ConfigOverrides` and returns both the merged `Configuration` and per-field `ResolvedSetting` entries with `ConfigProvenance` (`default`, `file`, or `cli`).
 - `configuration.format` holds the configured `OutputFormat` (`Toon` by default, or `Text`, `Json`, `Sarif`, `Markdown`), used as the fallback when CLI `--format` is omitted on `check`, `diff`, `trend`, `report`, `impact`, `trace`, `churn`, and `coupling`.
 - `Command::{Check, Diff, Trend, Report, Impact, Trace, Churn, Coupling}` carry `format: Option<...>` so callers distinguish an explicit CLI `--format` override from an omitted flag.
-- It returns `Configuration::default()` when neither file is present; codeint runs with defaults.
+- It returns `Configuration::default()` when no configuration file is present; codeint runs with defaults.
 - Every other failure is a `ConfigurationFileError`, which stops the run with exit code 2.
   Its message names the key with its path, such as `source_sets.test[1]`, and the expected JSON type.
-- Only this crate reads `codeint.json`; every other crate receives the typed `Configuration`.
-- `codeint diff` reads `codeint.json` of the working tree once and measures both the merge-base and the working tree with it, so a comparison shows changes in the code, not in the configuration.
-  Never read `codeint.json` from a commit.
+- Only this crate reads the repository configuration file; every other crate receives the typed `Configuration`.
+- `codeint diff` reads the configuration file of the working tree once and measures both the merge-base and the working tree with it, so a comparison shows changes in the code, not in the configuration.
+  Never read the configuration file from a commit.
 
 ## Apply Source set overrides
 
@@ -50,7 +50,7 @@ if let Some(budget) = configuration.budgets.budget(SourceSet::Production, Metric
 }
 ```
 
-- `budget` returns `None` when `codeint.json` sets no Budget for that Metric in that Source set; that Metric then never fails.
+- `budget` returns `None` when the configuration file sets no Budget for that Metric in that Source set; that Metric then never fails.
 - `production_test_gap` reads `budgets.production.test_gap` as `Option<f64>`, and `budget_for_key(SourceSet::Production, "test_gap")` returns the corresponding `Option<Budget>`.
 - Setting `orphan_files` under `budgets.test`, `budgets.generated`, or `budgets.vendored` fails with `ConfigurationFileError::MetricBudgetOutsideProduction` (exit code 2), and setting `orphan_files` under `regression_limits.test`, `regression_limits.generated`, or `regression_limits.vendored` fails with `ConfigurationFileError::MetricRegressionLimitOutsideProduction` (exit code 2), because Orphan files applies to the Production Source set only.
 - Setting `test_gap` under `budgets.test`, `budgets.generated`, or `budgets.vendored` fails with `ConfigurationFileError::TestGapBudgetOutsideProduction` (exit code 2), because Test gap covers only the Production Source set.
@@ -77,12 +77,12 @@ let any_new_finding_fails = limit.new_findings == NewFindingsRule::AnyNewFinding
 ```
 
 - `limit` always returns a `RegressionLimit`; without a setting it uses `RegressionLimit::default_for(metric)` (`NewFindingsRule::NumeratorRise` for Erosion, Cognitive complexity, Duplication, Verbosity, and external Metrics; `NewFindingsRule::AnyNewFinding` for Import cycles, Boundaries, Orphan files, Hazards, and Dependency hygiene).
-- `codeint.json` sets a limit under `regression_limits.{metric}` for every Source set, and under `regression_limits.{source_set}.{metric}` for one Source set.
+- The configuration file sets a limit under `regression_limits.{metric}` for every Source set, and under `regression_limits.{source_set}.{metric}` for one Source set.
   `limit` settles each of `ratio_rise` and `new_findings` on its own: the Source set setting wins, then the Metric setting, then the default.
 - `RatioRise::DEFAULT` is 0.01, and `admits` passes a rise equal to the limit.
   Round the difference of the two displayed ratios to four places before you pass it, because the plain floating-point difference of 0.0142 and 0.0042 is above 0.01.
 - `NewFindingsRule::AnyNewFinding` fails on any new Finding or numerator rise; `NewFindingsRule::NumeratorRise` fails whenever the numerator rises (rounded to four decimal places), so a Finding that only moves passes; `NewFindingsRule::Never` never fails on new Findings or numerator rises, so only `ratio_rise` can still make a Regression.
-  In `codeint.json` the canonical values are `any_new_finding`, `numerator_rise`, and `never`, and `numerator_rise_with_new_findings` is accepted as a deprecated alias for `numerator_rise`.
+  In the configuration file the canonical values are `any_new_finding`, `numerator_rise`, and `never`, and `numerator_rise_with_new_findings` is accepted as a deprecated alias for `numerator_rise`.
 - `regression_limits.per_file()` defaults to `false`; when `true`, `codeint diff` also compares file-level Metric numerators and Findings for every modified file and fails if any modified file worsens (respecting `NewFindingsRule::Never`).
 
 ## Limit each Language plugin to its folders
@@ -112,7 +112,7 @@ for declaration in &configuration.plugins {
 }
 ```
 
-- Each entry of `plugins` in `codeint.json` requires `name`, `sha256`, and either `path` or `url` (mutually exclusive).
+- Each entry of `plugins` in the configuration file requires `name`, `sha256`, and either `path` or `url` (mutually exclusive).
 - A missing `sha256` fails the shape check with `ConfigurationFileError::MissingKey` (exit code 2).
 - A `sha256` that is not 64 hexadecimal characters fails with `ConfigurationFileError::InvalidSha256` (exit code 2).
 - A `url` that does not use `https://` fails with `ConfigurationFileError::NonHttpsPluginUrl` (exit code 2).
@@ -153,13 +153,13 @@ updated.write_atomic(repository.root())?;
 
 ## Add a setting
 
-- Add a field to `ConfigurationFile` in `src/codeint_json/schema.rs`, with `#[serde(default)]` and a `#[schemars(description = ...)]` that tells the user what it does.
+- Add a field to `ConfigurationFile` in `src/config_file/schema.rs`, with `#[serde(default)]` and a `#[schemars(description = ...)]` that tells the user what it does.
 - Convert it into a typed field of `Configuration`; never hand the raw JSON to another crate.
 - Run `cargo test -p codeint-config`.
   The schema test rewrites `schema/codeint.schema.json` when it drifts from the types and fails once; review and commit the rewritten file.
 - The shape check reads the generated schema to name the bad key and the expected type.
   It also names a key that the schema lists under `required` and the file leaves out.
-  When a new type makes schemars write a keyword the shape check does not understand, `the_shape_check_understands_every_keyword_of_the_configuration_schema` fails; teach `src/codeint_json/shape.rs` that keyword first.
+  When a new type makes schemars write a keyword the shape check does not understand, `the_shape_check_understands_every_keyword_of_the_configuration_schema` fails; teach `src/config_file/shape.rs` that keyword first.
 
 ## Write a starter codeint.jsonc
 
@@ -219,6 +219,6 @@ let shown_day = CalendarDay::containing(committed_at_unix_seconds).to_string();
 
 ## Key a cached result by the configuration
 
-- `Configuration` serializes as the effective `codeint.json`: every key with its default filled in, without the `$schema` address or `format` (since `format` only controls output rendering and never affects commit analysis).
+- `Configuration` serializes as the effective configuration: every key with its default filled in, without the `$schema` address or `format` (since `format` only controls output rendering and never affects commit analysis).
   A file that only differs in `$schema`, `format`, or keys set to their defaults serializes the same.
 - Put the whole `Configuration` in the settings of a cached result, not chosen keys, so that a new setting can never leave a stale entry.

@@ -1,6 +1,6 @@
 # codeint reference
 
-This page documents every command, option, exit code, report format, and `codeint.json` key of codeint.
+This page documents every command, option, exit code, report format, and configuration key of codeint.
 [GLOSSARY.md](../GLOSSARY.md) defines every term on this page.
 For calling codeint from JavaScript, TypeScript, or Rust, see [docs/programmatic.md](./programmatic.md).
 
@@ -36,7 +36,7 @@ It also holds a `plugins` folder with four Wasm Plugin files built from the test
 | `schema` | Print a machine-readable capability manifest of CLI commands, flags, built-in Metrics, output formats, MCP tools, and exit codes; see [`codeint schema`](#codeint-schema) |
 | `config` | Inspect the effective active configuration and where each setting came from; see [`codeint config`](#codeint-config) |
 | `report` | Re-render a saved `check` or `diff` JSON report into another format without re-running analysis; see [`codeint report`](#codeint-report) |
-| `doctor` | Run read-only diagnostics on `codeint.json`, Git repository status, detected languages, Workspace packages, and external Wasm Plugins; see [`codeint doctor`](#codeint-doctor) |
+| `doctor` | Run read-only diagnostics on the configuration file, Git repository status, detected languages, Workspace packages, and external Wasm Plugins; see [`codeint doctor`](#codeint-doctor) |
 | `agent` | Inspect and configure codeint MCP integration for local coding agents; see [`codeint agent`](#codeint-agent) |
 | `plugin` | Check an external Wasm Plugin against the codeint Plugin contract; see [`codeint plugin`](#codeint-plugin) |
 | `ratchet` | Manage the repository Ratchet ceilings in `.codeint/ratchet.json`; see [`codeint ratchet`](#codeint-ratchet) |
@@ -197,7 +197,7 @@ jobs:
 Guide: https://github.com/avidianity/codeint/blob/main/docs/guide/adopting-on-an-existing-codebase.md
 ```
 
-`codeint init` never replaces an existing `codeint.jsonc` or `codeint.json`.
+`codeint init` never replaces an existing configuration file at any of the ten supported paths.
 With this `codeint.json` in place:
 
 ```json codeint.json
@@ -226,9 +226,9 @@ Edit the existing codeint.json, or delete it and run codeint init again.
 | `--package <PATH>` | Scope measurement and output to this Workspace package |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding instead of the 20 worst per Metric |
-| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, `sarif`, or `markdown`; overrides `format` in `codeint.json`; see [Report formats](#report-formats) |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, `sarif`, or `markdown`; overrides `format` in the configuration file; see [Report formats](#report-formats) |
 | `--owner <OWNER>` | Include only Findings whose `CODEOWNERS` owner matches this pattern |
-| `--coverage-report <PATH>` | Path to an LCOV or Cobertura XML Coverage report; may repeat; when present, replaces `coverage_reports` from `codeint.json`; see [Test gap](#test-gap) |
+| `--coverage-report <PATH>` | Path to an LCOV or Cobertura XML Coverage report; may repeat; when present, replaces `coverage_reports` from the configuration file; see [Test gap](#test-gap) |
 | `--ignore-baseline` | Show every Finding and evaluate Budgets on every Finding, as if `.codeint/baseline.json` did not exist; see [`codeint baseline`](#codeint-baseline) |
 | `-h, --help` | Print the help of `codeint check` |
 
@@ -351,7 +351,7 @@ codeint check --package packages/missing
 | `--package <PATH>` | Scope measurement and output to this Workspace package |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding instead of the 20 worst per Metric |
-| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, `sarif`, or `markdown`; overrides `format` in `codeint.json` |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, `sarif`, or `markdown`; overrides `format` in the configuration file |
 | `--owner <OWNER>` | Include only Findings whose `CODEOWNERS` owner matches this pattern |
 | `-h, --help` | Print the help of `codeint diff` |
 
@@ -418,7 +418,7 @@ codeint reads the merge-base straight from Git objects, so it never checks out a
 The working tree side includes uncommitted and untracked changes, and leaves out the files that Git ignores, as `codeint check` does.
 Commits added to the base branch after your branch started are not part of the comparison, because the merge-base comes before them.
 
-Both sides use the `codeint.json` of the working tree, so the comparison shows changes in the code, not in the configuration.
+Both sides use the configuration file of the working tree, so the comparison shows changes in the code, not in the configuration.
 Both sides follow the same file rules as `codeint check`.
 `codeint diff` computes Test gap for neither side; when a Coverage report is named, it prints one line stating that Test gap is left out because a Coverage report exists only for the code under measurement.
 
@@ -511,8 +511,8 @@ source_sets:
 
 codeint reads the head ref from Git objects too, so neither the working tree nor HEAD takes part.
 The merge-base is the merge-base of the base ref and the head ref.
-Both sides still use the `codeint.json` of the working tree, never the one in a commit.
-So the classification matches running `codeint check` on a checkout of each side, when each checkout has that same `codeint.json`.
+Both sides still use the configuration file of the working tree, never the one in a commit.
+So the classification matches running `codeint check` on a checkout of each side, when each checkout has that same configuration file.
 
 A head ref that names no commit, or that shares no history with the base ref, stops the run with exit code 2:
 
@@ -545,8 +545,8 @@ A Regression is a Metric that got worse from the merge-base to the head side by 
 - When `regression_limits.per_file` is `true` (`false` by default), `codeint diff` also compares file-level Metric numerators and Findings for every modified file.
   If any individual modified file worsens, `codeint diff` reports a per-file Regression naming that file, Metric, base value, and head value even when another file shrank enough to keep the repository total flat or lower.
 
-[`regression_limits`](#regression-limits) in `codeint.json` changes these limits.
-`codeint diff` also applies the [Budgets](#budgets) of `codeint.json` to the head side, as `codeint check` does.
+[`regression_limits`](#regression-limits) in the configuration file changes these limits.
+`codeint diff` also applies the [Budgets](#budgets) of the configuration file to the head side, as `codeint check` does.
 
 When a Budget or a Regression fails, codeint still writes the whole report, lists each failure under `over_budget` or `regressions`, names it on standard error, and exits with code 1.
 Each Regression names its rule and its base and head values: the ratios for `ratio_rise` and `new_findings`, the repository numerators for `numerator_rise`, and the file-level numerators alongside `file` for `per_file_numerator_rise` and `per_file_new_findings`.
@@ -561,7 +561,7 @@ With no failure, the report has no `over_budget` or `regressions` key, and codei
 | ------ | ------- |
 | `--since <YYYY-MM-DD>` | Measure every main-line commit committed on or after this day, in UTC, instead of the latest 20 |
 | `--output <FILE>` | Write the report to this file instead of standard output |
-| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, or `markdown`; overrides `format` in `codeint.json` |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, or `markdown`; overrides `format` in the configuration file |
 | `-h, --help` | Print the help of `codeint trend` |
 
 `codeint trend` measures each commit of the main line of the current branch and prints each Metric over time, oldest commit first:
@@ -637,7 +637,7 @@ For more information, try '--help'.
 ```
 
 codeint reads each commit from Git objects, so it never checks out a commit and never touches the working tree; uncommitted changes are not part of a trend.
-Every commit uses the `codeint.json` of the working tree, as `codeint diff` does.
+Every commit uses the configuration file of the working tree, as `codeint diff` does.
 Each commit goes through the [result cache](#result-cache), so a repeated trend measures only the commits that are new since the last run.
 
 ### `codeint impact`
@@ -751,7 +751,7 @@ Every MCP tool accepts an optional `format` argument (`"toon"`, the default, or 
 Invalid `format` values and `trace` calls with `max_paths` less than `1` are rejected during argument validation, and all eight tools return MCP-tailored error remedies that name MCP arguments instead of CLI flags.
 The `check` MCP tool takes `path`, `package`, `coverage_reports`, `all`, `ignore_baseline` (boolean, `false` by default; the same meaning as `codeint check --ignore-baseline`), and `format`.
 Its stale-Baseline error names `ignore_baseline: true` as the way to show every Finding.
-It uses `coverage_reports` from `codeint.json`, returning Test gap (or its absent form and reason), Test gap Findings ordered heaviest untested Function mass first, any Test gap Budget failure, and the missing-report error when `budgets.production.test_gap` is set with Test gap absent.
+It uses `coverage_reports` from the configuration file, returning Test gap (or its absent form and reason), Test gap Findings ordered heaviest untested Function mass first, any Test gap Budget failure, and the missing-report error when `budgets.production.test_gap` is set with Test gap absent.
 When a measured language defines Hazard line rules (such as SQL), `check`, `diff`, and `trend` also return `hazards`, `check` and `diff` return Hazard line Findings (path, line, and rule name only), and `check` returns `scope_summaries` and `file_diagnostics`.
 When standard input closes, the server exits with code 0:
 
@@ -770,7 +770,7 @@ codeint mcp
 | `--format <FORMAT>` | The format of the output: `text`, the default, `toon`, or `json` |
 | `-h, --help` | Print the help of `codeint guard` |
 
-`codeint guard <path>` evaluates the architectural boundary rules (both internal zone rules and `allow_external`/`deny_external` external-package rules) in `codeint.json` or `codeint.jsonc` for an existing or planned file path without requiring the file to exist on disk.
+`codeint guard <path>` evaluates the architectural boundary rules (both internal zone rules and `allow_external`/`deny_external` external-package rules) in the configuration file for an existing or planned file path without requiring the file to exist on disk.
 
 ```sh exit=0
 codeint guard src/route.ts
@@ -813,7 +813,7 @@ codeint schema --output schema.json
 | `--plugin-timeout-ms <MS>` | Override the time limit in milliseconds of each Plugin call, `plugin_limits.timeout_ms` (1 to 300000) |
 | `-h, --help` | Print the help of `codeint config` |
 
-`codeint config --resolved` prints every effective active setting merged from built-in defaults, `codeint.json`, and CLI overrides alongside its provenance (`default`, `file`, or `cli`).
+`codeint config --resolved` prints every effective active setting merged from built-in defaults, the configuration file, and CLI overrides alongside its provenance (`default`, `file`, or `cli`).
 
 ```sh exit=0
 codeint config --resolved
@@ -832,7 +832,7 @@ codeint config --resolved --format json --budget production.erosion=0.25 --sourc
 | ------ | ------- |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding in text output instead of capping at 5 per Metric (and include passing Workspace packages on `check` and resolved Findings on `diff`) |
-| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, `sarif`, or `markdown`; overrides `format` in `codeint.json` |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, `sarif`, or `markdown`; overrides `format` in the configuration file |
 | `-h, --help` | Print the help of `codeint report` |
 
 `codeint report` re-renders a saved `codeint check --format json` or `codeint diff --format json` payload into another format without re-running analysis.
@@ -866,7 +866,7 @@ codeint report missing.json --format sarif
 | `--format <FORMAT>` | The format of the output: `text`, the default, `json`, or `toon` |
 | `-h, --help` | Print the help of `codeint doctor` |
 
-`codeint doctor` runs strictly read-only, offline diagnostics on Git repository status, `codeint.json` validity, `$schema` version compatibility, detected Language plugins, Workspace packages, and external Wasm Plugin paths, SHA-256 digests, and interface compatibility.
+`codeint doctor` runs strictly read-only, offline diagnostics on Git repository status, configuration file validity, `$schema` version compatibility, detected Language plugins, Workspace packages, and external Wasm Plugin paths, SHA-256 digests, and interface compatibility.
 It separates passing checks, warnings, and blocking errors, exiting with code 0 when no blocking error is found and code 1 when at least one blocking error is found.
 
 ```sh exit=0
@@ -914,7 +914,7 @@ codeint agent help
 | `-h, --help` | Print the help of `codeint plugin` |
 
 `codeint plugin test <WASM>` loads one Wasm Plugin through the same sandboxed Plugin host that `codeint check` uses and runs the Conformance runner against it.
-It needs no repository, no `codeint.json`, and no network access.
+It needs no repository, no configuration file, and no network access.
 The runner checks a Language plugin for the following rules:
 
 - It is a valid WebAssembly component that exports `codeint:plugin/language@0.5.0` and imports no WASI or host interface.
@@ -1116,7 +1116,7 @@ codeint coupling --format markdown
 | --------- | ------- |
 | `0` | The run succeeded, and no Budget, Ratchet, Regression, blocking doctor error, or failed `codeint plugin test` check occurred |
 | `1` | The run succeeded, and at least one Budget, Ratchet, Regression, blocking doctor error, or `codeint plugin test` check failed; codeint still writes the whole report and names each failure on standard error |
-| `2` | An operational error stopped the run, such as an unknown option, a Git ref that names no commit, a Ratchet or Baseline Metric version mismatch, or an invalid `codeint.json`; codeint names the error on standard error |
+| `2` | An operational error stopped the run, such as an unknown option, a Git ref that names no commit, a Ratchet or Baseline Metric version mismatch, or an invalid configuration file; codeint names the error on standard error |
 
 ## `codeint.json`
 
@@ -1248,7 +1248,7 @@ Remove the key, or correct its spelling to one of the allowed keys.
 ### Default output format
 
 Set `format` to choose the default output format for `check`, `diff`, `trend`, `report`, `impact`, `trace`, `churn`, and `coupling`: `toon` (the built-in default), `text`, `json`, `sarif`, or `markdown`.
-CLI `--format` always overrides `format` in `codeint.json`.
+CLI `--format` always overrides `format` in the configuration file.
 Utility commands (`doctor`, `guard`, `config`, `ratchet`, `baseline`, `agent`, `plugin test`), `schema`, and MCP tools ignore `format` and keep their own defaults.
 When one of the eight analysis and report commands does not support the configured format, codeint stops with exit code 2 and names the command, the configured format, and the supported formats.
 
@@ -1291,7 +1291,7 @@ Source sets settle in strict priority order from lowest to highest:
 1. Per-file lowering by the Language plugin.
 2. Core Vendored (`vendor/`, `third_party/`) and standard build-folder (`dist/`, `build/`, `out/`, `coverage/`, minified lines) rules.
 3. Active Framework profile `generated_paths`, which reclassify matching non-Vendored files to `generated` and never override `vendored`.
-4. Explicit `source_sets` globs in `codeint.json`, which always win.
+4. Explicit `source_sets` globs in the configuration file, which always win.
 
 - `typescript-javascript` puts a file in `test` when its name ends in `.test.{extension}` or `.spec.{extension}`, such as `src/greet.test.ts`, or when any folder in its path is named `__tests__`, `test`, or `tests`, such as `test/greet.ts` or `packages/app/tests/setup.ts`.
   A file named `test.ts` or `tests.ts` outside such a folder stays in `production`.
@@ -1701,7 +1701,7 @@ codeint check
 
 ### Orphan files
 
-Orphan files detection traverses resolved runtime imports from the union of manifest-declared entry points (such as `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, `pubspec.yaml`, and Go public packages outside `internal/` relative to `go.mod`), Production files marked as program starts by a Language plugin (such as Go files declaring `package main`), and configured `entry_points` globs in `codeint.json`.
+Orphan files detection traverses resolved runtime imports from the union of manifest-declared entry points (such as `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, `pubspec.yaml`, and Go public packages outside `internal/` relative to `go.mod`), Production files marked as program starts by a Language plugin (such as Go files declaring `package main`), and configured `entry_points` globs in the configuration file.
 Marked files in the Test, Generated, or Vendored Source sets stay out of entry points.
 Production files unreachable from any Production entry point are reported as `unreferenced`, or as `test-only` when still imported by Test files.
 Generated and Vendored Source sets and Tooling files (files inside universal repository tooling folders `.github/`, `scripts/`, `docs/`, `examples/`, `tools/`, and `benches/` at the repository root or a package root, plus language-specific Tooling files marked `is-tooling-file` by their owning Language plugin) are excluded from discovered entry-point roots and evaluated Production files.
@@ -1741,7 +1741,7 @@ codeint check
 **Test gap** (`test_gap`, a reserved built-in Metric key) is the share of total Production Function mass that tests do not execute.
 codeint never runs tests and never guesses where a Coverage report is.
 Name one or more Coverage reports in `coverage_reports` (paths relative to the repository root) or with the repeatable `--coverage-report <PATH>` option on `codeint check`.
-When `--coverage-report` is present on the command line, `coverage_reports` from `codeint.json` is not used for that run.
+When `--coverage-report` is present on the command line, `coverage_reports` from the configuration file is not used for that run.
 See [docs/guide/test-gap.md](./guide/test-gap.md) for copy-paste setup commands for each supported test tool.
 
 Test gap computes from the Code model alone after codeint fills per-function coverage facts from the named reports:
@@ -2027,8 +2027,8 @@ A plugin trap, an error that names a path codeint did not pass, and an error tha
 codeint caches the measurement of each commit it reads from Git objects, so a second `codeint diff` against the same base reads it back instead of measuring the commit again.
 That covers the merge-base, the head ref of `--head`, and each commit of `codeint trend`.
 An entry keys on one commit and the settings that shape its measurement.
-Those settings are the codeint version, Plugin interface version, all Metric versions, all Language plugin versions, and `codeint.json`.
-Any change to `codeint.json` other than `$schema` or `format`, or any Metric version bump, measures again.
+Those settings are the codeint version, Plugin interface version, all Metric versions, all Language plugin versions, and the configuration file.
+Any change to the configuration file other than `$schema` or `format`, or any Metric version bump, measures again.
 Changing local working-tree Coverage reports never invalidates cached historical commits.
 The working tree is never cached, because it has no commit.
 
@@ -2061,8 +2061,8 @@ codeint: cannot write the cache entry /home/me/.cache/codeint: File exists (os e
 
 Every command that prints a report takes `--format` and `--output {file}`.
 `--output` writes the report in the chosen format to a file instead of standard output.
-`codeint check`, `codeint diff`, and `codeint report` print TOON by default (or the configured `format` in `codeint.json`), and also print Text, JSON, SARIF, and Markdown.
-`codeint trend` prints TOON by default (or the configured `format` in `codeint.json`), and also prints Text, JSON, and Markdown.
+`codeint check`, `codeint diff`, and `codeint report` print TOON by default (or the configured `format` in the configuration file), and also print Text, JSON, SARIF, and Markdown.
+`codeint trend` prints TOON by default (or the configured `format` in the configuration file), and also prints Text, JSON, and Markdown.
 
 ### Text report
 
@@ -2258,7 +2258,7 @@ Each Metric object has these fields:
   Verbosity reports both `verbose_lines` and `flagged_lines`, equal to the distinct Flagged lines in that Source set (independent of Duplication, [ADR 0024](./adr/0024-verbosity-decoupling.md)).
 - The Findings, worst first:
   `clone_groups` for Duplication, and `findings` for every other Metric.
-- `near_clones`, optional on `duplication`: present with `min_similarity` when near-clone detection is enabled in `codeint.json`; Duplication's `reference_range` then notes that Reference ranges are calibrated for exact Clone groups.
+- `near_clones`, optional on `duplication`: present with `min_similarity` when near-clone detection is enabled in the configuration file; Duplication's `reference_range` then notes that Reference ranges are calibrated for exact Clone groups.
 - `clone_families`, optional on `duplication`: unified Clone families when overlapping or transitively related Clone groups span three or more locations, ordered worst-first by `duplicated_lines`, with `clone_families_left_out` when truncated without `--all`, and `unlisted_clone_family_group_ids` when listed `clone_groups` belong to unlisted Clone families.
 - `findings_left_out`, optional: how many Findings the list leaves out; `--all` lists every Finding.
 - `baselined_findings`, optional: how many Findings of the Metric the [Baseline](#codeint-baseline) hides.

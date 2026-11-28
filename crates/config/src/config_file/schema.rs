@@ -85,13 +85,13 @@ pub fn configuration_schema() -> String {
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(
-    title = "codeint.json",
+    title = "codeint configuration",
     description = "The configuration of codeint, read from codeint.json, codeint.jsonc, codeint.toml, codeint.yaml, codeint.yml, .codeint/config.json, .codeint/config.jsonc, .codeint/config.toml, .codeint/config.yaml, or .codeint/config.yml at the root of the repository."
 )]
 pub(super) struct ConfigurationFile {
     #[serde(rename = "$schema", default)]
     #[schemars(
-        description = "The address of this JSON schema, for editors; codeint does not read it."
+        description = "The address of this JSON schema, for editors; when it points to an official codeint release schema, codeint checks major, minor, and patch version compatibility and exits with code 2 if the schema version is newer than the running binary."
     )]
     _schema: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -225,7 +225,7 @@ impl ConfigurationFile {
         starter
     }
 
-    pub(super) fn without_schema_address(&self) -> ConfigurationFile {
+    pub(super) fn normalized_for_cache(&self) -> ConfigurationFile {
         let dialects = self
             .dialects
             .iter()
@@ -1020,13 +1020,13 @@ pub(super) struct SourceSetGlobs {
 }
 
 impl SourceSetGlobs {
-    pub(super) fn slot_mut(&mut self, source_set: SourceSet) -> &mut Vec<String> {
-        match source_set {
-            SourceSet::Production => &mut self.production,
-            SourceSet::Test => &mut self.test,
-            SourceSet::Generated => &mut self.generated,
-            SourceSet::Vendored => &mut self.vendored,
-        }
+    pub(super) fn slots_mut(&mut self) -> [(SourceSet, &mut Vec<String>); 4] {
+        [
+            (SourceSet::Production, &mut self.production),
+            (SourceSet::Test, &mut self.test),
+            (SourceSet::Generated, &mut self.generated),
+            (SourceSet::Vendored, &mut self.vendored),
+        ]
     }
 
     pub(super) fn into_by_precedence(self) -> [(SourceSet, &'static str, Vec<String>); 4] {

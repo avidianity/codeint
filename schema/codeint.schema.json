@@ -7,7 +7,7 @@
         "string",
         "null"
       ],
-      "description": "The address of this JSON schema, for editors; codeint does not read it.",
+      "description": "The address of this JSON schema, for editors; when it points to an official codeint release schema, codeint checks major, minor, and patch version compatibility and exits with code 2 if the schema version is newer than the running binary.",
       "default": null
     },
     "format": {
@@ -120,7 +120,7 @@
       "description": "Ratchet settings, including an optional repository-relative path for the Ratchet file (.codeint/ratchet.json by default)."
     }
   },
-  "title": "codeint.json",
+  "title": "codeint configuration",
   "description": "The configuration of codeint, read from codeint.json, codeint.jsonc, codeint.toml, codeint.yaml, codeint.yml, .codeint/config.json, .codeint/config.jsonc, .codeint/config.toml, .codeint/config.yaml, or .codeint/config.yml at the root of the repository.",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {

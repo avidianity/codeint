@@ -35,7 +35,7 @@ pub(super) enum CommandArguments {
         #[arg(
             long = "coverage-report",
             value_name = "PATH",
-            help = "Path to an LCOV or Cobertura XML Coverage report; may repeat, and replaces coverage_reports in codeint.json"
+            help = "Path to an LCOV or Cobertura XML Coverage report; may repeat, and replaces coverage_reports in the configuration file"
         )]
         coverage_reports: Vec<PathBuf>,
         #[arg(
@@ -79,7 +79,7 @@ pub(super) enum CommandArguments {
         #[arg(
             long,
             value_enum,
-            help = "The format of the report; overrides format in codeint.json (defaults to toon)"
+            help = "The format of the report; overrides format in the configuration file (defaults to toon)"
         )]
         format: Option<TrendFormat>,
     },
@@ -210,12 +210,12 @@ pub(super) enum CommandArguments {
         #[arg(
             long,
             value_enum,
-            help = "The format of the report; overrides format in codeint.json (defaults to toon)"
+            help = "The format of the report; overrides format in the configuration file (defaults to toon)"
         )]
         format: Option<ReportRenderFormat>,
     },
     #[command(
-        about = "Run read-only diagnostics on codeint.json, Git repository status, detected languages, Workspace packages, and external Wasm Plugins"
+        about = "Run read-only diagnostics on the configuration file, Git repository status, detected languages, Workspace packages, and external Wasm Plugins"
     )]
     Doctor {
         #[arg(help = "A folder to inspect; the current folder by default")]
@@ -412,7 +412,7 @@ pub(super) enum RatchetSubcommandArguments {
         #[arg(
             long = "coverage-report",
             value_name = "PATH",
-            help = "Path to an LCOV or Cobertura XML Coverage report; may repeat, and replaces coverage_reports in codeint.json"
+            help = "Path to an LCOV or Cobertura XML Coverage report; may repeat, and replaces coverage_reports in the configuration file"
         )]
         coverage_reports: Vec<PathBuf>,
         #[arg(
@@ -443,7 +443,7 @@ pub(super) enum BaselineSubcommandArguments {
         #[arg(
             long = "coverage-report",
             value_name = "PATH",
-            help = "Path to an LCOV or Cobertura XML Coverage report; may repeat, and replaces coverage_reports in codeint.json"
+            help = "Path to an LCOV or Cobertura XML Coverage report; may repeat, and replaces coverage_reports in the configuration file"
         )]
         coverage_reports: Vec<PathBuf>,
         #[arg(
@@ -479,7 +479,7 @@ pub(super) struct HistoryReportArguments {
     #[arg(
         long,
         value_enum,
-        help = "The format of the report; overrides format in codeint.json (defaults to toon)"
+        help = "The format of the report; overrides format in the configuration file (defaults to toon)"
     )]
     pub(super) format: Option<ChurnFormat>,
 }
@@ -509,7 +509,7 @@ pub(super) struct ReportArguments {
     #[arg(
         long,
         value_enum,
-        help = "The format of the report; overrides format in codeint.json (defaults to toon)"
+        help = "The format of the report; overrides format in the configuration file (defaults to toon)"
     )]
     pub(super) format: Option<ReportFormat>,
     #[arg(
@@ -555,7 +555,7 @@ pub(super) struct TraceArguments {
     #[arg(
         long,
         value_enum,
-        help = "The format of the report; overrides format in codeint.json (defaults to toon)"
+        help = "The format of the report; overrides format in the configuration file (defaults to toon)"
     )]
     pub(super) format: Option<TraceFormat>,
 }
@@ -591,7 +591,7 @@ pub(super) struct ImpactArguments {
     #[arg(
         long,
         value_enum,
-        help = "The format of the report; overrides format in codeint.json (defaults to toon)"
+        help = "The format of the report; overrides format in the configuration file (defaults to toon)"
     )]
     pub(super) format: Option<ImpactFormat>,
 }
