@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codeint baseline update JSON report",
+  "description": "The JSON output of `codeint baseline update --format json`.",
+  "type": "object",
+  "required": [
+    "path",
+    "created",
+    "reset",
+    "added",
+    "removed",
+    "refreshed",
+    "skipped_new",
+    "total_findings"
+  ],
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "created": {
+      "type": "boolean"
+    },
+    "reset": {
+      "type": "boolean"
+    },
+    "replaced_invalid": {
+      "type": "boolean"
+    },
+    "added": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "removed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "refreshed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped_new": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total_findings": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

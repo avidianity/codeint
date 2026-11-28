@@ -44,8 +44,9 @@ pub use starter::{
 };
 pub use types::{
     Budgets, Configuration, DEPENDENCY_METRIC_KEYS, DuplicationConfig, EntryPoints,
-    HAZARDS_METRIC_KEY, LanguageCoverage, Languages, MinSimilarity, PluginDeclaration,
-    PluginLimits, PluginSource, Sha256Digest, SourceSetOverrides, TEST_GAP_METRIC_KEY,
+    HAZARDS_METRIC_KEY, LanguageCoverage, Languages, MAX_PLUGIN_MEMORY_MB, MAX_PLUGIN_TIMEOUT_MS,
+    MIN_PLUGIN_MEMORY_MB, MIN_PLUGIN_TIMEOUT_MS, MinSimilarity, PluginDeclaration, PluginLimits,
+    PluginSource, Sha256Digest, SourceSetOverrides, TEST_GAP_METRIC_KEY,
 };
 
 #[cfg(test)]

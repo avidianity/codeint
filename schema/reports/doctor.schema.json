@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codeint doctor JSON report",
+  "description": "The JSON output of `codeint doctor --format json`.",
+  "type": "object",
+  "required": [
+    "version",
+    "path",
+    "status",
+    "summary",
+    "checks"
+  ],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "warn",
+        "error"
+      ]
+    },
+    "summary": {
+      "$ref": "#/$defs/DoctorSummary"
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DoctorCheck"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "DoctorSummary": {
+      "type": "object",
+      "required": [
+        "passed",
+        "warnings",
+        "errors"
+      ],
+      "properties": {
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "DoctorCheck": {
+      "type": "object",
+      "required": [
+        "id",
+        "status",
+        "summary"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "warn",
+            "error"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "remedy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

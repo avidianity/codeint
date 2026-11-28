@@ -29,24 +29,29 @@ use std::process::ExitCode;
 
 use codeint_config::{
     AgentCommand, BaselineCommand, Command, ConfigError, ConfigFileKind, DEFAULT_MAX_TRACE_PATHS,
-    OutputFormat, PluginCommand, RatchetCommand, ReportDestination, ReportInput,
-    ReportRenderFormat, cli_schema, read_configuration, read_invocation,
+    MAX_PLUGIN_MEMORY_MB, MAX_PLUGIN_TIMEOUT_MS, MIN_PLUGIN_MEMORY_MB, MIN_PLUGIN_TIMEOUT_MS,
+    OutputFormat, PluginCommand, RatchetCommand, ReportDestination, ReportInput, cli_schema,
+    read_configuration, read_invocation,
 };
 use codeint_git::{GitError, Repository, ResultCache};
-use codeint_report::{ExitCodeSchema, ReportError, render_baseline_update};
+use codeint_report::{ExitCodeSchema, ReportError};
 
+pub use crate::init::AdoptedFiles;
 pub use codeint_config::{
-    AgentClient, AgentFormat, BaselineFormat, BudgetOverride, CalendarDay, ChurnFormat, ChurnSince,
-    ChurnWindow, ConfigFormat, ConfigOverrides, CouplingRatio, CouplingRatioError,
-    CouplingSettings, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, InitFormat,
-    PluginHostConfig, RatchetFormat, ReportFormat, SchemaFormat, SourceSetOverride, TraceFormat,
-    TrendFormat, TrendRange,
+    AgentClient, AgentFormat, BaselineFormat, BaselineUpdateSummary, BudgetOverride, CalendarDay,
+    ChurnFormat, ChurnSince, ChurnWindow, ConfigFormat, ConfigOverrides, CouplingRatio,
+    CouplingRatioError, CouplingSettings, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat,
+    InitFormat, PluginHostConfig, PluginKind, PluginLimits, PluginTestFormat, RatchetFormat,
+    ReportFormat, ReportRenderFormat, SchemaFormat, SourceSetOverride, TraceFormat, TrendFormat,
+    TrendRange,
 };
 pub use codeint_report::{
     AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
     ChurnReport, ConfigReport, CouplingReport, DiffReport, DoctorCheck, DoctorReport, DoctorStatus,
-    DoctorSummary, GuardReport, ImpactReport, RatchetFailure, RatchetUpdateReport, Report,
-    SavedReport, SchemaReport, TraceReport, TrendReport,
+    DoctorSummary, GuardReport, ImpactReport, PluginTestCheck, PluginTestReport, PluginTestStatus,
+    PluginTestSummary, RatchetFailure, RatchetUpdateReport, Report, ReportSchemaKind, SavedReport,
+    SchemaReport, TraceReport, TrendReport, all_report_schemas, render_baseline_update,
+    report_schema, schema_for,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -129,17 +134,73 @@ pub struct CouplingOptions {
     pub findings: FindingsShown,
     pub plugin_host: PluginHostConfig,
 }
-pub struct CheckOutcome {
-    pub passed: bool,
-    pub failures: Vec<String>,
-    pub report: Report,
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct InitOptions {
+    pub format: InitFormat,
+    pub adopt: bool,
+    pub plugin_host: PluginHostConfig,
 }
 
-pub struct DiffOutcome {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InitOutcome {
+    pub configuration: PathBuf,
+    pub adopted: Option<AdoptedFiles>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StateUpdateOptions {
+    pub reset: bool,
+    pub coverage_reports: Vec<PathBuf>,
+    pub plugin_host: PluginHostConfig,
+}
+
+pub type RatchetUpdateOptions = StateUpdateOptions;
+pub type BaselineUpdateOptions = StateUpdateOptions;
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RerenderReportOptions {
+    pub format: Option<ReportRenderFormat>,
+    pub all: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PluginTestOptions {
+    pub kind: PluginKind,
+    pub sources: Vec<PathBuf>,
+    pub limits: PluginLimits,
+}
+
+impl PluginTestOptions {
+    pub fn new(kind: PluginKind) -> PluginTestOptions {
+        PluginTestOptions {
+            kind,
+            sources: Vec::new(),
+            limits: PluginLimits::default(),
+        }
+    }
+}
+
+pub struct GatedOutcome<T> {
     pub passed: bool,
     pub failures: Vec<String>,
-    pub report: DiffReport,
+    pub report: T,
 }
+
+impl<T> GatedOutcome<T> {
+    fn from_report(report: T, failures: Vec<String>) -> GatedOutcome<T> {
+        let passed = failures.is_empty();
+        GatedOutcome {
+            passed,
+            failures,
+            report,
+        }
+    }
+}
+
+pub type CheckOutcome = GatedOutcome<Report>;
+pub type DiffOutcome = GatedOutcome<DiffReport>;
+pub type DoctorOutcome = GatedOutcome<DoctorReport>;
+pub type PluginTestOutcome = GatedOutcome<PluginTestReport>;
 
 #[derive(Debug)]
 pub struct CodeintError {
@@ -168,6 +229,15 @@ impl CodeintError {
             mcp_remedy: remedy::mcp_remedy(&error).into_owned(),
         }
     }
+
+    fn invalid_option(message: impl Into<String>, remedy: impl Into<String>) -> CodeintError {
+        let remedy = remedy.into();
+        CodeintError {
+            message: message.into(),
+            mcp_remedy: remedy.clone(),
+            remedy,
+        }
+    }
 }
 
 impl fmt::Display for CodeintError {
@@ -179,15 +249,11 @@ impl fmt::Display for CodeintError {
 impl Error for CodeintError {}
 
 pub fn check(folder: &Path, options: &CheckOptions) -> Result<CheckOutcome, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
     let report = check::check(folder, options.scope(), &options.plugin_host)
         .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
     let failures = report.failure_messages();
-    let passed = failures.is_empty();
-    Ok(CheckOutcome {
-        passed,
-        failures,
-        report,
-    })
+    Ok(GatedOutcome::from_report(report, failures))
 }
 
 pub fn diff(
@@ -195,15 +261,11 @@ pub fn diff(
     base_ref: &str,
     options: &DiffOptions,
 ) -> Result<DiffOutcome, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
     let report = measure_diff(folder, base_ref, options)
         .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
     let failures = report.failure_messages();
-    let passed = failures.is_empty();
-    Ok(DiffOutcome {
-        passed,
-        failures,
-        report,
-    })
+    Ok(GatedOutcome::from_report(report, failures))
 }
 
 fn measure_diff(
@@ -228,12 +290,15 @@ fn measure_diff(
 }
 
 pub fn trend(folder: &Path, options: &TrendOptions) -> Result<TrendReport, CodeintError> {
+    validate_trend_range(options.range)?;
+    validate_plugin_host(&options.plugin_host)?;
     let cache = options.result_cache.clone().map(ResultCache::in_folder);
     trend::trend(folder, options.range, cache.as_ref(), &options.plugin_host)
         .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
 }
 
 pub fn impact(folder: &Path, options: &ImpactOptions) -> Result<ImpactReport, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
     let request = impact::ImpactRequest {
         paths: &options.paths,
         changed: options.changed.as_deref(),
@@ -251,6 +316,7 @@ pub fn trace(
     to: &str,
     options: &TraceOptions,
 ) -> Result<TraceReport, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
     trace::trace(
         folder,
         from,
@@ -263,9 +329,22 @@ pub fn trace(
     .map_err(|err| CodeintError::from_cli_error(CliError::Trace(err)))
 }
 
-pub fn init(folder: &Path) -> Result<PathBuf, CodeintError> {
-    init::init(folder, InitFormat::Jsonc)
-        .map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))
+pub fn init(folder: &Path, options: &InitOptions) -> Result<InitOutcome, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
+    if options.adopt {
+        let adopted = init::adopt(folder, options.format, &options.plugin_host)
+            .map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))?;
+        return Ok(InitOutcome {
+            configuration: adopted.configuration.clone(),
+            adopted: Some(adopted),
+        });
+    }
+    let configuration = init::init(folder, options.format)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))?;
+    Ok(InitOutcome {
+        configuration,
+        adopted: None,
+    })
 }
 
 pub fn guard(folder: &Path, target: &Path) -> Result<GuardReport, CodeintError> {
@@ -287,12 +366,45 @@ pub fn resolved_config(
     folder: &Path,
     overrides: &ConfigOverrides,
 ) -> Result<ConfigReport, CodeintError> {
+    validate_config_overrides(overrides)?;
     config::resolved_config(folder, overrides)
         .map_err(|err| CodeintError::from_cli_error(CliError::ConfigCommand(err)))
 }
 
-pub fn doctor(folder: &Path, plugin_host: &PluginHostConfig) -> DoctorReport {
-    doctor::doctor(folder, plugin_host)
+fn require_existing_folder(folder: &Path) -> Result<(), CodeintError> {
+    let metadata = std::fs::metadata(folder).map_err(|source| {
+        let error = if source.kind() == std::io::ErrorKind::NotFound {
+            ConfigError::MissingPath {
+                path: folder.to_path_buf(),
+            }
+        } else {
+            ConfigError::UnreadablePath {
+                path: folder.to_path_buf(),
+                source,
+            }
+        };
+        CodeintError::from_cli_error(CliError::Config(error))
+    })?;
+    if metadata.is_dir() {
+        Ok(())
+    } else {
+        Err(CodeintError::from_cli_error(CliError::Config(
+            ConfigError::NotAFolder {
+                path: folder.to_path_buf(),
+            },
+        )))
+    }
+}
+
+pub fn doctor(
+    folder: &Path,
+    plugin_host: &PluginHostConfig,
+) -> Result<DoctorOutcome, CodeintError> {
+    validate_plugin_host(plugin_host)?;
+    require_existing_folder(folder)?;
+    let report = doctor::doctor(folder, plugin_host);
+    let failures = report.blocking_error_messages();
+    Ok(GatedOutcome::from_report(report, failures))
 }
 
 pub fn agent_status(
@@ -313,6 +425,8 @@ pub fn agent_install(
 }
 
 pub fn churn(folder: &Path, options: &ChurnOptions) -> Result<ChurnReport, CodeintError> {
+    validate_churn_window(options.window)?;
+    validate_plugin_host(&options.plugin_host)?;
     churn::churn(
         folder,
         options.window,
@@ -323,6 +437,8 @@ pub fn churn(folder: &Path, options: &ChurnOptions) -> Result<ChurnReport, Codei
 }
 
 pub fn coupling(folder: &Path, options: &CouplingOptions) -> Result<CouplingReport, CodeintError> {
+    validate_coupling_settings(options.settings)?;
+    validate_plugin_host(&options.plugin_host)?;
     coupling::coupling(
         folder,
         options.settings,
@@ -330,6 +446,159 @@ pub fn coupling(folder: &Path, options: &CouplingOptions) -> Result<CouplingRepo
         &options.plugin_host,
     )
     .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
+}
+
+fn validate_trend_range(range: TrendRange) -> Result<(), CodeintError> {
+    if matches!(range, TrendRange::Latest(0)) {
+        return Err(CodeintError::invalid_option(
+            "trend range must include at least 1 commit",
+            "Pass TrendRange::Latest with a positive commit count (at least 1) or TrendRange::Since.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_churn_window(window: ChurnWindow) -> Result<(), CodeintError> {
+    match window {
+        ChurnWindow::Days(0) => Err(CodeintError::invalid_option(
+            "history window days must be at least 1",
+            "Pass ChurnWindow::Days with a positive day count (at least 1).",
+        )),
+        ChurnWindow::Commits(0) => Err(CodeintError::invalid_option(
+            "history window commits must be at least 1",
+            "Pass ChurnWindow::Commits with a positive commit count (at least 1).",
+        )),
+        ChurnWindow::Days(_) | ChurnWindow::Commits(_) | ChurnWindow::Since(_) => Ok(()),
+    }
+}
+
+fn validate_coupling_settings(settings: CouplingSettings) -> Result<(), CodeintError> {
+    validate_churn_window(settings.window)?;
+    if settings.max_commit_files == 0 {
+        return Err(CodeintError::invalid_option(
+            "coupling max_commit_files must be at least 1",
+            "Set CouplingSettings::max_commit_files to a positive integer (at least 1).",
+        ));
+    }
+    if settings.min_co_changes == 0 {
+        return Err(CodeintError::invalid_option(
+            "coupling min_co_changes must be at least 1",
+            "Set CouplingSettings::min_co_changes to a positive integer (at least 1).",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_plugin_limits_values(
+    memory_mb: Option<u64>,
+    timeout_ms: Option<u64>,
+) -> Result<(), CodeintError> {
+    if let Some(memory_mb) = memory_mb
+        && !(MIN_PLUGIN_MEMORY_MB..=MAX_PLUGIN_MEMORY_MB).contains(&memory_mb)
+    {
+        return Err(CodeintError::invalid_option(
+            format!(
+                "plugin memory limit {memory_mb} MiB is out of range ({MIN_PLUGIN_MEMORY_MB}..={MAX_PLUGIN_MEMORY_MB})"
+            ),
+            format!(
+                "Set plugin memory limit to a value from {MIN_PLUGIN_MEMORY_MB} to {MAX_PLUGIN_MEMORY_MB} MiB."
+            ),
+        ));
+    }
+    if let Some(timeout_ms) = timeout_ms
+        && !(MIN_PLUGIN_TIMEOUT_MS..=MAX_PLUGIN_TIMEOUT_MS).contains(&timeout_ms)
+    {
+        return Err(CodeintError::invalid_option(
+            format!(
+                "plugin timeout {timeout_ms} ms is out of range ({MIN_PLUGIN_TIMEOUT_MS}..={MAX_PLUGIN_TIMEOUT_MS})"
+            ),
+            format!(
+                "Set plugin timeout to a value from {MIN_PLUGIN_TIMEOUT_MS} to {MAX_PLUGIN_TIMEOUT_MS} milliseconds."
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_plugin_host(host: &PluginHostConfig) -> Result<(), CodeintError> {
+    if host.max_download_bytes == 0 {
+        return Err(CodeintError::invalid_option(
+            "plugin host max_download_bytes must be at least 1",
+            "Set PluginHostConfig::max_download_bytes to a positive byte limit (at least 1).",
+        ));
+    }
+    if host.download_timeout_seconds == 0 {
+        return Err(CodeintError::invalid_option(
+            "plugin host download_timeout_seconds must be at least 1",
+            "Set PluginHostConfig::download_timeout_seconds to a positive duration in seconds (at least 1).",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_config_overrides(overrides: &ConfigOverrides) -> Result<(), CodeintError> {
+    validate_plugin_limits_values(overrides.plugin_memory_mb, overrides.plugin_timeout_ms)?;
+    if overrides
+        .source_sets
+        .iter()
+        .any(|entry| entry.glob.trim().is_empty())
+    {
+        return Err(CodeintError::invalid_option(
+            "source_set override glob must not be empty",
+            "Set SourceSetOverride::glob to a non-empty glob pattern.",
+        ));
+    }
+    Ok(())
+}
+
+pub fn ratchet_update(
+    folder: &Path,
+    options: &RatchetUpdateOptions,
+) -> Result<RatchetUpdateReport, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
+    let (context, measured) =
+        check::load_and_measure_whole_repo(folder, &options.coverage_reports, &options.plugin_host)
+            .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
+    ratchet::update_from_report(&context, &measured, options.reset)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Ratchet(err)))
+}
+
+pub fn baseline_update(
+    folder: &Path,
+    options: &BaselineUpdateOptions,
+) -> Result<BaselineUpdateSummary, CodeintError> {
+    validate_plugin_host(&options.plugin_host)?;
+    let (context, measured) =
+        check::load_and_measure_whole_repo(folder, &options.coverage_reports, &options.plugin_host)
+            .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
+    baseline::update_from_report(&context, &measured, options.reset)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
+}
+
+pub fn rerender_report(
+    folder: &Path,
+    input: &Path,
+    options: &RerenderReportOptions,
+) -> Result<String, CodeintError> {
+    let format =
+        resolve_report_format(folder, options.format).map_err(CodeintError::from_cli_error)?;
+    let source = ReportInput::File(input.to_path_buf());
+    report::rerender(&source, format, options.all)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Rerender(err)))
+}
+
+pub fn plugin_test(
+    path: &Path,
+    options: &PluginTestOptions,
+) -> Result<PluginTestOutcome, CodeintError> {
+    validate_plugin_limits_values(
+        Some(options.limits.memory_mb),
+        Some(options.limits.timeout_ms),
+    )?;
+    let report = plugin_test::plugin_test(path, options.kind, &options.sources, options.limits)
+        .map_err(|err| CodeintError::from_cli_error(CliError::PluginTest(err)))?;
+    let failures = report.failure_messages();
+    Ok(GatedOutcome::from_report(report, failures))
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -29,6 +29,10 @@ pub const HAZARDS_METRIC_KEY: &str = Metric::Hazards.key();
 
 pub(super) const DEFAULT_PLUGIN_MEMORY_MB: u64 = 64;
 pub(super) const DEFAULT_PLUGIN_TIMEOUT_MS: u64 = 5_000;
+pub const MIN_PLUGIN_MEMORY_MB: u64 = 1;
+pub const MAX_PLUGIN_MEMORY_MB: u64 = 4096;
+pub const MIN_PLUGIN_TIMEOUT_MS: u64 = 1;
+pub const MAX_PLUGIN_TIMEOUT_MS: u64 = 300_000;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MinSimilarity(f64);

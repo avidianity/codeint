@@ -131,3 +131,25 @@ let toon = render_toon(&payload)?;
 ```
 
 - `render_toon` serializes any `serde::Serialize` value as TOON and returns `Result<String, ReportError>`.
+
+## Export and validate report JSON Schemas
+
+```rust
+use codeint_report::{
+    ReportSchemaKind, all_report_schemas, report_schema, schema_for,
+    validate_json_against_schema, validate_report_json,
+};
+
+let check_schema = report_schema();
+let diff_schema = schema_for(ReportSchemaKind::Diff);
+for (kind, text) in all_report_schemas() {
+    let _path = kind.relative_path();
+    let _json = text;
+}
+validate_report_json(ReportSchemaKind::Check, &check_json_value)?;
+validate_json_against_schema(&check_json_value, &parsed_schema_value)?;
+```
+
+- `report_schema` returns the `codeint check --format json` JSON Schema (published at `schema/codeint-report.schema.json`).
+- `schema_for` and `all_report_schemas` export the JSON Schema for every programmatic CLI JSON payload (`ReportSchemaKind::ALL`), mapped to `schema/codeint-report.schema.json` and `schema/reports/*.schema.json`.
+- `validate_report_json` validates a parsed `serde_json::Value` against the built-in schema for a `ReportSchemaKind`, and `validate_json_against_schema` validates a value against an explicit parsed JSON Schema object or boolean.

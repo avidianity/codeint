@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codeint trace JSON report",
+  "description": "The JSON output of `codeint trace --format json`.",
+  "type": "object",
+  "required": [
+    "from",
+    "to",
+    "connected",
+    "shortest_distance",
+    "paths",
+    "truncated"
+  ],
+  "properties": {
+    "from": {
+      "type": "string"
+    },
+    "to": {
+      "type": "string"
+    },
+    "from_entry_point": {
+      "type": "string"
+    },
+    "to_entry_point": {
+      "type": "string"
+    },
+    "connected": {
+      "type": "boolean"
+    },
+    "shortest_distance": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "multi_file_imports": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TraceMultiFileImport"
+      }
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "TraceMultiFileImport": {
+      "type": "object",
+      "required": [
+        "importer",
+        "specifier",
+        "targets"
+      ],
+      "properties": {
+        "importer": {
+          "type": "string"
+        },
+        "specifier": {
+          "type": "string"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
