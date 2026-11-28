@@ -49,6 +49,7 @@ pub(crate) fn read_manifests(
 pub(crate) struct WorkspaceDiscovery {
     pub(crate) members_by_plugin: Vec<Vec<RepoPath>>,
     pub(crate) manifests_by_plugin: Vec<Vec<Manifest>>,
+    pub(crate) declared_dependencies_by_plugin: Vec<Vec<DeclaredDep>>,
     pub(crate) skipped: Vec<SkippedManifest>,
 }
 
@@ -85,35 +86,51 @@ pub(super) fn find_plugin_workspaces(
     let mut discovery = WorkspaceDiscovery {
         members_by_plugin: Vec::with_capacity(plugins.len()),
         manifests_by_plugin: Vec::with_capacity(plugins.len()),
+        declared_dependencies_by_plugin: Vec::with_capacity(plugins.len()),
         skipped: Vec::new(),
     };
     for (named, manifests) in plugins.iter().zip(manifests_by_plugin) {
         if !named.plugin.has_imports() {
             discovery.members_by_plugin.push(Vec::new());
             discovery.manifests_by_plugin.push(manifests);
+            discovery.declared_dependencies_by_plugin.push(Vec::new());
             continue;
         }
-        let (members, valid_manifests) =
-            find_valid_plugin_workspace(named, manifests, &mut discovery.skipped)?;
-        discovery.members_by_plugin.push(members);
-        discovery.manifests_by_plugin.push(valid_manifests);
+        let found = find_valid_plugin_workspace(named, manifests, &mut discovery.skipped)?;
+        discovery.members_by_plugin.push(found.members);
+        discovery.manifests_by_plugin.push(found.valid_manifests);
+        discovery
+            .declared_dependencies_by_plugin
+            .push(found.declared_dependencies);
     }
     Ok(discovery)
+}
+
+struct PluginWorkspaceAnalysis {
+    members: Vec<RepoPath>,
+    valid_manifests: Vec<Manifest>,
+    declared_dependencies: Vec<DeclaredDep>,
 }
 
 fn find_valid_plugin_workspace(
     named: &NamedLanguagePlugin<'_>,
     mut manifests: Vec<Manifest>,
     skipped: &mut Vec<SkippedManifest>,
-) -> Result<(Vec<RepoPath>, Vec<Manifest>), CheckError> {
+) -> Result<PluginWorkspaceAnalysis, CheckError> {
     let analysis = match named.plugin.analyze_manifests(manifests.clone()) {
         Ok(analysis) => analysis,
         Err(LanguagePluginError::UnknownInvalidManifest { path, message }) => {
             return Err(WorkspaceError::Manifest { path, message }.into());
         }
         Err(LanguagePluginError::InvalidWorkspacePackageRoot { path }) => {
-            let err = RepoPath::new(path).expect_err("invalid workspace package root");
-            return Err(WorkspaceError::InvalidPackageRoot(err).into());
+            return match RepoPath::new(path.clone()) {
+                Err(err) => Err(WorkspaceError::InvalidPackageRoot(err).into()),
+                Ok(_) => Err(WorkspaceError::PluginFailed {
+                    plugin: named.name.to_owned(),
+                    message: format!("invalid workspace package root {path:?}"),
+                }
+                .into()),
+            };
         }
         Err(error) => {
             return Err(WorkspaceError::PluginFailed {
@@ -143,27 +160,41 @@ fn find_valid_plugin_workspace(
         .into_iter()
         .map(|root| Ok(RepoPath::new(root)?))
         .collect::<Result<Vec<RepoPath>, WorkspaceError>>()?;
-    Ok((members, manifests))
+    Ok(PluginWorkspaceAnalysis {
+        members,
+        valid_manifests: manifests,
+        declared_dependencies: analysis.declared_dependencies,
+    })
+}
+
+pub(super) struct FinalizeLanguageInputs<'a> {
+    pub(super) named: &'a NamedLanguagePlugin<'a>,
+    pub(super) model: CodeModel,
+    pub(super) manifests: Vec<Manifest>,
+    pub(super) declared_dependencies: Vec<DeclaredDep>,
+    pub(super) plugin_members: &'a [RepoPath],
+    pub(super) profiles: &'a ResolvedLanguageProfiles,
+    pub(super) repository_paths: &'a [RepoPath],
+    pub(super) config_file: ConfigFileKind,
 }
 
 pub(super) fn finalize_language_model(
-    named: &NamedLanguagePlugin<'_>,
-    mut model: CodeModel,
-    manifests: Vec<Manifest>,
-    plugin_members: &[RepoPath],
-    profiles: &ResolvedLanguageProfiles,
-    repository_paths: &[RepoPath],
-    config_file: ConfigFileKind,
+    inputs: FinalizeLanguageInputs<'_>,
 ) -> Result<MeasuredLanguage, CheckError> {
+    let FinalizeLanguageInputs {
+        named,
+        mut model,
+        manifests,
+        declared_dependencies,
+        plugin_members,
+        profiles,
+        repository_paths,
+        config_file,
+    } = inputs;
     let (reference_ranges, reference_range_note) =
         profiles.reference_ranges_for_scope(named, None, config_file)?;
     let has_imports = named.plugin.has_imports();
     if has_imports {
-        let analysis = named
-            .plugin
-            .analyze_manifests(manifests.clone())
-            .map_err(|error| CheckError::language_plugin(config_file, error))?;
-        let declared_dependencies = analysis.declared_dependencies;
         model.dependency_manifests = collect_dependency_manifests(
             &manifests,
             plugin_members,

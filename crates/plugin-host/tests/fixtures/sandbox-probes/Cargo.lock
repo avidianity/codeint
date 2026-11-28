@@ -597,6 +597,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "v0-5-0-features-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "wasm-encoder"
 version = "0.262.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

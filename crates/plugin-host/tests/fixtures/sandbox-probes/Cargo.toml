@@ -59,6 +59,7 @@ members = [
     "stateful-language",
     "stateful-metric",
     "oversized-lifted-metric",
+    "v0-5-0-features-language",
 ]
 
 [workspace.package]

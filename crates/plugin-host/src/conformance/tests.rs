@@ -132,3 +132,57 @@ fn finalize_orders_checks_and_adds_the_missing_ones_as_skipped() {
     assert_eq!(ids, METRIC_CHECKS);
     assert_eq!(report.checks[1].status, ConformanceStatus::Skipped);
 }
+
+#[test]
+fn duplicate_dialects_and_flagged_line_rules_fail_conformance() {
+    let cases: [(&str, fn(&mut ConformanceReport, &[String])); 2] = [
+        ("postgres", check_dialects),
+        ("redundant-pass", check_flagged_line_rules),
+    ];
+    for (item, check) in cases {
+        let mut report = ConformanceReport {
+            kind: PluginKind::Language,
+            checks: Vec::new(),
+            end_to_end: None,
+        };
+        check(&mut report, &[item.to_owned(), item.to_owned()]);
+        assert_eq!(report.checks[0].status, ConformanceStatus::Fail);
+        assert!(report.checks[0].message.contains(item));
+    }
+}
+
+#[test]
+fn scope_analysis_problem_rejects_non_artifact_path_and_out_of_bounds_line() {
+    let artifacts = vec![FileScopeArtifact {
+        path: "src/a.hst".to_owned(),
+        source_set: SourceSet::Production,
+        artifact: b"ok".to_vec(),
+    }];
+    let mut line_counts = BTreeMap::new();
+    line_counts.insert("src/a.hst".to_owned(), 5);
+    let listed: HashSet<String> = ["cross-file-risk".to_owned()].into_iter().collect();
+
+    let bad_path = codeint_model::ScopeAnalysis {
+        extra_hazards: vec![codeint_model::FileHazards {
+            path: "not/in/artifacts.hst".to_owned(),
+            hazard_lines: vec![HazardLine {
+                line: 1,
+                rule: "cross-file-risk".to_owned(),
+            }],
+        }],
+        summaries: Vec::new(),
+    };
+    assert!(scope_analysis_problem("probe", bad_path, &artifacts, &line_counts, &listed).is_some());
+
+    let bad_line = codeint_model::ScopeAnalysis {
+        extra_hazards: vec![codeint_model::FileHazards {
+            path: "src/a.hst".to_owned(),
+            hazard_lines: vec![HazardLine {
+                line: 4_000_000_000,
+                rule: "cross-file-risk".to_owned(),
+            }],
+        }],
+        summaries: Vec::new(),
+    };
+    assert!(scope_analysis_problem("probe", bad_line, &artifacts, &line_counts, &listed).is_some());
+}

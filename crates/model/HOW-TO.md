@@ -166,7 +166,7 @@ impl LanguagePlugin for Plain {
 - Use `impl_builtin_language_plugin!` to wire a built-in Language plugin's `LanguagePlugin` implementation without repeating validation, framework-profile delegation, or empty default methods.
 - Use `empty_framework_profile_plugin_methods!` in test stubs that implement `LanguagePlugin` directly without Framework profiles.
 - `extensions` returns each file extension without its leading dot.
-- `lower` receives a repository-relative path with forward slashes and the whole file as text.
+- `lower` receives a repository-relative path with forward slashes, the whole file as text, and an optional `dialect` name.
 - Return `LowerError::UnsupportedFile` for a file that no rule of the Language plugin covers.
 - Return `LowerError::Unparsable` with the parser's message, and its line and column when the parser gives them, for a file that does not parse.
 - Return `LowerError::DeclarationOnly` for a file that only declares types, such as a TypeScript `.d.ts`, `.d.mts`, or `.d.cts` file.
@@ -211,10 +211,10 @@ impl LanguagePlugin for Plain {
 - `hazard_lines` lists each Hazard line as `HazardLine { line, rule }`, with `line` counted from 1 and `rule` a stable rule name listed by `hazard_rules`.
   A `HazardLine` never holds source text.
   A line that matches two rules appears once per rule.
-  Return an empty list when `has_hazard_rules` returns `false`; the five built-in Language plugins always return an empty list.
+  Return an empty list when `has_hazard_rules` returns `false`; six of the eight built-in Language plugins always return an empty list (`sql` and `shell` declare Hazard line rules).
 - `runtime_imports` lists the specifier of each import that runs when the file runs, in source order; leave out type-only imports.
 - `program_start` is `false` unless the source text marks the file as a program start, such as a Go `package main` file.
-  The five built-in Language plugins always set `program_start` to `false`.
+  Seven of the eight built-in Language plugins always set `program_start` to `false` (`go` sets it for `package main` files).
 - `manifest_paths` receives every file path of the repository snapshot and returns the paths of the files that finding workspace packages and resolving imports need to read, such as each `package.json` and `tsconfig.json` file.
   Name only paths from `repository_paths`; which files matter is a rule of the Language plugin, never of the core.
   It is the one way a Language plugin asks the host for files, so the host reads each file once.

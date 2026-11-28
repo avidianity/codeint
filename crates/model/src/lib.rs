@@ -309,6 +309,8 @@ pub enum LowerError {
     MemoryLimitExceeded { plugin: String, memory_mb: u64 },
     #[error("Plugin {plugin:?} exceeded its time limit of {timeout_ms} ms")]
     TimeLimitExceeded { plugin: String, timeout_ms: u64 },
+    #[error(transparent)]
+    Contract(#[from] LanguagePluginError),
 }
 
 impl From<language::LowerError> for LowerError {
@@ -415,6 +417,8 @@ pub enum LanguagePluginError {
         "the Language plugin reported invalid manifest {path:?} which was not passed in: {message}"
     )]
     UnknownInvalidManifest { path: String, message: String },
+    #[error("the Language plugin reported duplicate invalid manifest {path:?}")]
+    DuplicateInvalidManifest { path: String },
     #[error("the Language plugin returned an invalid dependency manifest path {path:?}")]
     InvalidDependencyManifestPath { path: String },
     #[error(
@@ -448,6 +452,207 @@ pub enum LanguagePluginError {
         path: RepoPath,
         rule: String,
     },
+    #[error(
+        "Language plugin {plugin:?} returned Flagged line {line} in {path}, which is outside the file's {line_count} lines"
+    )]
+    FlaggedLineOutOfRange {
+        plugin: String,
+        path: RepoPath,
+        line: u32,
+        line_count: usize,
+    },
+    #[error(
+        "Language plugin {plugin:?} returned a Flagged line with unlisted rule {rule:?} in {path}"
+    )]
+    UnlistedFlaggedLineRule {
+        plugin: String,
+        path: RepoPath,
+        rule: String,
+    },
+    #[error("Language plugin {plugin:?} returned an invalid extra-hazards path {path:?}")]
+    InvalidScopeHazardPath { plugin: String, path: String },
+    #[error(
+        "Language plugin {plugin:?} returned extra-hazards path {path:?}, which was not in the analyzed artifacts"
+    )]
+    UnknownScopeHazardPath { plugin: String, path: String },
+    #[error("Language plugin {plugin:?} returned invalid extra Hazard line {line} in {path}")]
+    InvalidScopeHazardLine {
+        plugin: String,
+        path: RepoPath,
+        line: u32,
+    },
+    #[error("Language plugin {plugin:?} returned an invalid scope summary: {reason}")]
+    InvalidScopeSummary { plugin: String, reason: String },
+}
+
+#[derive(Clone, Copy)]
+enum RuleLineKind {
+    Flagged,
+    Hazard,
+}
+
+trait RuleLine {
+    const KIND: RuleLineKind;
+    fn line(&self) -> u32;
+    fn rule(&self) -> &str;
+}
+
+impl RuleLine for language::FlaggedLine {
+    const KIND: RuleLineKind = RuleLineKind::Flagged;
+    fn line(&self) -> u32 {
+        self.line
+    }
+    fn rule(&self) -> &str {
+        &self.rule
+    }
+}
+
+impl RuleLine for HazardLine {
+    const KIND: RuleLineKind = RuleLineKind::Hazard;
+    fn line(&self) -> u32 {
+        self.line
+    }
+    fn rule(&self) -> &str {
+        &self.rule
+    }
+}
+
+fn validate_rule_lines<T: RuleLine>(
+    plugin_name: &str,
+    path: &RepoPath,
+    line_count: usize,
+    entries: &[T],
+    listed_rules: &HashSet<String>,
+) -> Result<(), LanguagePluginError> {
+    for entry in entries {
+        let line_number = usize::try_from(entry.line()).unwrap_or(usize::MAX);
+        if line_number < 1 || line_number > line_count {
+            let plugin = plugin_name.to_owned();
+            let path = path.clone();
+            let line = entry.line();
+            return Err(match T::KIND {
+                RuleLineKind::Flagged => LanguagePluginError::FlaggedLineOutOfRange {
+                    plugin,
+                    path,
+                    line,
+                    line_count,
+                },
+                RuleLineKind::Hazard => LanguagePluginError::HazardLineOutOfRange {
+                    plugin,
+                    path,
+                    line,
+                    line_count,
+                },
+            });
+        }
+    }
+    for entry in entries {
+        if !listed_rules.contains(entry.rule()) {
+            let plugin = plugin_name.to_owned();
+            let path = path.clone();
+            let rule = entry.rule().to_owned();
+            return Err(match T::KIND {
+                RuleLineKind::Flagged => {
+                    LanguagePluginError::UnlistedFlaggedLineRule { plugin, path, rule }
+                }
+                RuleLineKind::Hazard => {
+                    LanguagePluginError::UnlistedHazardRule { plugin, path, rule }
+                }
+            });
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_flagged_lines(
+    plugin_name: &str,
+    path: &RepoPath,
+    line_count: usize,
+    flagged_lines: &[language::FlaggedLine],
+    listed_rules: &HashSet<String>,
+) -> Result<(), LanguagePluginError> {
+    validate_rule_lines(plugin_name, path, line_count, flagged_lines, listed_rules)
+}
+
+pub fn validate_scope_analysis(
+    plugin_name: &str,
+    artifacts: &[FileScopeArtifact],
+    known_hazard_rules: &HashSet<String>,
+    line_counts: Option<&BTreeMap<String, usize>>,
+    analysis: ScopeAnalysis,
+) -> Result<ScopeAnalysis, LanguagePluginError> {
+    let artifact_paths: HashSet<&str> = artifacts.iter().map(|item| item.path.as_str()).collect();
+    for entry in &analysis.extra_hazards {
+        validate_scope_hazards(
+            plugin_name,
+            entry,
+            &artifact_paths,
+            known_hazard_rules,
+            line_counts,
+        )?;
+    }
+    for summary in &analysis.summaries {
+        if summary.kind.trim().is_empty()
+            || summary
+                .fields
+                .iter()
+                .any(|field| field.key.trim().is_empty())
+        {
+            return Err(LanguagePluginError::InvalidScopeSummary {
+                plugin: plugin_name.to_owned(),
+                reason: "scope summary has an empty kind or field key".to_owned(),
+            });
+        }
+    }
+    Ok(analysis)
+}
+
+fn validate_scope_hazards(
+    plugin_name: &str,
+    entry: &FileHazards,
+    artifact_paths: &HashSet<&str>,
+    known_hazard_rules: &HashSet<String>,
+    line_counts: Option<&BTreeMap<String, usize>>,
+) -> Result<(), LanguagePluginError> {
+    let repo_path = RepoPath::new(entry.path.as_str()).map_err(|_| {
+        LanguagePluginError::InvalidScopeHazardPath {
+            plugin: plugin_name.to_owned(),
+            path: entry.path.clone(),
+        }
+    })?;
+    if !artifact_paths.contains(entry.path.as_str()) {
+        return Err(LanguagePluginError::UnknownScopeHazardPath {
+            plugin: plugin_name.to_owned(),
+            path: entry.path.clone(),
+        });
+    }
+    if let Some(counts) = line_counts {
+        let max_lines = counts.get(&entry.path).copied().unwrap_or(0);
+        return validate_hazard_lines(
+            plugin_name,
+            &repo_path,
+            max_lines,
+            &entry.hazard_lines,
+            known_hazard_rules,
+        );
+    }
+    for hazard in &entry.hazard_lines {
+        if hazard.line < 1 {
+            return Err(LanguagePluginError::InvalidScopeHazardLine {
+                plugin: plugin_name.to_owned(),
+                path: repo_path.clone(),
+                line: hazard.line,
+            });
+        }
+        if !known_hazard_rules.contains(&hazard.rule) {
+            return Err(LanguagePluginError::UnlistedHazardRule {
+                plugin: plugin_name.to_owned(),
+                path: repo_path.clone(),
+                rule: hazard.rule.clone(),
+            });
+        }
+    }
+    Ok(())
 }
 
 pub fn validate_hazard_lines(
@@ -457,27 +662,7 @@ pub fn validate_hazard_lines(
     hazard_lines: &[HazardLine],
     listed_rules: &HashSet<String>,
 ) -> Result<(), LanguagePluginError> {
-    for hazard in hazard_lines {
-        let line_number = usize::try_from(hazard.line).unwrap_or(usize::MAX);
-        if line_number < 1 || line_number > line_count {
-            return Err(LanguagePluginError::HazardLineOutOfRange {
-                plugin: plugin_name.to_owned(),
-                path: path.clone(),
-                line: hazard.line,
-                line_count,
-            });
-        }
-    }
-    for hazard in hazard_lines {
-        if !listed_rules.contains(&hazard.rule) {
-            return Err(LanguagePluginError::UnlistedHazardRule {
-                plugin: plugin_name.to_owned(),
-                path: path.clone(),
-                rule: hazard.rule.clone(),
-            });
-        }
-    }
-    Ok(())
+    validate_rule_lines(plugin_name, path, line_count, hazard_lines, listed_rules)
 }
 
 pub fn validate_workspace_packages(roots: Vec<String>) -> Result<Vec<RepoPath>, WorkspaceError> {
@@ -694,11 +879,17 @@ pub fn validate_manifest_analysis(
             return Err(LanguagePluginError::InvalidWorkspacePackageRoot { path: root.clone() });
         }
     }
+    let mut seen_invalid: HashSet<&str> = HashSet::with_capacity(analysis.invalid_manifests.len());
     for invalid in &analysis.invalid_manifests {
         if !passed_paths.contains(invalid.path.as_str()) {
             return Err(LanguagePluginError::UnknownInvalidManifest {
                 path: invalid.path.clone(),
                 message: invalid.message.clone(),
+            });
+        }
+        if !seen_invalid.insert(invalid.path.as_str()) {
+            return Err(LanguagePluginError::DuplicateInvalidManifest {
+                path: invalid.path.clone(),
             });
         }
     }
@@ -1261,11 +1452,13 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         dialect: Option<&str>,
         artifacts: Vec<FileScopeArtifact>,
     ) -> Result<ScopeAnalysis, LanguagePluginError> {
-        Ok(Plugin::analyze_scope(
+        let analysis = Plugin::analyze_scope(
             package_root.to_owned(),
             dialect.map(str::to_owned),
-            artifacts,
-        ))
+            artifacts.clone(),
+        );
+        let listed: HashSet<String> = Plugin::hazard_rules().into_iter().collect();
+        validate_scope_analysis("", &artifacts, &listed, None, analysis)
     }
 }
 

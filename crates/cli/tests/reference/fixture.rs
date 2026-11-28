@@ -227,22 +227,26 @@ fn copy_folder(from: &Path, to: &Path) {
         Err(error) => panic!("list the fixture folder: {error}"),
     };
     for entry in entries {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => panic!("read a fixture folder entry: {error}"),
-        };
-        let file_type = match entry.file_type() {
-            Ok(file_type) => file_type,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => panic!("read the entry type: {error}"),
-        };
-        let target = to.join(entry.file_name());
-        if file_type.is_dir() {
-            fs::create_dir_all(&target).expect("create a copied folder");
-            copy_folder(&entry.path(), &target);
-        } else {
-            copy_file(&entry.path(), &target);
-        }
+        copy_dir_entry(entry, to);
+    }
+}
+
+fn copy_dir_entry(entry: std::io::Result<fs::DirEntry>, to: &Path) {
+    let entry = match entry {
+        Ok(entry) => entry,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => panic!("read a fixture folder entry: {error}"),
+    };
+    let file_type = match entry.file_type() {
+        Ok(file_type) => file_type,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => panic!("read the entry type: {error}"),
+    };
+    let target = to.join(entry.file_name());
+    if file_type.is_dir() {
+        fs::create_dir_all(&target).expect("create a copied folder");
+        copy_folder(&entry.path(), &target);
+    } else {
+        copy_file(&entry.path(), &target);
     }
 }

@@ -2482,3 +2482,136 @@ fn https_download_rejects_response_exceeding_default_50_mib_cap() {
         .expect("plugin within configured download cap loads cleanly");
     assert_eq!(loaded.extensions(), vec!["mini"]);
 }
+
+#[test]
+fn v05_wasm_plugin_round_trips_new_fields_and_enforces_host_and_conformance_guards() {
+    let wasm_path = sandbox_probe_wasm("v0_5_0_features_language_plugin.wasm");
+    let declaration = declaration_for("v05-features", &wasm_path);
+    let plugin = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .expect("v0.5.0 features plugin loads");
+
+    assert_eq!(plugin.known_dialects(), vec!["alpha", "beta"]);
+    assert_eq!(plugin.flagged_line_rules(), vec!["redundant-noop"]);
+    assert!(plugin.has_scope_analysis());
+
+    let model = plugin
+        .lower(
+            &RepoPath::new("src/app.config.v05").expect("valid path"),
+            "DIAG_NOTE\nNOOP_FLAG\nSCOPE_RISK\n",
+            Some("alpha"),
+        )
+        .expect("v0.5.0 lower succeeds");
+    assert!(model.is_tooling_file);
+    assert_eq!(model.diagnostics.len(), 1);
+    assert_eq!(model.diagnostics[0].kind, "note");
+    assert_eq!(model.flagged_lines.len(), 1);
+    assert_eq!(model.flagged_lines[0].rule, "redundant-noop");
+    assert_eq!(model.scope_artifact.as_deref(), Some(b"RISK".as_slice()));
+
+    let artifacts = vec![codeint_model::FileScopeArtifact {
+        path: "src/app.config.v05".to_owned(),
+        source_set: model.source_set,
+        artifact: model.scope_artifact.expect("scope artifact present"),
+    }];
+    let checked_scope = plugin
+        .analyze_scope_checked("", Some("alpha"), &artifacts)
+        .expect("analyze_scope_checked succeeds");
+    assert_eq!(checked_scope.extra_hazards.len(), 1);
+    assert_eq!(checked_scope.summaries.len(), 1);
+    assert_eq!(checked_scope.summaries[0].kind, "v05-scope");
+
+    let validated_scope = plugin
+        .analyze_scope("", Some("alpha"), artifacts)
+        .expect("LanguagePlugin::analyze_scope succeeds");
+    assert_eq!(validated_scope, checked_scope);
+
+    let manifests = vec![
+        Manifest {
+            path: "package.json".to_owned(),
+            text: "{}".to_owned(),
+        },
+        Manifest {
+            path: "packages/probe/package.json".to_owned(),
+            text: "{}".to_owned(),
+        },
+    ];
+    let manifest_analysis = plugin
+        .analyze_manifests(manifests)
+        .expect("analyze_manifests succeeds");
+    assert_eq!(manifest_analysis.dependency_manifests.len(), 2);
+    assert_eq!(manifest_analysis.manifest_used_dependencies.len(), 2);
+    assert_eq!(
+        manifest_analysis.root_dependency_inheritance,
+        vec!["packages/probe".to_owned()]
+    );
+
+    let unlisted_error = plugin
+        .lower(
+            &RepoPath::new("src/bad.v05").expect("valid path"),
+            "UNLISTED_FLAG\n",
+            None,
+        )
+        .expect_err("unlisted flagged-line rule must fail WasmLanguagePlugin::lower");
+    assert!(matches!(
+        unlisted_error,
+        LowerError::Contract(LanguagePluginError::UnlistedFlaggedLineRule { ref rule, .. })
+            if rule == "unlisted-flag-rule"
+    ));
+
+    let bad_path_error = plugin
+        .analyze_scope(
+            "",
+            None,
+            vec![codeint_model::FileScopeArtifact {
+                path: "src/a.v05".to_owned(),
+                source_set: SourceSet::Production,
+                artifact: b"BAD_PATH".to_vec(),
+            }],
+        )
+        .expect_err("non-artifact scope hazard path must fail analyze_scope");
+    assert!(matches!(
+        bad_path_error,
+        LanguagePluginError::UnknownScopeHazardPath { ref path, .. }
+            if path == "not/in/artifacts.hst"
+    ));
+
+    let pass_report = codeint_plugin_host::run_conformance(
+        PluginKind::Language,
+        &wasm_path,
+        PluginLimits::default(),
+        &[codeint_plugin_host::ConformanceSource {
+            file_name: "ok.v05".to_owned(),
+            text: "DIAG_NOTE\nNOOP_FLAG\nSCOPE_RISK\n".to_owned(),
+        }],
+    )
+    .expect("conformance report");
+    assert!(pass_report.passed(), "{:?}", pass_report.checks);
+    assert!(pass_report.checks.iter().any(|check| {
+        check.id == "scope-analysis" && check.status == codeint_plugin_host::ConformanceStatus::Pass
+    }));
+
+    for (source_text, expected_check) in [
+        ("UNLISTED_FLAG\n", "lower"),
+        ("SCOPE_BAD_LINE\n", "scope-analysis"),
+        ("SCOPE_BAD_PATH\n", "scope-analysis"),
+    ] {
+        let report = codeint_plugin_host::run_conformance(
+            PluginKind::Language,
+            &wasm_path,
+            PluginLimits::default(),
+            &[codeint_plugin_host::ConformanceSource {
+                file_name: "bad.v05".to_owned(),
+                text: source_text.to_owned(),
+            }],
+        )
+        .expect("conformance report");
+        assert!(
+            report.checks.iter().any(|check| {
+                check.id == expected_check
+                    && check.status == codeint_plugin_host::ConformanceStatus::Fail
+            }),
+            "expected {expected_check} to fail for {source_text:?}, got {:?}",
+            report.checks
+        );
+    }
+}

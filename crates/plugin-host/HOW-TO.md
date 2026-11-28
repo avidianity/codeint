@@ -48,7 +48,7 @@ let summaries = apply_sql_schema_pass(&mut sql_model, &parsed_by_path);
 - Built-in and external Language plugins resolve package-level Framework profiles, convention entry points, framework-generated Source set paths, and framework Reference ranges through `LanguagePlugin::known_framework_profiles` and `LanguagePlugin::resolve_framework_profiles` (`codeint:plugin@0.5.0`).
 - Resolved active profile names are passed per package (`Vec<PackageFrameworkProfiles>`) into `LanguagePlugin::resolve_imports` so fallback import hints stay coupled to each package's active profiles.
 
-## Load external plugins declared in codeint.json
+## Load external plugins declared in configuration
 
 ```rust
 use codeint_config::PluginHostConfig;
@@ -68,7 +68,7 @@ let external = load_language_plugins(repository.root(), &configuration.plugins, 
 - Every `WasmMetricPlugin` also validates its `version()` export at load time through `validate_metric_version`, rejecting `0` with `PluginHostError::InvalidMetricVersion`.
 - `verify_plugin_component` compiles component bytes and checks the exported WIT contract version and zero-capability sandbox requirements without instantiating or running untrusted guest code.
 - Every `WasmLanguagePlugin` and `WasmMetricPlugin` enforces `codeint_config::PluginLimits` (linear memory cap via `wasmtime::ResourceLimiter`, host lifted-size budget via `enforce_lifted_budget`, and wall-clock time limit via `wasmtime` epoch interruption).
-  Use `load_language_plugins_with_limits` and `load_metric_plugins_with_limits` to pass configured limits from `codeint.json`.
+  Use `load_language_plugins_with_limits` and `load_metric_plugins_with_limits` to pass configured limits from the configuration file.
 - All plugin loads share one process-wide `wasmtime::Engine`, a bounded compiled-component cache keyed by verified SHA-256 digest, and one reference-counted epoch-ticker thread that shuts down once all loaded plugins drop.
   Every plugin call instantiates a fresh `wasmtime::Store` from pre-compiled `InstancePre` with an empty zero-capability `Linker` and `PluginLimits`, then drops the store immediately after the call so linear memory never stays pinned and guest state cannot leak across calls.
 - `validate_metric_key` enforces external Metric key syntax and rejects every reserved report key from `codeint_model::is_reserved_report_key` (`Metric::ALL` and `STRUCTURAL_REPORT_KEYS`), every `SourceSet::ALL` key (`production`, `test`, `generated`, `vendored`), and the trend and top-level configuration keys (`commit`, `committed_on`, `dependencies`).
@@ -109,7 +109,7 @@ if !report.passed() {
 - It returns `Err(PluginHostError::Read)` only when the file cannot be read; every contract violation is a failed check, never an `Err`.
 - A check that depends on a failed load or an earlier fail is `Skipped`, and so is every import check of a Language plugin whose `has-imports` is false.
 - The report lists every check exactly once, in a fixed order.
-- `WasmLanguagePlugin::manifest_paths_checked` and `WasmLanguagePlugin::analyze_manifests_checked` expose a trap or a limit hit as `Err(PluginHostError)`; `LanguagePlugin::manifest_paths`, `LanguagePlugin::analyze_manifests`, `LanguagePlugin::analyze_scope`, and `LanguagePlugin::reference_ranges` propagate traps and limit hits as `Err(LanguagePluginError)`.
+- `WasmLanguagePlugin::manifest_paths_checked`, `WasmLanguagePlugin::analyze_manifests_checked`, and `WasmLanguagePlugin::analyze_scope_checked` expose a trap or a limit hit as `Err(PluginHostError)`; `LanguagePlugin::manifest_paths`, `LanguagePlugin::analyze_manifests`, `LanguagePlugin::analyze_scope`, and `LanguagePlugin::reference_ranges` propagate traps and limit hits as `Err(LanguagePluginError)`.
 - `sources` adds Language plugin probe sources to the built-in ones; each file name carries the extension that the Plugin claims.
 - `run_conformance` leaves `end-to-end` as `Skipped` and attaches an `EndToEndProbe` in `report.end_to_end` when earlier checks pass; callers such as `codeint-cli` run `codeint check` on that probe and fill in the `end-to-end` entry.
 - `codeint plugin test` is the command-line front end; see [docs/reference.md](../../docs/reference.md#codeint-plugin).

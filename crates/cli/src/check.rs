@@ -642,6 +642,7 @@ fn measure(
     let manifest_warnings = discovery.warnings();
     let plugin_members = discovery.members_by_plugin;
     let manifests_by_plugin = discovery.manifests_by_plugin;
+    let declared_dependencies_by_plugin = discovery.declared_dependencies_by_plugin;
     let outcomes = lowering::lower_covered_files(
         tree,
         plugins,
@@ -675,6 +676,7 @@ fn measure(
         plugins: &named_plugins,
         models: collected.models,
         manifests_by_plugin,
+        declared_dependencies_by_plugin,
         plugin_members: &plugin_members,
         profiles_by_plugin,
         configured_entry_points: &configuration.entry_points,
@@ -692,6 +694,7 @@ struct SnapshotInputs<'a> {
     plugins: &'a [NamedLanguagePlugin<'a>],
     models: Vec<CodeModel>,
     manifests_by_plugin: Vec<Vec<Manifest>>,
+    declared_dependencies_by_plugin: Vec<Vec<codeint_model::DeclaredDep>>,
     plugin_members: &'a [Vec<RepoPath>],
     profiles_by_plugin: Vec<frameworks::ResolvedLanguageProfiles>,
     configured_entry_points: &'a EntryPoints,
@@ -704,6 +707,7 @@ fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnaps
         plugins,
         models,
         manifests_by_plugin,
+        declared_dependencies_by_plugin,
         plugin_members,
         profiles_by_plugin,
         configured_entry_points,
@@ -712,10 +716,11 @@ fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnaps
     let mut languages = Vec::with_capacity(plugins.len());
     let mut entry_points_by_language = BTreeMap::new();
     let mut framework_profiles_by_language = BTreeMap::new();
-    for ((((named, model), manifests), members), profiles) in plugins
+    for (((((named, model), manifests), declared_dependencies), members), profiles) in plugins
         .iter()
         .zip(models)
         .zip(manifests_by_plugin)
+        .zip(declared_dependencies_by_plugin)
         .zip(plugin_members)
         .zip(profiles_by_plugin)
     {
@@ -737,15 +742,16 @@ fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnaps
         } else {
             Vec::new()
         };
-        let measured = manifests::finalize_language_model(
+        let measured = manifests::finalize_language_model(manifests::FinalizeLanguageInputs {
             named,
             model,
             manifests,
-            members,
-            &profiles,
-            tree.files(),
+            declared_dependencies,
+            plugin_members: members,
+            profiles: &profiles,
+            repository_paths: tree.files(),
             config_file,
-        )?;
+        })?;
         entry_points_by_language.insert(named.name.to_owned(), combined_entries);
         framework_profiles_by_language.insert(named.name.to_owned(), profiles);
         languages.push(measured);

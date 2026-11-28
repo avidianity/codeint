@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -9,8 +9,8 @@ use codeint_model::{
     FileScopeArtifact, FrameworkProfileResult, FrameworkProfileSelection, LanguagePluginError,
     LowerError, Manifest, ManifestAnalysis, PackageDependency, PackageFrameworkProfiles,
     ReferenceRange, ReferenceRanges, RepoPath, ScopeAnalysis, ScopeSummary, SourceSet,
-    SummaryField, Token, TokenKind, language, validate_entry_points,
-    validate_framework_profile_result, validate_manifest_analysis,
+    SummaryField, Token, TokenKind, language, validate_entry_points, validate_flagged_lines,
+    validate_framework_profile_result, validate_manifest_analysis, validate_scope_analysis,
 };
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Config, Engine, Store};
@@ -194,9 +194,11 @@ pub struct WasmLanguagePlugin {
     extensions: Vec<String>,
     known_dialects: Vec<String>,
     flagged_line_rules: Vec<String>,
+    flagged_line_rules_set: HashSet<String>,
     known_framework_profiles: Vec<String>,
     has_hazard_rules: bool,
     hazard_rules: Vec<String>,
+    hazard_rules_set: HashSet<String>,
     has_imports: bool,
     has_scope_analysis: bool,
     component: SandboxedComponent<bindings::LanguagePluginPre<PluginStoreState>>,
@@ -414,14 +416,18 @@ impl WasmLanguagePlugin {
         let has_scope_analysis = init.call("has-scope-analysis", |b, s| {
             b.codeint_plugin_language().call_has_scope_analysis(s)
         })?;
+        let flagged_line_rules_set: HashSet<String> = flagged_line_rules.iter().cloned().collect();
+        let hazard_rules_set: HashSet<String> = hazard_rules.iter().cloned().collect();
         Ok(WasmLanguagePlugin {
             name,
             extensions,
             known_dialects,
             flagged_line_rules,
+            flagged_line_rules_set,
             known_framework_profiles,
             has_hazard_rules,
             hazard_rules,
+            hazard_rules_set,
             has_imports,
             has_scope_analysis,
             component: SandboxedComponent::from_init(component, limits),
@@ -510,7 +516,18 @@ impl WasmLanguagePlugin {
                     message: other.to_string(),
                 },
             })?;
-        lowered.map(convert_file_model).map_err(convert_lower_error)
+        let model = lowered
+            .map(convert_file_model)
+            .map_err(convert_lower_error)?;
+        validate_flagged_lines(
+            &self.name,
+            path,
+            text.lines().count(),
+            &model.flagged_lines,
+            &self.flagged_line_rules_set,
+        )
+        .map_err(LowerError::Contract)?;
+        Ok(model)
     }
 
     pub(crate) fn manifest_paths_impl(
@@ -651,22 +668,30 @@ impl WasmLanguagePlugin {
         dialect: Option<&str>,
         artifacts: Vec<FileScopeArtifact>,
     ) -> Result<ScopeAnalysis, LanguagePluginError> {
-        self.analyze_scope_checked(package_root, dialect, artifacts)
-            .map_err(map_language_plugin_error)
+        let analysis = self
+            .analyze_scope_checked(package_root, dialect, &artifacts)
+            .map_err(map_language_plugin_error)?;
+        validate_scope_analysis(
+            &self.name,
+            &artifacts,
+            &self.hazard_rules_set,
+            None,
+            analysis,
+        )
     }
 
     pub fn analyze_scope_checked(
         &self,
         package_root: &str,
         dialect: Option<&str>,
-        artifacts: Vec<FileScopeArtifact>,
+        artifacts: &[FileScopeArtifact],
     ) -> Result<ScopeAnalysis, PluginHostError> {
         let guest_artifacts: Vec<guest::FileScopeArtifact> = artifacts
-            .into_iter()
+            .iter()
             .map(|item| guest::FileScopeArtifact {
-                path: item.path,
+                path: item.path.clone(),
                 source_set: to_guest_source_set(item.source_set),
-                artifact: item.artifact,
+                artifact: item.artifact.clone(),
             })
             .collect();
         let analysis = self.call_checked("analyze-scope", |api, store| {
@@ -704,8 +729,11 @@ impl LiftedSize for guest::ScopeAnalysis {
             .iter()
             .fold(LiftedBudget::default(), |acc, file| {
                 let lines = slice_budget(&file.hazard_lines, |hazard| hazard.rule.len());
-                acc.saturating_add(LiftedBudget::new(1, file.path.len()))
-                    .saturating_add(lines)
+                acc.saturating_add(LiftedBudget::new(
+                    1,
+                    size_of::<guest::FileHazards>().saturating_add(file.path.len()),
+                ))
+                .saturating_add(lines)
             });
         let summaries = self
             .summaries
@@ -714,8 +742,11 @@ impl LiftedSize for guest::ScopeAnalysis {
                 let fields = slice_budget(&summary.fields, |field| {
                     field.key.len().saturating_add(field.value.len())
                 });
-                acc.saturating_add(LiftedBudget::new(1, summary.kind.len()))
-                    .saturating_add(fields)
+                acc.saturating_add(LiftedBudget::new(
+                    1,
+                    size_of::<guest::ScopeSummary>().saturating_add(summary.kind.len()),
+                ))
+                .saturating_add(fields)
             });
         hazards.saturating_add(summaries)
     }
@@ -906,10 +937,7 @@ fn convert_file_model(model: guest::FileModel) -> FileModel {
         hazard_lines: model
             .hazard_lines
             .into_iter()
-            .map(|hazard| language::HazardLine {
-                line: hazard.line,
-                rule: hazard.rule,
-            })
+            .map(convert_hazard_line)
             .collect(),
         runtime_imports: model.runtime_imports,
         program_start: model.program_start,
@@ -972,6 +1000,13 @@ fn convert_manifest_analysis(analysis: guest::ManifestAnalysis) -> ManifestAnaly
     }
 }
 
+fn convert_hazard_line(hazard: guest::HazardLine) -> language::HazardLine {
+    language::HazardLine {
+        line: hazard.line,
+        rule: hazard.rule,
+    }
+}
+
 fn convert_scope_analysis(analysis: guest::ScopeAnalysis) -> ScopeAnalysis {
     ScopeAnalysis {
         extra_hazards: analysis
@@ -982,10 +1017,7 @@ fn convert_scope_analysis(analysis: guest::ScopeAnalysis) -> ScopeAnalysis {
                 hazard_lines: entry
                     .hazard_lines
                     .into_iter()
-                    .map(|hazard| language::HazardLine {
-                        line: hazard.line,
-                        rule: hazard.rule,
-                    })
+                    .map(convert_hazard_line)
                     .collect(),
             })
             .collect(),

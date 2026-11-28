@@ -93,15 +93,7 @@ codeint_model::impl_builtin_language_plugin!(
     imports(
         manifest_paths,
         workspaces::workspace_packages,
-        |paths, manifests, requests, package_profiles| {
-            codeint_model::resolve_imports_by_package_profiles(
-                paths,
-                manifests,
-                requests,
-                package_profiles,
-                resolve_ts_batch,
-            )
-        },
+        by_profile(resolve_ts_batch),
         extract_declared,
         ts_entry_points,
     ),

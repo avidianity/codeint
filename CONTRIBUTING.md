@@ -55,7 +55,7 @@ The planted-defect suite runs with the other tests: `cargo test --locked -p code
 
 ## Adding a Language or Metric plugin
 
-Read [docs/plugins.md](./docs/plugins.md) to build an external WebAssembly Plugin against `codeint:plugin@0.4.0`, or inspect `plugins/languages/` to see how built-in Language plugins implement the Code model contract.
+Read [docs/plugins.md](./docs/plugins.md) to build an external WebAssembly Plugin against `codeint:plugin@0.5.0`, or inspect `plugins/languages/` to see how built-in Language plugins implement the Code model contract.
 
 ## Code of Conduct
 

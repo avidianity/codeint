@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use codeint_config::{PluginKind, PluginLimits};
@@ -9,8 +9,8 @@ use codeint_model::{
     CodeModel, FileModel, FileScopeArtifact, FrameworkProfileSelection, ImportResolution,
     LanguageFacts, LanguagePlugin, LanguagePluginError, LowerError, Manifest, Metric, MetricPlugin,
     MetricPluginError, Package, PackageFrameworkProfiles, RepoPath, ResolveError, RuntimeImport,
-    SourceFile, SourceSet, Workspace, choose_manifests, empty_file_model, validate_hazard_lines,
-    validate_manifest_analysis,
+    SourceFile, SourceSet, Workspace, choose_manifests, empty_file_model, validate_flagged_lines,
+    validate_hazard_lines, validate_manifest_analysis, validate_scope_analysis,
 };
 
 use crate::{PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, verify_plugin_component};
@@ -403,7 +403,8 @@ fn run_language(
     check_extensions(report, &extensions);
     let dialects = plugin.known_dialects();
     check_dialects(report, &dialects);
-    check_flagged_line_rules(report, &plugin.flagged_line_rules());
+    let flagged_line_rules = plugin.flagged_line_rules();
+    check_flagged_line_rules(report, &flagged_line_rules);
     let hazard_rules = plugin.hazard_rules();
     check_hazard_rules(report, &plugin, &hazard_rules);
     let probe_extensions = probe_extensions(&extensions);
@@ -437,6 +438,7 @@ fn run_language(
             plugin_name: &name,
             extensions: &probe_extensions,
             dialects: &dialects,
+            flagged_line_rules: &flagged_line_rules,
             hazard_rules: &hazard_rules,
             sources,
         },
@@ -454,6 +456,7 @@ fn run_language(
     );
     check_scope_analysis(
         report,
+        &name,
         &plugin,
         &dialects,
         &hazard_rules,
@@ -514,9 +517,18 @@ fn check_non_empty_list(
 ) {
     if items.iter().any(|item| item.trim().is_empty()) {
         report.fail(id, empty_message, hint);
-    } else {
-        report.pass(id, format!("{} {label} listed", items.len()));
+        return;
     }
+    let mut seen = HashSet::with_capacity(items.len());
+    if let Some(duplicate) = items.iter().find(|item| !seen.insert(item.as_str())) {
+        report.fail(
+            id,
+            format!("{id} lists duplicate entry {duplicate:?}"),
+            hint,
+        );
+        return;
+    }
+    report.pass(id, format!("{} {label} listed", items.len()));
 }
 
 fn check_dialects(report: &mut ConformanceReport, dialects: &[String]) {
@@ -525,7 +537,7 @@ fn check_dialects(report: &mut ConformanceReport, dialects: &[String]) {
         "dialects",
         dialects,
         "known-dialects holds an empty or blank Dialect name",
-        "list each Dialect with a non-empty stable identifier, or return an empty list",
+        "list each Dialect once with a non-empty stable identifier, or return an empty list",
         "Dialects",
     );
 }
@@ -536,7 +548,7 @@ fn check_flagged_line_rules(report: &mut ConformanceReport, rules: &[String]) {
         "flagged-line-rules",
         rules,
         "flagged-line-rules holds an empty or blank rule name",
-        "list each Flagged line rule with a non-empty stable identifier",
+        "list each Flagged line rule once with a non-empty stable identifier",
         "Flagged line rules",
     );
 }
@@ -811,8 +823,42 @@ struct LowerProbeSetup<'a> {
     plugin_name: &'a str,
     extensions: &'a [String],
     dialects: &'a [String],
+    flagged_line_rules: &'a [String],
     hazard_rules: &'a [String],
     sources: &'a [ConformanceSource],
+}
+
+#[derive(Default)]
+struct CollectedScopeArtifacts {
+    by_dialect: BTreeMap<Option<String>, Vec<FileScopeArtifact>>,
+    line_counts: BTreeMap<Option<String>, BTreeMap<String, usize>>,
+}
+
+impl CollectedScopeArtifacts {
+    fn record(
+        &mut self,
+        dialect: Option<&str>,
+        path: &RepoPath,
+        source_set: SourceSet,
+        line_count: usize,
+        artifact: Vec<u8>,
+    ) {
+        let key = dialect.map(str::to_owned);
+        self.by_dialect
+            .entry(key.clone())
+            .or_default()
+            .push(FileScopeArtifact {
+                path: path.to_string(),
+                source_set,
+                artifact,
+            });
+        self.line_counts
+            .entry(key)
+            .or_default()
+            .entry(path.to_string())
+            .and_modify(|max_lines| *max_lines = (*max_lines).max(line_count))
+            .or_insert(line_count);
+    }
 }
 
 fn probe_repo_path(file_name: &str, extension: &str) -> RepoPath {
@@ -876,10 +922,11 @@ fn check_lower(
     plugin: &WasmLanguagePlugin,
     setup: LowerProbeSetup<'_>,
     watch: &mut LimitWatch,
-) -> Vec<FileScopeArtifact> {
-    let listed: HashSet<String> = setup.hazard_rules.iter().cloned().collect();
+) -> CollectedScopeArtifacts {
+    let listed_flagged: HashSet<String> = setup.flagged_line_rules.iter().cloned().collect();
+    let listed_hazards: HashSet<String> = setup.hazard_rules.iter().cloned().collect();
     let mut lowered_count = 0;
-    let mut scope_artifacts = Vec::new();
+    let mut scope_artifacts = CollectedScopeArtifacts::default();
     let mut dialect_options: Vec<Option<&str>> = vec![None];
     dialect_options.extend(
         setup
@@ -890,13 +937,15 @@ fn check_lower(
     );
     for probe in built_in_probes(setup.extensions, setup.sources) {
         let path = probe_repo_path(&probe.file_name, &probe.extension);
+        let line_count = probe.text.lines().count();
         for &dialect in &dialect_options {
             let outcome = run_lower_probe(
                 report,
                 &LowerProbeRun {
                     plugin,
                     setup: &setup,
-                    listed: &listed,
+                    listed_flagged: &listed_flagged,
+                    listed_hazards: &listed_hazards,
                     probe: &probe,
                     path: &path,
                     dialect,
@@ -904,18 +953,12 @@ fn check_lower(
                 watch,
             );
             let Some(model) = outcome else {
-                return Vec::new();
+                return CollectedScopeArtifacts::default();
             };
             if let Some(model) = model {
                 lowered_count += 1;
-                if dialect.is_none()
-                    && let Some(artifact) = model.scope_artifact
-                {
-                    scope_artifacts.push(FileScopeArtifact {
-                        path: path.to_string(),
-                        source_set: model.source_set,
-                        artifact,
-                    });
+                if let Some(artifact) = model.scope_artifact {
+                    scope_artifacts.record(dialect, &path, model.source_set, line_count, artifact);
                 }
             }
         }
@@ -929,7 +972,7 @@ fn check_lower(
                 format!("a file with an unclaimed extension was not rejected: {other:?}"),
                 "return unsupported-file from lower for any path whose extension the Plugin does not claim",
             );
-            return Vec::new();
+            return CollectedScopeArtifacts::default();
         }
     }
     report.pass(
@@ -942,7 +985,8 @@ fn check_lower(
 struct LowerProbeRun<'a> {
     plugin: &'a WasmLanguagePlugin,
     setup: &'a LowerProbeSetup<'a>,
-    listed: &'a HashSet<String>,
+    listed_flagged: &'a HashSet<String>,
+    listed_hazards: &'a HashSet<String>,
     probe: &'a LowerProbe,
     path: &'a RepoPath,
     dialect: Option<&'a str>,
@@ -976,21 +1020,21 @@ fn run_lower_probe(
         );
         return None;
     }
+    if let Err(LowerError::Contract(error)) = first {
+        report.fail(
+            "lower",
+            format!("{}: {error}", run.probe.label),
+            "fix the FileModel so Flagged line rules are listed in flagged-line-rules and lines are 1-based and within the file",
+        );
+        return None;
+    }
     if let Ok(model) = first {
         let line_count = run.probe.text.lines().count();
-        if let Some(problem) = model_problem(
-            run.setup.plugin_name,
-            run.path,
-            &model,
-            line_count,
-            run.listed,
-            run.plugin.has_imports(),
-            run.plugin.has_scope_analysis(),
-        ) {
+        if let Some(problem) = model_problem(run, &model, line_count) {
             report.fail(
                 "lower",
                 format!("{}: {problem}", run.probe.label),
-                "fix the FileModel so lines are 1-based and within the file, functions are sorted, diagnostics are valid, scope-artifact matches has-scope-analysis, and Hazard rules are listed in hazard-rules",
+                "fix the FileModel so lines are 1-based and within the file, functions are sorted, diagnostics are valid, scope-artifact matches has-scope-analysis, Flagged line rules are listed in flagged-line-rules, and Hazard rules are listed in hazard-rules",
             );
             return None;
         }
@@ -1006,15 +1050,7 @@ fn is_limit_error(error: &LowerError) -> bool {
     )
 }
 
-fn model_problem(
-    plugin_name: &str,
-    path: &RepoPath,
-    model: &FileModel,
-    line_count: usize,
-    listed: &HashSet<String>,
-    has_imports: bool,
-    has_scope_analysis: bool,
-) -> Option<String> {
+fn model_problem(run: &LowerProbeRun<'_>, model: &FileModel, line_count: usize) -> Option<String> {
     let in_bounds = |line: u32| line >= 1 && usize::try_from(line).is_ok_and(|n| n <= line_count);
     if usize::try_from(model.source_lines).is_ok_and(|n| n > line_count) {
         return Some(format!(
@@ -1026,18 +1062,35 @@ fn model_problem(
         .or_else(|| line_problem(model, in_bounds))
         .or_else(|| diagnostic_problem(model, in_bounds))
         .or_else(|| {
-            (!has_imports && !model.runtime_imports.is_empty())
+            (!run.plugin.has_imports() && !model.runtime_imports.is_empty())
                 .then(|| "runtime-imports is not empty although has-imports is false".to_owned())
         })
         .or_else(|| {
-            (!has_scope_analysis && model.scope_artifact.is_some()).then(|| {
+            (!run.plugin.has_scope_analysis() && model.scope_artifact.is_some()).then(|| {
                 "scope-artifact is present although has-scope-analysis is false".to_owned()
             })
         })
         .or_else(|| {
-            validate_hazard_lines(plugin_name, path, line_count, &model.hazard_lines, listed)
-                .err()
-                .map(|error| error.to_string())
+            validate_flagged_lines(
+                run.setup.plugin_name,
+                run.path,
+                line_count,
+                &model.flagged_lines,
+                run.listed_flagged,
+            )
+            .err()
+            .map(|error| error.to_string())
+        })
+        .or_else(|| {
+            validate_hazard_lines(
+                run.setup.plugin_name,
+                run.path,
+                line_count,
+                &model.hazard_lines,
+                run.listed_hazards,
+            )
+            .err()
+            .map(|error| error.to_string())
         })
 }
 
@@ -1532,10 +1585,11 @@ fn check_imports(
 
 fn check_scope_analysis(
     report: &mut ConformanceReport,
+    plugin_name: &str,
     plugin: &WasmLanguagePlugin,
     dialects: &[String],
     hazard_rules: &[String],
-    artifacts: Vec<FileScopeArtifact>,
+    artifacts: CollectedScopeArtifacts,
     watch: &mut LimitWatch,
 ) {
     if !plugin.has_scope_analysis() {
@@ -1545,7 +1599,8 @@ fn check_scope_analysis(
         );
         return;
     }
-    let listed: HashSet<&str> = hazard_rules.iter().map(String::as_str).collect();
+    let listed: HashSet<String> = hazard_rules.iter().cloned().collect();
+    let empty_counts = BTreeMap::new();
     let mut dialect_options: Vec<Option<&str>> = vec![None];
     dialect_options.extend(
         dialects
@@ -1554,7 +1609,13 @@ fn check_scope_analysis(
             .map(|dialect| Some(dialect.as_str())),
     );
     for dialect in dialect_options {
-        let analysis = match plugin.analyze_scope_checked("", dialect, artifacts.clone()) {
+        let key = dialect.map(str::to_owned);
+        let dialect_artifacts = artifacts
+            .by_dialect
+            .get(&key)
+            .map_or(&[][..], Vec::as_slice);
+        let line_counts = artifacts.line_counts.get(&key).unwrap_or(&empty_counts);
+        let analysis = match plugin.analyze_scope_checked("", dialect, dialect_artifacts) {
             Ok(analysis) => analysis,
             Err(error) => {
                 watch.note_host(&error);
@@ -1566,11 +1627,17 @@ fn check_scope_analysis(
                 return;
             }
         };
-        if let Some(problem) = scope_analysis_problem(&analysis, &listed) {
+        if let Some(problem) = scope_analysis_problem(
+            plugin_name,
+            analysis,
+            dialect_artifacts,
+            line_counts,
+            &listed,
+        ) {
             report.fail(
                 "scope-analysis",
                 problem,
-                "return valid repository paths, 1-based line numbers, listed Hazard rules, and non-empty summary kinds and field keys",
+                "return valid repository paths from the analyzed artifacts, 1-based line numbers within each file, listed Hazard rules, and non-empty summary kinds and field keys",
             );
             return;
         }
@@ -1582,33 +1649,15 @@ fn check_scope_analysis(
 }
 
 fn scope_analysis_problem(
-    analysis: &codeint_model::ScopeAnalysis,
-    listed: &HashSet<&str>,
+    plugin_name: &str,
+    analysis: codeint_model::ScopeAnalysis,
+    artifacts: &[FileScopeArtifact],
+    line_counts: &BTreeMap<String, usize>,
+    listed: &HashSet<String>,
 ) -> Option<String> {
-    for entry in &analysis.extra_hazards {
-        if RepoPath::new(entry.path.as_str()).is_err() {
-            return Some(format!("invalid extra-hazards path {:?}", entry.path));
-        }
-        for hazard in &entry.hazard_lines {
-            if hazard.line < 1 || !listed.contains(hazard.rule.as_str()) {
-                return Some(format!(
-                    "invalid extra hazard line {} ({:?}) in {}",
-                    hazard.line, hazard.rule, entry.path
-                ));
-            }
-        }
-    }
-    for summary in &analysis.summaries {
-        if summary.kind.trim().is_empty()
-            || summary
-                .fields
-                .iter()
-                .any(|field| field.key.trim().is_empty())
-        {
-            return Some("scope summary has an empty kind or field key".to_owned());
-        }
-    }
-    None
+    validate_scope_analysis(plugin_name, artifacts, listed, Some(line_counts), analysis)
+        .err()
+        .map(|error| error.to_string())
 }
 
 fn run_metric(

@@ -1,13 +1,17 @@
+use std::collections::{BTreeMap, HashSet};
+
 use super::language::{
-    DeclaredDep, DepKind, FileModel, FrameworkProfileResult, Guest, ImportRequest, LowerError,
-    Manifest, ManifestAnalysis, PackageFrameworkProfiles, ReferenceRange, Resolution, SourceSet,
+    DeclaredDep, DepKind, FileHazards, FileModel, FileScopeArtifact, FrameworkProfileResult, Guest,
+    HazardLine, ImportRequest, LowerError, Manifest, ManifestAnalysis, PackageFrameworkProfiles,
+    ReferenceRange, Resolution, ScopeAnalysis, SourceSet,
 };
 use super::{
     CodeModel, FunctionCoverage, ImportResolution, InvalidReferenceRange, LanguageFacts,
     LanguagePlugin, LanguagePluginError, ManifestUsedDep, Package, ReferenceRanges, RepoPath,
     RuntimeImport, SourceFile, Workspace, empty_file_model, empty_framework_profile_result,
-    empty_manifest_analysis, token_text_hash, validate_declared_dependencies,
-    validate_entry_points, validate_framework_profile_result,
+    empty_manifest_analysis, language, token_text_hash, validate_declared_dependencies,
+    validate_entry_points, validate_flagged_lines, validate_framework_profile_result,
+    validate_manifest_analysis, validate_scope_analysis,
 };
 
 fn path(text: &str) -> RepoPath {
@@ -649,4 +653,125 @@ fn validate_workspace_packages_converts_valid_roots_and_rejects_invalid_paths() 
         .expect("valid workspace package");
     assert_eq!(valid, vec![path("packages/app")]);
     assert!(crate::validate_workspace_packages(vec!["../escape".to_owned()]).is_err());
+}
+
+#[test]
+fn validate_flagged_lines_rejects_unlisted_rule_and_out_of_range_line() {
+    let path = RepoPath::new("src/app.ts").expect("valid path");
+    let listed: HashSet<String> = ["redundant-pass".to_owned()].into_iter().collect();
+    assert!(
+        validate_flagged_lines(
+            "probe",
+            &path,
+            3,
+            &[language::FlaggedLine {
+                line: 2,
+                rule: "redundant-pass".to_owned(),
+            }],
+            &listed,
+        )
+        .is_ok()
+    );
+    assert!(matches!(
+        validate_flagged_lines(
+            "probe",
+            &path,
+            3,
+            &[language::FlaggedLine {
+                line: 2,
+                rule: "secret-rule".to_owned(),
+            }],
+            &listed,
+        ),
+        Err(LanguagePluginError::UnlistedFlaggedLineRule { ref rule, .. }) if rule == "secret-rule"
+    ));
+    assert!(matches!(
+        validate_flagged_lines(
+            "probe",
+            &path,
+            3,
+            &[language::FlaggedLine {
+                line: 4,
+                rule: "redundant-pass".to_owned(),
+            }],
+            &listed,
+        ),
+        Err(LanguagePluginError::FlaggedLineOutOfRange { line: 4, .. })
+    ));
+}
+
+#[test]
+fn validate_manifest_analysis_rejects_duplicate_invalid_manifests() {
+    let manifests = vec![Manifest {
+        path: "package.json".to_owned(),
+        text: "{bad".to_owned(),
+    }];
+    let analysis = ManifestAnalysis {
+        invalid_manifests: vec![
+            language::WorkspaceError {
+                path: "package.json".to_owned(),
+                message: "first".to_owned(),
+            },
+            language::WorkspaceError {
+                path: "package.json".to_owned(),
+                message: "second".to_owned(),
+            },
+        ],
+        ..empty_manifest_analysis()
+    };
+    assert!(matches!(
+        validate_manifest_analysis(&manifests, analysis),
+        Err(LanguagePluginError::DuplicateInvalidManifest { ref path }) if path == "package.json"
+    ));
+}
+
+fn scope_with_hazard(path: &str, line: u32) -> ScopeAnalysis {
+    ScopeAnalysis {
+        extra_hazards: vec![FileHazards {
+            path: path.to_owned(),
+            hazard_lines: vec![HazardLine {
+                line,
+                rule: "cross-file-risk".to_owned(),
+            }],
+        }],
+        summaries: Vec::new(),
+    }
+}
+
+#[test]
+fn validate_scope_analysis_rejects_unknown_path_and_out_of_bounds_line() {
+    let artifacts = vec![FileScopeArtifact {
+        path: "src/a.hst".to_owned(),
+        source_set: SourceSet::Production,
+        artifact: b"ok".to_vec(),
+    }];
+    let listed: HashSet<String> = ["cross-file-risk".to_owned()].into_iter().collect();
+    let mut line_counts = BTreeMap::new();
+    line_counts.insert("src/a.hst".to_owned(), 5);
+
+    assert!(matches!(
+        validate_scope_analysis(
+            "probe",
+            &artifacts,
+            &listed,
+            None,
+            scope_with_hazard("not/in/artifacts.hst", 1),
+        ),
+        Err(LanguagePluginError::UnknownScopeHazardPath { ref path, .. })
+            if path == "not/in/artifacts.hst"
+    ));
+
+    assert!(matches!(
+        validate_scope_analysis(
+            "probe",
+            &artifacts,
+            &listed,
+            Some(&line_counts),
+            scope_with_hazard("src/a.hst", 4_000_000_000),
+        ),
+        Err(LanguagePluginError::HazardLineOutOfRange {
+            line: 4_000_000_000,
+            ..
+        })
+    ));
 }

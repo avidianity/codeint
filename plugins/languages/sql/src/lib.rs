@@ -31,6 +31,20 @@ pub enum SqlDialect {
 }
 
 impl SqlDialect {
+    const ALL: [SqlDialect; 5] = [
+        SqlDialect::Generic,
+        SqlDialect::Postgresql,
+        SqlDialect::Mysql,
+        SqlDialect::Sqlite,
+        SqlDialect::Duckdb,
+    ];
+
+    fn from_name(name: &str) -> Option<SqlDialect> {
+        SqlDialect::ALL
+            .into_iter()
+            .find(|dialect| dialect.as_str() == name)
+    }
+
     const fn labels(self) -> (&'static str, &'static str) {
         match self {
             SqlDialect::Generic => ("generic", "generic SQL"),
@@ -146,16 +160,9 @@ fn lower_sql(
     dialect: Option<&str>,
 ) -> Result<FileModel, LowerError> {
     let selected = match dialect {
-        Some("postgresql") => SqlDialect::Postgresql,
-        Some("mysql") => SqlDialect::Mysql,
-        Some("sqlite") => SqlDialect::Sqlite,
-        Some("duckdb") => SqlDialect::Duckdb,
-        Some("generic") => SqlDialect::Generic,
-        Some(other) => {
-            return Err(LowerError::UnsupportedFile {
-                message: format!("unknown SQL dialect {other:?}"),
-            });
-        }
+        Some(name) => SqlDialect::from_name(name).ok_or_else(|| LowerError::UnsupportedFile {
+            message: format!("unknown SQL dialect {name:?}"),
+        })?,
         None => plugin.dialect,
     };
     Sql::with_dialect(selected)
