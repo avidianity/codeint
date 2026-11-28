@@ -6,8 +6,8 @@ const path = require("node:path");
 const { resolveBinary } = require("./binary.cjs");
 
 class CodeintError extends Error {
-  constructor(message, exitCode, stderr) {
-    super(message);
+  constructor(message, exitCode, stderr, options) {
+    super(message, options);
     this.name = "CodeintError";
     this.exitCode = exitCode;
     this.stderr = stderr;
@@ -48,7 +48,7 @@ function runCommand(args, options) {
     child.stdout.on("data", (chunk) => outChunks.push(chunk));
     child.stderr.on("data", (chunk) => errChunks.push(chunk));
     child.on("error", (err) => {
-      reject(new CodeintError(`failed to execute ${binary}: ${err.message}`, 2, ""));
+      reject(new CodeintError(`failed to execute ${binary}: ${err.message}`, 2, "", { cause: err }));
     });
     child.on("close", (code) => {
       resolve({
@@ -78,7 +78,8 @@ function readOutputPayload(result, options) {
     throw new CodeintError(
       `failed to read output file ${outputPath}: ${error.message}`,
       result.exitCode,
-      result.stderr
+      result.stderr,
+      { cause: error }
     );
   }
 }
@@ -90,7 +91,8 @@ function parseJsonReport(payload, stderr, exitCode) {
     throw new CodeintError(
       `codeint returned invalid JSON (${error.message})`,
       exitCode,
-      stderr
+      stderr,
+      { cause: error }
     );
   }
 }

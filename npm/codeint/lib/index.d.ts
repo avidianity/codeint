@@ -1081,7 +1081,7 @@ export type PluginTestResult = GatedResult<PluginTestReport>;
 export declare class CodeintError extends Error {
   readonly exitCode: number;
   readonly stderr: string;
-  constructor(message: string, exitCode: number, stderr: string);
+  constructor(message: string, exitCode: number, stderr: string, options?: ErrorOptions);
 }
 
 export declare function resolveBinary(binaryPath?: string): string;

@@ -41,7 +41,8 @@ function resolveBinary(overridePath) {
     packageJsonPath = require.resolve(`${target.pkg}/package.json`);
   } catch (error) {
     throw new Error(
-      `missing platform package "${target.pkg}" for ${platformKey} (${error.message}). Reinstall codeint with optional dependencies enabled.`
+      `missing platform package "${target.pkg}" for ${platformKey} (${error.message}). Reinstall codeint with optional dependencies enabled.`,
+      { cause: error }
     );
   }
   const binaryPath = path.join(path.dirname(packageJsonPath), target.bin);

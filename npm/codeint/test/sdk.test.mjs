@@ -30,7 +30,11 @@ import {
 const binaryPath = process.env.CODEINT_BIN;
 
 function git(cwd, args) {
-  execFileSync("git", args, { cwd, stdio: "ignore" });
+  execFileSync("git", args, {
+    cwd,
+    stdio: "ignore",
+    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+  });
 }
 
 function withTempDir(prefix, fn) {
@@ -42,8 +46,8 @@ function withTempDir(prefix, fn) {
     });
 }
 
-function makeRepo() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codeint-js-sdk-"));
+function makeRepo(prefix = "codeint-js-sdk-") {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   git(dir, ["init", "-b", "main"]);
   git(dir, ["config", "user.email", "dev@example.com"]);
   git(dir, ["config", "user.name", "Dev"]);
@@ -61,8 +65,8 @@ function makeRepo() {
   return dir;
 }
 
-function withRepo(fn) {
-  const repo = makeRepo();
+function withRepo(fn, prefix) {
+  const repo = makeRepo(prefix);
   return Promise.resolve()
     .then(() => fn(repo))
     .finally(() => {
@@ -144,14 +148,33 @@ test("init supports jsonc, json, toml, yaml, and adopt without hardcoded fallbac
     });
   }
 
-  await withRepo(async (repo) => {
-    const adopted = await init({ cwd: repo, binaryPath, format: "yaml", adopt: true });
-    assert.ok(adopted.configPath.endsWith("codeint.yaml"));
-    assert.ok(adopted.adopted);
-    assert.ok(adopted.adopted.ratchetPath.endsWith("ratchet.json"));
-    assert.ok(adopted.adopted.baselinePath.endsWith("baseline.json"));
-    assert.equal(fs.existsSync(adopted.adopted.ratchetPath), true);
-    assert.equal(fs.existsSync(adopted.adopted.baselinePath), true);
+  for (const prefix of ["codeint-js-sdk-", "codeint-dir (123 copy)-"]) {
+    await withRepo(async (repo) => {
+      const adopted = await init({ cwd: repo, binaryPath, format: "yaml", adopt: true });
+      assert.ok(adopted.configPath.endsWith("codeint.yaml"));
+      assert.ok(adopted.adopted);
+      assert.ok(adopted.adopted.ratchetPath.endsWith("ratchet.json"));
+      assert.ok(adopted.adopted.baselinePath.endsWith("baseline.json"));
+      assert.equal(fs.existsSync(adopted.adopted.ratchetPath), true);
+      assert.equal(fs.existsSync(adopted.adopted.baselinePath), true);
+      if (prefix.includes("(123 copy)")) {
+        assert.ok(adopted.adopted.ratchetPath.includes("(123 copy)"));
+        assert.ok(adopted.adopted.baselinePath.includes("(123 copy)"));
+      }
+    }, prefix);
+  }
+});
+
+test("CodeintError preserves cause on direct and wrapped errors", async () => {
+  const root = new Error("root failure");
+  const wrapped = new CodeintError("wrapped failure", 2, "stderr", { cause: root });
+  assert.equal(wrapped.cause, root);
+
+  await withTempDir("codeint-missing-bin-", async (dir) => {
+    await assert.rejects(
+      () => check({ cwd: dir, binaryPath: path.join(dir, "missing-codeint") }),
+      (err) => err instanceof CodeintError && err.exitCode === 2 && err.cause instanceof Error
+    );
   });
 });
 

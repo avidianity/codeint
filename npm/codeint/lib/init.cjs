@@ -8,7 +8,7 @@ const {
 } = require("./runner.cjs");
 
 const WROTE_PREFIX = "Wrote ";
-const COUNTED_WROTE_PATTERN = /^Wrote\s+(.+?)\s+\((\d+)\s+/;
+const COUNTED_WROTE_PATTERN = /^Wrote\s+(.+)\s+\((\d+)\s+[^)]+\)$/;
 const INIT_SPECS = [
   ["flag", "--adopt", "adopt"],
   ["opt", "--format", "format"],

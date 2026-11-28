@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const path = require("node:path");
 const test = require("node:test");
 const api = require("../lib/index.cjs");
 
@@ -33,7 +34,7 @@ test("CommonJS require exports all 18 operations, CodeintError, and resolveBinar
   for (const name of EXPECTED_EXPORTS) {
     assert.equal(typeof api[name], "function", `CJS export ${name} must be a function`);
   }
-  assert.equal(api.resolveBinary(), binaryPath);
+  assert.equal(api.resolveBinary(), path.resolve(binaryPath));
   const manifest = await api.schema();
   assert.equal(manifest.name, "codeint");
   assert.ok(Array.isArray(manifest.metrics));

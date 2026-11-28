@@ -130,7 +130,8 @@ async function verifyExtendedTypes(): Promise<void> {
     pluginMemoryMb: 64,
     pluginTimeoutMs: 1000,
   });
-  const err = new CodeintError("failed", 2, "stderr");
+  const rootCause = new Error("root");
+  const err = new CodeintError("failed", 2, "stderr", { cause: rootCause });
   void [
     api.check,
     blasted,
@@ -148,6 +149,7 @@ async function verifyExtendedTypes(): Promise<void> {
     baselined,
     tested,
     err.exitCode,
+    err.cause,
   ];
 }
 
