@@ -60,7 +60,7 @@ Future<T> runJsonCommand<T>(
   if (raw.exitCode != 0) {
     throw _errorFromRawResult(args, raw);
   }
-  return parse(_decodeJsonObject(raw.stdout, args));
+  return parse(_decodeJsonObject(raw, args));
 }
 
 Future<GatedOutcome<T>> runGatedJsonCommand<T>(
@@ -73,7 +73,7 @@ Future<GatedOutcome<T>> runGatedJsonCommand<T>(
   if (raw.exitCode != 0 && raw.exitCode != 1) {
     throw _errorFromRawResult(args, raw);
   }
-  final report = parse(_decodeJsonObject(raw.stdout, args));
+  final report = parse(_decodeJsonObject(raw, args));
   final failures = raw.exitCode == 1
       ? _parseFailureLines(raw.stderr)
       : const <String>[];
@@ -97,15 +97,25 @@ Future<String> runTextCommand(
   return raw.stdout;
 }
 
-Map<String, Object?> _decodeJsonObject(String stdout, List<String> args) {
+Map<String, Object?> _decodeJsonObject(
+  RawCommandResult raw,
+  List<String> args,
+) {
   try {
-    final decoded = jsonDecode(stdout);
+    final decoded = jsonDecode(raw.stdout);
     return requireJsonMap(decoded, 'codeint ${args.join(' ')}');
-  } on CodeintError {
-    rethrow;
+  } on CodeintError catch (error) {
+    throw CodeintError(
+      error.message,
+      exitCode: raw.exitCode,
+      stderr: raw.stderr,
+      cause: error,
+    );
   } on FormatException catch (error) {
     throw CodeintError(
       'Invalid JSON output from codeint ${args.join(' ')}: ${error.message}',
+      exitCode: raw.exitCode,
+      stderr: raw.stderr,
       cause: error,
     );
   }

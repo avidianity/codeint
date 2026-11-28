@@ -30,6 +30,8 @@ Future<void> runGit(Directory dir, List<String> args) async {
     workingDirectory: dir.path,
     environment: <String, String>{
       ...Platform.environment,
+      'GIT_CONFIG_GLOBAL': Platform.isWindows ? 'NUL' : '/dev/null',
+      'GIT_CONFIG_NOSYSTEM': '1',
       'GIT_AUTHOR_NAME': 'Test User',
       'GIT_AUTHOR_EMAIL': 'test@example.com',
       'GIT_COMMITTER_NAME': 'Test User',

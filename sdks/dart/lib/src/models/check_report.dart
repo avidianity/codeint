@@ -44,8 +44,10 @@ class MetricSection<F> extends JsonModel {
 
   double get ratio => dbl('ratio');
   int get metricVersion => intOf('metric_version');
-  ReferenceRange get referenceRange =>
-      ReferenceRange.fromJson(json['reference_range']);
+  ReferenceRange? get referenceRange {
+    final raw = json['reference_range'];
+    return raw == null ? null : ReferenceRange.fromJson(raw);
+  }
   int? get findingsLeftOut => optInt('findings_left_out');
   int? get baselinedFindings => optInt('baselined_findings');
   List<F> get findings => list('findings', _parseFinding);
@@ -53,17 +55,28 @@ class MetricSection<F> extends JsonModel {
 
 typedef ErosionSection = MetricSection<ErodedFunctionFinding>;
 typedef CognitiveComplexitySection = MetricSection<CognitiveComplexityFinding>;
-typedef VerbositySection = MetricSection<FlaggedLineFinding>;
 typedef ImportCyclesSection = MetricSection<ImportCycleFinding>;
 typedef BoundariesSection = MetricSection<BoundaryFinding>;
 typedef OrphanFilesSection = MetricSection<OrphanFileFinding>;
 typedef TestGapSection = MetricSection<TestGapFinding>;
-typedef HazardsSection = MetricSection<HazardLineFinding>;
 typedef ExternalMetricSummary = MetricSection<ExternalMetricFinding>;
 typedef UnusedDependenciesSection = MetricSection<UnusedDependencyFinding>;
-typedef UnlistedDependenciesSection = MetricSection<ImportedDependencyFinding>;
-typedef DevInProductionDependenciesSection
-    = MetricSection<ImportedDependencyFinding>;
+
+class VerbositySection extends MetricSection<FlaggedLineFinding> {
+  const VerbositySection.fromJson(Map<String, Object?> json)
+      : super.fromJson(json, parseLineRuleFinding);
+
+  int get verboseLines => intOf('verbose_lines');
+  int get flaggedLines => intOf('flagged_lines');
+}
+
+class HazardsSection extends MetricSection<HazardLineFinding> {
+  const HazardsSection.fromJson(Map<String, Object?> json)
+      : super.fromJson(json, parseLineRuleFinding);
+
+  int get hazardLines => intOf('hazard_lines');
+  int get sourceLines => intOf('source_lines');
+}
 
 extension ErosionSectionFields on ErosionSection {
   double get erodedFunctionMass => dbl('eroded_function_mass');
@@ -73,13 +86,6 @@ extension ErosionSectionFields on ErosionSection {
 extension CognitiveComplexitySectionFields on CognitiveComplexitySection {
   int get complexCognitiveComplexity => intOf('complex_cognitive_complexity');
   int get totalCognitiveComplexity => intOf('total_cognitive_complexity');
-}
-
-extension LineRuleSectionFields on MetricSection<LineRuleFinding> {
-  int get verboseLines => intOf('verbose_lines');
-  int get flaggedLines => intOf('flagged_lines');
-  int get hazardLines => intOf('hazard_lines');
-  int get sourceLines => intOf('source_lines');
 }
 
 extension ImportCyclesSectionFields on ImportCyclesSection {
@@ -117,14 +123,6 @@ extension UnusedDependenciesSectionFields on UnusedDependenciesSection {
   int get declared => intOf('declared');
 }
 
-extension ImportedDependenciesSectionFields
-    on MetricSection<ImportedDependencyFinding> {
-  int get unlisted => intOf('unlisted');
-  int get imported => intOf('imported');
-  int get devInProduction => intOf('dev_in_production');
-  int get productionImported => intOf('production_imported');
-}
-
 class DuplicationSection extends JsonModel {
   const DuplicationSection.fromJson(super.json);
 
@@ -148,6 +146,26 @@ class DuplicationSection extends JsonModel {
       optStrs('unlisted_clone_family_group_ids');
 }
 
+extension type const UnlistedDependenciesSection._(
+  MetricSection<ImportedDependencyFinding> _section
+) implements MetricSection<ImportedDependencyFinding> {
+  UnlistedDependenciesSection.fromJson(Map<String, Object?> json)
+      : _section = MetricSection.fromJson(json, parseImportedDependencyFinding);
+
+  int get unlisted => _section.intOf('unlisted');
+  int get imported => _section.intOf('imported');
+}
+
+extension type const DevInProductionDependenciesSection._(
+  MetricSection<ImportedDependencyFinding> _section
+) implements MetricSection<ImportedDependencyFinding> {
+  DevInProductionDependenciesSection.fromJson(Map<String, Object?> json)
+      : _section = MetricSection.fromJson(json, parseImportedDependencyFinding);
+
+  int get devInProduction => _section.intOf('dev_in_production');
+  int get productionImported => _section.intOf('production_imported');
+}
+
 class DependenciesSection extends JsonModel {
   const DependenciesSection.fromJson(super.json);
 
@@ -156,17 +174,10 @@ class DependenciesSection extends JsonModel {
         parseUnusedDependencyFinding,
       );
   UnlistedDependenciesSection get unlistedDependencies =>
-      MetricSection.fromJson(
-        requireJsonMap(json['unlisted_dependencies'], 'unlisted_dependencies'),
-        parseImportedDependencyFinding,
-      );
-  DevInProductionDependenciesSection get devInProductionDependencies =>
-      MetricSection.fromJson(
-        requireJsonMap(
-          json['dev_in_production_dependencies'],
-          'dev_in_production_dependencies',
-        ),
-        parseImportedDependencyFinding,
+      obj('unlisted_dependencies', UnlistedDependenciesSection.fromJson);
+  DevInProductionDependenciesSection get devInProductionDependencies => obj(
+        'dev_in_production_dependencies',
+        DevInProductionDependenciesSection.fromJson,
       );
 }
 
@@ -243,8 +254,7 @@ class SourceSetReport extends JsonModel {
       _required('cognitive_complexity', parseCognitiveComplexityFinding);
   DuplicationSection get duplication =>
       obj('duplication', DuplicationSection.fromJson);
-  VerbositySection get verbosity =>
-      _required('verbosity', parseLineRuleFinding);
+  VerbositySection get verbosity => obj('verbosity', VerbositySection.fromJson);
   ImportCyclesSection? get importCycles =>
       _optional('import_cycles', parseImportCycleFinding);
   BoundariesSection? get boundaries =>
@@ -252,7 +262,7 @@ class SourceSetReport extends JsonModel {
   OrphanFilesSection? get orphanFiles =>
       _optional('orphan_files', parseOrphanFileFinding);
   TestGapSection? get testGap => _optional('test_gap', parseTestGapFinding);
-  HazardsSection? get hazards => _optional('hazards', parseLineRuleFinding);
+  HazardsSection? get hazards => optObj('hazards', HazardsSection.fromJson);
   List<PackageSection> get packages =>
       optList('packages', PackageSection.fromJson);
 

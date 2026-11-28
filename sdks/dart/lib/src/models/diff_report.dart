@@ -51,6 +51,27 @@ class MetricChanges<T> extends JsonModel {
   int get unchanged => intOf('unchanged');
 }
 
+class CloneFamilyChanges extends JsonModel {
+  const CloneFamilyChanges.fromJson(super.json);
+
+  List<CloneFamilyFinding> get added => list('new', parseCloneFamilyFinding);
+  int? get newLeftOut => optInt('new_left_out');
+  List<CloneFamilyFinding> get resolved =>
+      list('resolved', parseCloneFamilyFinding);
+  int? get resolvedLeftOut => optInt('resolved_left_out');
+  int get unchanged => intOf('unchanged');
+  List<String> get unlistedCloneFamilyGroupIds =>
+      optStrs('unlisted_clone_family_group_ids');
+}
+
+class DuplicationChanges extends MetricChanges<CloneGroupFinding> {
+  const DuplicationChanges.fromJson(Map<String, Object?> json)
+      : super.fromJson(json, parseCloneGroupFinding);
+
+  CloneFamilyChanges? get cloneFamilies =>
+      optObj('clone_families', CloneFamilyChanges.fromJson);
+}
+
 class SourceSetChanges extends JsonModel {
   const SourceSetChanges.fromJson(super.json);
 
@@ -58,8 +79,8 @@ class SourceSetChanges extends JsonModel {
       _required('erosion', parseErodedFunctionFinding);
   MetricChanges<CognitiveComplexityFinding> get cognitiveComplexity =>
       _required('cognitive_complexity', parseCognitiveComplexityFinding);
-  MetricChanges<CloneGroupFinding> get duplication =>
-      _required('duplication', parseCloneGroupFinding);
+  DuplicationChanges get duplication =>
+      obj('duplication', DuplicationChanges.fromJson);
   MetricChanges<FlaggedLineFinding> get verbosity =>
       _required('verbosity', parseLineRuleFinding);
   MetricChanges<ImportCycleFinding>? get importCycles =>

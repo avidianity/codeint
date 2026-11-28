@@ -85,13 +85,19 @@ void main() {
         '{"budgets":{"production":{"verbosity":0}}}\n',
       );
 
-      final failDiff = await client.diff('HEAD');
+      final failDiff = await client.diff(
+        'HEAD',
+        DiffOptions(resultCache: cacheDir.path),
+      );
       expect(failDiff.passed, isFalse);
       expect(failDiff.exitCode, equals(1));
       expect(failDiff.failures, isNotEmpty);
     });
 
     test('trend supports default, since, last, and validates options', () async {
+      final cacheDir = await createTempDir('trend_cache');
+      addTearDown(() => cacheDir.delete(recursive: true));
+
       await writeRepoFile(
         repo,
         'src/math.ts',
@@ -102,11 +108,15 @@ void main() {
       await runGit(repo, const <String>['add', '.']);
       await runGit(repo, const <String>['commit', '-m', 'second']);
 
-      final fullTrend = await client.trend();
+      final fullTrend = await client.trend(
+        TrendOptions(resultCache: cacheDir.path),
+      );
       expect(fullTrend.commits, equals(2));
       expect(fullTrend.sourceSets['production'], hasLength(2));
 
-      final lastOne = await client.trend(const TrendOptions(last: 1));
+      final lastOne = await client.trend(
+        TrendOptions(last: 1, resultCache: cacheDir.path),
+      );
       expect(lastOne.commits, equals(1));
       expect(lastOne.sourceSets['production'], hasLength(1));
 
@@ -257,12 +267,54 @@ void main() {
 
     test('operational exit 2 throws CodeintError with exitCode and stderr',
         () async {
+      final cacheDir = await createTempDir('diff_error_cache');
+      addTearDown(() => cacheDir.delete(recursive: true));
+
       await expectLater(
-        client.diff('refs/heads/does-not-exist-anywhere'),
+        client.diff(
+          'refs/heads/does-not-exist-anywhere',
+          DiffOptions(resultCache: cacheDir.path),
+        ),
         throwsA(
           isA<CodeintError>()
               .having((e) => e.exitCode, 'exitCode', equals(2))
               .having((e) => e.stderr, 'stderr', isNotEmpty),
+        ),
+      );
+    });
+
+    test('invalid JSON on exit 1 preserves exitCode, stderr, and cause',
+        () async {
+      if (Platform.isWindows) {
+        return;
+      }
+      final fakeDir = await createTempDir('bad_json_bin');
+      addTearDown(() => fakeDir.delete(recursive: true));
+      final fakeBin = File('${fakeDir.path}/codeint');
+      await fakeBin.writeAsString(
+        '#!/bin/sh\n'
+        'echo "not-json-output"\n'
+        'echo "diagnostic stderr line" >&2\n'
+        'exit 1\n',
+      );
+      await Process.run('chmod', <String>['0755', fakeBin.path]);
+
+      final fakeClient = CodeintClient(
+        cwd: repo.path,
+        binaryPath: fakeBin.path,
+        allowDownload: false,
+      );
+      await expectLater(
+        fakeClient.check(),
+        throwsA(
+          isA<CodeintError>()
+              .having((e) => e.exitCode, 'exitCode', equals(1))
+              .having(
+                (e) => e.stderr,
+                'stderr',
+                contains('diagnostic stderr line'),
+              )
+              .having((e) => e.cause, 'cause', isA<FormatException>()),
         ),
       );
     });

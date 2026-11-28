@@ -135,10 +135,19 @@ String? _trimmedNonEmpty(String? value) {
   return trimmed.isEmpty ? null : trimmed;
 }
 
+int _stagingCounter = 0;
+
 Future<String> _requireExistingFile(String path, String sourceLabel) async {
   final file = File(path);
-  if (await file.exists()) {
-    return file.absolute.path;
+  try {
+    if (await file.exists()) {
+      return file.absolute.uri.toFilePath();
+    }
+  } on FileSystemException catch (error) {
+    throw CodeintError(
+      'Failed to access codeint binary from $sourceLabel ($path): ${error.message}',
+      cause: error,
+    );
   }
   throw CodeintError('codeint binary from $sourceLabel does not exist: $path');
 }
@@ -162,7 +171,7 @@ Future<String?> _findMatchingBinaryOnPath(
       continue;
     }
     if (await _matchesBinaryVersion(candidate.path, expectedVersion)) {
-      return candidate.absolute.path;
+      return candidate.absolute.uri.toFilePath();
     }
   }
   return null;
@@ -198,7 +207,7 @@ Future<String> _resolveFromVerifiedCache(
     '${Platform.pathSeparator}${target.binaryName}',
   );
   if (await cachedFile.exists() && await cachedFile.length() > 0) {
-    return cachedFile.absolute.path;
+    return cachedFile.absolute.uri.toFilePath();
   }
   if (!options.allowDownload) {
     throw CodeintError(
@@ -213,7 +222,7 @@ Future<String> _resolveFromVerifiedCache(
     destination: cachedFile,
     baseUrl: _resolveReleaseBaseUrl(options, env),
   );
-  return cachedFile.absolute.path;
+  return cachedFile.absolute.uri.toFilePath();
 }
 
 String _resolveCacheRoot(String? explicitCacheDir, Map<String, String> env) {
@@ -261,10 +270,10 @@ Future<void> _downloadAndInstallBinary({
   required File destination,
   required String baseUrl,
 }) async {
-  final client = HttpClient();
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 30);
   try {
     final checksumsBytes = await _httpGetBytes(client, '$baseUrl/SHA256SUMS');
-    final checksumsText = utf8.decode(checksumsBytes);
+    final checksumsText = _decodeUtf8(checksumsBytes, 'SHA256SUMS');
     final expectedSha = parseChecksumEntry(checksumsText, target.archiveFileName);
     if (expectedSha == null) {
       throw CodeintError(
@@ -282,7 +291,7 @@ Future<void> _downloadAndInstallBinary({
         'expected $expectedSha, got $actualSha',
       );
     }
-    final binaryBytes = _extractBinaryFromArchive(
+    final binaryBytes = extractBinaryFromArchive(
       archiveBytes,
       target.archiveExtension,
       target.binaryName,
@@ -293,9 +302,17 @@ Future<void> _downloadAndInstallBinary({
   }
 }
 
-Future<Uint8List> _httpGetBytes(HttpClient client, String url) async {
-  final uri = Uri.parse(url);
+String _decodeUtf8(Uint8List bytes, String label) {
   try {
+    return utf8.decode(bytes);
+  } on FormatException catch (error) {
+    throw CodeintError('Invalid UTF-8 in $label: ${error.message}', cause: error);
+  }
+}
+
+Future<Uint8List> _httpGetBytes(HttpClient client, String url) async {
+  try {
+    final uri = Uri.parse(url);
     final request = await client.getUrl(uri);
     final response = await request.close();
     if (response.statusCode != HttpStatus.ok) {
@@ -315,26 +332,47 @@ Future<Uint8List> _httpGetBytes(HttpClient client, String url) async {
   }
 }
 
-Uint8List _extractBinaryFromArchive(
+Uint8List extractBinaryFromArchive(
   Uint8List archiveBytes,
   String archiveExtension,
   String binaryName,
 ) {
   final archive = _decodeArchive(archiveBytes, archiveExtension);
+  Uint8List? matched;
   for (final file in archive.files) {
+    final normalized = _validateArchiveEntryPath(file.name);
+    if (file.isSymbolicLink || file.isHardLink) {
+      throw CodeintError(
+        'Archive contains disallowed link entry "${file.name}"',
+      );
+    }
     if (!file.isFile) {
       continue;
     }
-    final normalized = file.name.replaceAll('\\', '/');
-    final baseName = normalized.split('/').last;
-    if (baseName == binaryName) {
+    if (matched == null && normalized.split('/').last == binaryName) {
       final extracted = file.readBytes();
       if (extracted != null && extracted.isNotEmpty) {
-        return extracted;
+        matched = extracted;
       }
     }
   }
+  if (matched != null) {
+    return matched;
+  }
   throw CodeintError('Archive does not contain "$binaryName"');
+}
+
+String _validateArchiveEntryPath(String rawName) {
+  if (rawName.startsWith('/') ||
+      rawName.startsWith('\\') ||
+      RegExp(r'^[a-zA-Z]:').hasMatch(rawName)) {
+    throw CodeintError('Archive contains unsafe path "$rawName"');
+  }
+  final normalized = rawName.replaceAll('\\', '/');
+  if (normalized.split('/').contains('..')) {
+    throw CodeintError('Archive contains unsafe path "$rawName"');
+  }
+  return normalized;
 }
 
 Archive _decodeArchive(Uint8List archiveBytes, String archiveExtension) {
@@ -356,10 +394,11 @@ Future<void> _writeExecutableAtomically(
   File destination,
   Uint8List binaryBytes,
 ) async {
-  await destination.parent.create(recursive: true);
   final stamp = DateTime.now().microsecondsSinceEpoch;
-  final staged = File('${destination.path}.tmp.$pid.$stamp');
+  final sequence = ++_stagingCounter;
+  final staged = File('${destination.path}.tmp.$pid.$stamp.$sequence');
   try {
+    await destination.parent.create(recursive: true);
     await staged.writeAsBytes(binaryBytes, flush: true);
     if (!Platform.isWindows) {
       final chmod = await Process.run('chmod', <String>['0755', staged.path]);
@@ -370,10 +409,24 @@ Future<void> _writeExecutableAtomically(
       }
     }
     await staged.rename(destination.path);
-  } on Object {
-    if (await staged.exists()) {
-      await staged.delete();
-    }
+  } on CodeintError {
+    await _deleteIfExists(staged);
     rethrow;
+  } on Object catch (error) {
+    await _deleteIfExists(staged);
+    throw CodeintError(
+      'Failed to install codeint binary at ${destination.path}: $error',
+      cause: error,
+    );
+  }
+}
+
+Future<void> _deleteIfExists(File file) async {
+  try {
+    if (await file.exists()) {
+      await file.delete();
+    }
+  } on FileSystemException {
+    return;
   }
 }

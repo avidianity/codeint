@@ -14,5 +14,8 @@ Future<void> main(List<String> arguments) async {
   } on CodeintError catch (error) {
     stderr.writeln(error.message);
     exitCode = error.exitCode ?? 2;
+  } on ProcessException catch (error) {
+    stderr.writeln('Failed to execute codeint binary: ${error.message}');
+    exitCode = 2;
   }
 }

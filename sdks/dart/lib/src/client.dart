@@ -399,6 +399,11 @@ AdoptedFiles _parseAdoptedFiles(String configPath, List<String> wroteLines) {
       baselinedFindings = int.parse(baselineMatch.group(2)!);
     }
   }
+  if (ratchetPath.isEmpty || baselinePath.isEmpty) {
+    throw CodeintError(
+      'Unexpected codeint init --adopt output: missing ratchet or baseline summary',
+    );
+  }
   return AdoptedFiles(
     configuration: configPath,
     ratchet: ratchetPath,

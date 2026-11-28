@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:codeint/codeint.dart';
+import 'package:codeint/src/binary_resolver.dart';
 import 'package:test/test.dart';
 
 import 'test_helpers.dart';
@@ -184,38 +186,16 @@ void main() {
         await cacheDir.delete(recursive: true);
       });
 
-      await expectLater(
-        ensureBinary(
-          BinaryResolverOptions(
-            releaseBaseUrl: badHashServer.baseUrl,
-            cacheDir: cacheDir.path,
-            environment: const <String, String>{'PATH': ''},
-          ),
-        ),
-        throwsA(
-          isA<CodeintError>().having(
-            (e) => e.message,
-            'message',
-            contains('checksum mismatch'),
-          ),
-        ),
+      await _expectEnsureBinaryError(
+        baseUrl: badHashServer.baseUrl,
+        cacheDir: cacheDir.path,
+        messageContains: 'checksum mismatch',
       );
 
-      await expectLater(
-        ensureBinary(
-          BinaryResolverOptions(
-            releaseBaseUrl: missingEntryServer.baseUrl,
-            cacheDir: cacheDir.path,
-            environment: const <String, String>{'PATH': ''},
-          ),
-        ),
-        throwsA(
-          isA<CodeintError>().having(
-            (e) => e.message,
-            'message',
-            contains('No SHA-256 checksum entry'),
-          ),
-        ),
+      await _expectEnsureBinaryError(
+        baseUrl: missingEntryServer.baseUrl,
+        cacheDir: cacheDir.path,
+        messageContains: 'No SHA-256 checksum entry',
       );
     });
 
@@ -228,24 +208,75 @@ void main() {
         await cacheDir.delete(recursive: true);
       });
 
-      await expectLater(
-        ensureBinary(
-          BinaryResolverOptions(
-            allowDownload: false,
-            releaseBaseUrl: server.baseUrl,
-            cacheDir: cacheDir.path,
-            environment: const <String, String>{'PATH': ''},
+      await _expectEnsureBinaryError(
+        allowDownload: false,
+        baseUrl: server.baseUrl,
+        cacheDir: cacheDir.path,
+        messageContains: 'allowDownload: false',
+      );
+      expect(server.requestCount, equals(0));
+    });
+
+    test('archive extraction rejects zip symlinks and traversal entries',
+        () async {
+      final symlinkZipArchive = Archive()
+        ..addFile(ArchiveFile.symlink('codeint', '/etc/passwd'))
+        ..addFile(ArchiveFile.symlink('codeint.exe', '/etc/passwd'));
+      final symlinkZipBytes =
+          Uint8List.fromList(ZipEncoder().encode(symlinkZipArchive));
+
+      for (final name in const <String>['codeint', 'codeint.exe']) {
+        expect(
+          () => extractBinaryFromArchive(symlinkZipBytes, 'zip', name),
+          throwsA(
+            isA<CodeintError>().having(
+              (e) => e.message,
+              'message',
+              contains('disallowed link entry'),
+            ),
           ),
-        ),
+        );
+      }
+
+      final traversalBytes = buildArchiveBytes(
+        archiveExtension: 'zip',
+        binaryName: '../../evil/codeint',
+        binaryBytes: Uint8List.fromList(<int>[1, 2, 3, 4]),
+      );
+      expect(
+        () => extractBinaryFromArchive(traversalBytes, 'zip', 'codeint'),
         throwsA(
           isA<CodeintError>().having(
             (e) => e.message,
             'message',
-            contains('allowDownload: false'),
+            contains('unsafe path'),
           ),
         ),
       );
-      expect(server.requestCount, equals(0));
+
+      final target = detectReleaseTarget();
+      final traversalReleaseArchive = buildArchiveBytes(
+        archiveExtension: target.archiveExtension,
+        binaryName: '../../evil/${target.binaryName}',
+        binaryBytes: Uint8List.fromList(<int>[1, 2, 3, 4]),
+      );
+      final server = await MockReleaseServer.start(
+        buildMockReleaseAssets(
+          archiveFileName: target.archiveFileName,
+          archiveBytes: traversalReleaseArchive,
+        ),
+      );
+      final cacheDir = await createTempDir('traversal_cache');
+      addTearDown(() async {
+        await server.close();
+        await cacheDir.delete(recursive: true);
+      });
+
+      await _expectEnsureBinaryError(
+        baseUrl: server.baseUrl,
+        cacheDir: cacheDir.path,
+        messageContains: 'unsafe path',
+      );
     });
   });
 
@@ -274,3 +305,27 @@ void main() {
     });
   });
 }
+
+Future<void> _expectEnsureBinaryError({
+  required String baseUrl,
+  required String cacheDir,
+  required String messageContains,
+  bool allowDownload = true,
+}) =>
+    expectLater(
+      ensureBinary(
+        BinaryResolverOptions(
+          allowDownload: allowDownload,
+          releaseBaseUrl: baseUrl,
+          cacheDir: cacheDir,
+          environment: const <String, String>{'PATH': ''},
+        ),
+      ),
+      throwsA(
+        isA<CodeintError>().having(
+          (e) => e.message,
+          'message',
+          contains(messageContains),
+        ),
+      ),
+    );

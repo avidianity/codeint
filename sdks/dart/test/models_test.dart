@@ -154,18 +154,40 @@ void main() {
 
     final prod = report.sourceSets['production']!;
     expect(prod.erosion.metricVersion, equals(2));
-    expect(prod.erosion.referenceRange.isRange, isTrue);
+    expect(prod.erosion.referenceRange?.isRange, isTrue);
     expect(prod.cognitiveComplexity.metricVersion, equals(1));
     expect(prod.duplication.metricVersion, equals(2));
+    expect(prod.verbosity, isA<VerbositySection>());
     expect(prod.verbosity.metricVersion, equals(1));
+    expect(prod.verbosity.verboseLines, equals(0));
+    expect(prod.verbosity.flaggedLines, equals(0));
     expect(prod.importCycles?.modules, equals(8));
     expect(prod.boundaries?.resolvedImports, equals(12));
+    expect(prod.boundaries?.referenceRange, isNull);
     expect(prod.orphanFiles?.evaluatedFiles, equals(8));
     expect(prod.testGap?.measuredFunctions, equals(10));
+    expect(prod.hazards, isA<HazardsSection>());
+    expect(prod.hazards?.hazardLines, equals(0));
     expect(prod.hazards?.sourceLines, equals(320));
     expect(report.dependencies?.unusedDependencies.declared, equals(2));
+    expect(
+      report.dependencies?.unlistedDependencies,
+      isA<UnlistedDependenciesSection>(),
+    );
+    expect(report.dependencies?.unlistedDependencies.unlisted, equals(0));
     expect(report.dependencies?.unlistedDependencies.imported, equals(2));
-    expect(report.dependencies?.devInProductionDependencies.productionImported, equals(2));
+    expect(
+      report.dependencies?.devInProductionDependencies,
+      isA<DevInProductionDependenciesSection>(),
+    );
+    expect(
+      report.dependencies?.devInProductionDependencies.devInProduction,
+      equals(0),
+    );
+    expect(
+      report.dependencies?.devInProductionDependencies.productionImported,
+      equals(2),
+    );
     expect(report.baseline?.hiddenFindings, equals(3));
     expect(report.fileDiagnostics.single.kind, equals('parse_warning'));
     expect(report.scopeSummaries.single.fields['exports'], equals('12'));
@@ -176,7 +198,8 @@ void main() {
     );
   });
 
-  test('DiffReport and TrendReport parse custom external metrics', () {
+  test('DiffReport and TrendReport parse custom external metrics and clone families',
+      () {
     final diff = DiffReport.fromJson(<String, Object?>{
       'base': <String, Object?>{'ref': 'main', 'merge_base': 'abc123'},
       'head': <String, Object?>{'ref': 'feat', 'commit': 'def456'},
@@ -184,16 +207,48 @@ void main() {
         'production': <String, Object?>{
           'erosion': _emptyChangeJson(2),
           'cognitive_complexity': _emptyChangeJson(1),
-          'duplication': _emptyChangeJson(2),
+          'duplication': <String, Object?>{
+            ..._emptyChangeJson(2),
+            'clone_families': <String, Object?>{
+              'new': <Object?>[
+                <String, Object?>{
+                  'id': 'cf-1',
+                  'duplicated_lines': 12,
+                  'clone_group_ids': const <String>['cg-1'],
+                  'locations': <Object?>[
+                    <String, Object?>{
+                      'path': 'lib/a.dart',
+                      'start_line': 1,
+                      'end_line': 12,
+                    },
+                  ],
+                },
+              ],
+              'new_left_out': 2,
+              'resolved': const <Object?>[],
+              'resolved_left_out': 1,
+              'unchanged': 3,
+              'unlisted_clone_family_group_ids': const <String>['cg-9'],
+            },
+          },
           'verbosity': _emptyChangeJson(1),
           'custom_plugin_metric': _emptyChangeJson(1),
         },
       },
     });
 
+    final prodChanges = diff.sourceSets['production']!;
     expect(diff.head.commit, equals('def456'));
+    expect(prodChanges.duplication, isA<DuplicationChanges>());
+    final families = prodChanges.duplication.cloneFamilies!;
+    expect(families.added.single.id, equals('cf-1'));
+    expect(families.newLeftOut, equals(2));
+    expect(families.resolved, isEmpty);
+    expect(families.resolvedLeftOut, equals(1));
+    expect(families.unchanged, equals(3));
+    expect(families.unlistedCloneFamilyGroupIds, equals(<String>['cg-9']));
     expect(
-      diff.sourceSets['production']!.externalMetrics.containsKey('custom_plugin_metric'),
+      prodChanges.externalMetrics.containsKey('custom_plugin_metric'),
       isTrue,
     );
 
