@@ -107,7 +107,10 @@ fn default_report_options<'a>(
     budgets: &'a Budgets,
     dependencies: &'a DependenciesConfig,
 ) -> ReportOptions<'a> {
-    ReportOptions::new(FindingsShown::default(), budgets).with_dependencies(dependencies)
+    ReportOptions {
+        dependencies: Some(dependencies),
+        ..ReportOptions::new(FindingsShown::default(), budgets)
+    }
 }
 
 fn config_from_json(json_text: &str) -> codeint_config::Configuration {
@@ -316,8 +319,10 @@ fn disabled_hazard_rules_and_budgets_equal_and_over() {
     let disabled_report = Report::summarize_with_options(
         vec![measured_sql(model)],
         Vec::new(),
-        default_report_options(&tighter_budget, &dependencies)
-            .with_extras(ReportExtras::default().with_disabled_hazard_rules(disabled)),
+        ReportOptions {
+            extras: ReportExtras::default().with_disabled_hazard_rules(disabled),
+            ..default_report_options(&tighter_budget, &dependencies)
+        },
     )
     .expect("disabled rule report");
     assert!(disabled_report.over_budget().is_empty());
@@ -396,7 +401,7 @@ fn file_diagnostics_scope_summaries_templated_skipped_and_zero_secret_leakage() 
     let report = Report::summarize_with_options(
         vec![measured_sql(model)],
         Vec::new(),
-        options.with_extras(extras),
+        ReportOptions { extras, ..options },
     )
     .expect("summarize");
 
@@ -514,9 +519,11 @@ fn diff_and_trend_measure_hazards_only_on_hazard_languages_with_limits_budgets_a
     let measure = |models: Vec<CodeModel>, disabled: &BTreeSet<String>| {
         CommitMeasurement::of_languages(
             models,
-            CommitMeasurementOptions::default()
-                .with_dependencies(&dependencies)
-                .with_disabled_hazard_rules(disabled),
+            CommitMeasurementOptions {
+                dependencies: Some(&dependencies),
+                disabled_hazard_rules: Some(disabled),
+                ..CommitMeasurementOptions::default()
+            },
         )
         .expect("commit measurement")
     };

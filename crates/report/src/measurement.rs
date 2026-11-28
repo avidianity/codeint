@@ -72,18 +72,6 @@ pub struct CommitMeasurementOptions<'a> {
     pub disabled_hazard_rules: Option<&'a BTreeSet<String>>,
 }
 
-impl<'a> CommitMeasurementOptions<'a> {
-    with_fields! {
-        with_metric_plugins(metric_plugins: &'a [&'a dyn MetricPlugin]) => metric_plugins,
-        with_boundaries(boundaries: Option<&'a BoundariesConfig>) => boundaries,
-        with_dependencies(dependencies: &'a DependenciesConfig) => Some(dependencies),
-        with_duplication(duplication: DuplicationConfig) => duplication,
-        with_orphan_files(orphan_files: Option<&'a OrphanFiles>) => orphan_files,
-        with_dependency_hygiene(dependency_hygiene: Option<&'a DependencyHygiene>) => dependency_hygiene,
-        with_disabled_hazard_rules(disabled_hazard_rules: &'a BTreeSet<String>) => Some(disabled_hazard_rules),
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct ExternalMetricCommitMeasurement {
     pub(crate) name: String,

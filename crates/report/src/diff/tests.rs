@@ -279,9 +279,11 @@ fn diff_report_evaluates_new_file_budgets_and_round_trips_saved_report() {
         Head::WorkingTree,
         CommitMeasurement::of(CodeModel::default()),
         CommitMeasurement::of(new_file_model.clone()),
-        DiffReportOptions::new(FindingsShown::default(), &budgets, &limits)
-            .with_new_file_budgets(&config.new_file_budgets)
-            .with_new_files(Some(CommitMeasurement::of(new_file_model))),
+        DiffReportOptions {
+            new_file_budgets: Some(&config.new_file_budgets),
+            new_files: Some(CommitMeasurement::of(new_file_model)),
+            ..DiffReportOptions::new(FindingsShown::default(), &budgets, &limits)
+        },
     );
     assert_eq!(diff.over_new_file_budget().len(), 1);
     assert!(

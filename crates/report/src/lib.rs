@@ -66,21 +66,6 @@ macro_rules! crate_structs {
     };
 }
 
-macro_rules! with_fields {
-    (
-        $(
-            $method:ident($field:ident: $ty:ty) => $expr:expr
-        ),* $(,)?
-    ) => {
-        $(
-            pub fn $method(mut self, $field: $ty) -> Self {
-                self.$field = $expr;
-                self
-            }
-        )*
-    };
-}
-
 macro_rules! impl_ratchet_metrics_source {
     ($($ty:ty => $ratio:ident),* $(,)?) => {
         $(
@@ -174,8 +159,8 @@ pub(crate) use render::{
     render_text_report,
 };
 pub(crate) use sections::{
-    DependenciesSection, HazardsSection, ImportCyclesSection, MeasuredSection, MetricHeader,
-    PackageSection, SourceSetSection, SourceSetSections,
+    DependenciesSection, HazardsSection, ImportCyclesSection, MeasuredSection, PackageSection,
+    SourceSetSection, SourceSetSections,
 };
 pub(crate) use summary::{Measured, MeasuredSectionModels, SectionModels, SectionOptions};
 
@@ -392,16 +377,6 @@ impl<'a> ReportOptions<'a> {
             baseline: None,
             extras: ReportExtras::default(),
         }
-    }
-
-    with_fields! {
-        with_metric_plugins(metric_plugins: &'a [&'a dyn MetricPlugin]) => metric_plugins,
-        with_boundaries(boundaries: Option<&'a BoundariesConfig>) => boundaries,
-        with_dependencies(dependencies: &'a DependenciesConfig) => Some(dependencies),
-        with_duplication(duplication: DuplicationConfig) => duplication,
-        with_ownership(ownership: OwnershipOptions<'a>) => ownership,
-        with_baseline(baseline: Option<&'a Baseline>) => baseline,
-        with_extras(extras: ReportExtras) => extras,
     }
 }
 

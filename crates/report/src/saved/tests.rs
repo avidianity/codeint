@@ -107,7 +107,10 @@ fn saved_check_and_diff_reports_preserve_metric_versions_across_json_and_toon_ro
             true,
         )],
         Vec::new(),
-        crate::ReportOptions::new(FindingsShown::default(), &budgets).with_metric_plugins(&plugins),
+        crate::ReportOptions {
+            metric_plugins: &plugins,
+            ..crate::ReportOptions::new(FindingsShown::default(), &budgets)
+        },
     )
     .expect("check report");
     let check_json = check.render(ReportFormat::Json).expect("check json");
@@ -159,7 +162,10 @@ fn saved_check_and_diff_reports_preserve_metric_versions_across_json_and_toon_ro
         1
     );
 
-    let plugin_options = crate::CommitMeasurementOptions::default().with_metric_plugins(&plugins);
+    let plugin_options = crate::CommitMeasurementOptions {
+        metric_plugins: &plugins,
+        ..crate::CommitMeasurementOptions::default()
+    };
     let base_measurement = CommitMeasurement::of_languages(vec![model.clone()], plugin_options)
         .expect("base measurement");
     let head_measurement =

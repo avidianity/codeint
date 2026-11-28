@@ -49,12 +49,13 @@ fn tiny_positive_min_similarity_preserves_nonzero_json_toon_and_markdown_display
             true,
         )],
         Vec::new(),
-        ReportOptions::new(FindingsShown::default(), &budgets).with_duplication(
-            DuplicationConfig {
+        ReportOptions {
+            duplication: DuplicationConfig {
                 near_clones: true,
                 min_similarity: MinSimilarity::new(0.00001).expect("positive min_similarity"),
             },
-        ),
+            ..ReportOptions::new(FindingsShown::default(), &budgets)
+        },
     )
     .expect("summarize");
 

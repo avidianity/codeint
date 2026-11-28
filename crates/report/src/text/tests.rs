@@ -99,9 +99,11 @@ fn check_text_snapshot_shows_status_header_reference_ranges_ratchet_baseline_and
             true,
         )],
         Vec::new(),
-        ReportOptions::new(FindingsShown::default(), &budgets)
-            .with_dependencies(&dependencies)
-            .with_baseline(Some(&baseline)),
+        ReportOptions {
+            dependencies: Some(&dependencies),
+            baseline: Some(&baseline),
+            ..ReportOptions::new(FindingsShown::default(), &budgets)
+        },
     )
     .expect("report");
     report.apply_ratchet(&ratchet).expect("apply ratchet");
@@ -149,8 +151,10 @@ fn diff_and_trend_text_render_aligned_tables_and_respect_all_without_ansi() {
         Head::WorkingTree,
         CommitMeasurement::of(base_model.clone()),
         CommitMeasurement::of(head_model.clone()),
-        DiffReportOptions::new(FindingsShown::default(), &budgets, &limits)
-            .with_new_file_budgets(&budgets),
+        DiffReportOptions {
+            new_file_budgets: Some(&budgets),
+            ..DiffReportOptions::new(FindingsShown::default(), &budgets, &limits)
+        },
     );
     let diff_text = diff.render(ReportFormat::Text).expect("diff text");
     assert!(!diff_text.contains('\u{1b}'));
@@ -171,8 +175,10 @@ fn diff_and_trend_text_render_aligned_tables_and_respect_all_without_ansi() {
         Head::WorkingTree,
         CommitMeasurement::of(base_model.clone()),
         CommitMeasurement::of(head_model.clone()),
-        DiffReportOptions::new(FindingsShown::All, &budgets, &limits)
-            .with_new_file_budgets(&budgets),
+        DiffReportOptions {
+            new_file_budgets: Some(&budgets),
+            ..DiffReportOptions::new(FindingsShown::All, &budgets, &limits)
+        },
     );
     let diff_all_text = diff_all.render(ReportFormat::Text).expect("diff all text");
     assert!(diff_all_text.contains("Resolved Production Erosion findings (1):"));
@@ -297,9 +303,11 @@ fn workspace_package_fail_line_includes_failing_non_core_metrics() {
     )
     .expect("ratchet");
 
-    let mut options =
-        ReportOptions::new(FindingsShown::default(), &budgets).with_dependencies(&dependencies);
-    options.coverage_reports_named = true;
+    let options = ReportOptions {
+        dependencies: Some(&dependencies),
+        coverage_reports_named: true,
+        ..ReportOptions::new(FindingsShown::default(), &budgets)
+    };
     let mut report = Report::summarize_with_options(
         vec![MeasuredLanguage::new(
             "typescript-javascript",

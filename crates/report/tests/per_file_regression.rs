@@ -70,8 +70,10 @@ fn diff_report_evaluates_per_file_regressions_and_round_trips_formats() {
         Head::WorkingTree,
         CommitMeasurement::of(base_model),
         CommitMeasurement::of(head_model),
-        DiffReportOptions::new(FindingsShown::default(), &budgets, &limits)
-            .with_changed_files(changed_files),
+        DiffReportOptions {
+            changed_files,
+            ..DiffReportOptions::new(FindingsShown::default(), &budgets, &limits)
+        },
     );
     let failures = diff.failure_messages();
     assert_eq!(failures.len(), 1, "unexpected failures: {failures:?}");

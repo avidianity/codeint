@@ -172,29 +172,29 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
     let budgets = Budgets::default();
 
     let unmatched = ["missing/file.ts".to_owned()];
-    let mut with_gap_options = ReportOptions::new(FindingsShown::default(), &budgets)
-        .with_dependencies(&dependencies)
-        .with_extras(
-            ReportExtras::default()
-                .with_file_diagnostics(vec![FileDiagnosticEntry {
-                    path: "packages/api/db/bad.sql".to_owned(),
-                    line: 9,
-                    kind: "rejected-statement".to_owned(),
-                    message: "could not parse statement as postgresql".to_owned(),
-                }])
-                .with_scope_summaries(vec![ScopeSummaryEntry {
-                    language: "sql".to_owned(),
-                    package: Some("packages/api".to_owned()),
-                    dialect: Some("postgresql".to_owned()),
-                    kind: "sql-schema".to_owned(),
-                    fields: BTreeMap::from([
-                        ("dialect".to_owned(), "postgresql".to_owned()),
-                        ("tables".to_owned(), "3".to_owned()),
-                    ]),
-                }]),
-        );
-    with_gap_options.coverage_reports_named = true;
-    with_gap_options.unmatched_coverage_paths = &unmatched;
+    let with_gap_options = ReportOptions {
+        dependencies: Some(&dependencies),
+        coverage_reports_named: true,
+        unmatched_coverage_paths: &unmatched,
+        extras: ReportExtras::default()
+            .with_file_diagnostics(vec![FileDiagnosticEntry {
+                path: "packages/api/db/bad.sql".to_owned(),
+                line: 9,
+                kind: "rejected-statement".to_owned(),
+                message: "could not parse statement as postgresql".to_owned(),
+            }])
+            .with_scope_summaries(vec![ScopeSummaryEntry {
+                language: "sql".to_owned(),
+                package: Some("packages/api".to_owned()),
+                dialect: Some("postgresql".to_owned()),
+                kind: "sql-schema".to_owned(),
+                fields: BTreeMap::from([
+                    ("dialect".to_owned(), "postgresql".to_owned()),
+                    ("tables".to_owned(), "3".to_owned()),
+                ]),
+            }]),
+        ..ReportOptions::new(FindingsShown::default(), &budgets)
+    };
     let with_gap = Report::summarize_with_options(
         vec![MeasuredLanguage {
             plugin: "typescript-javascript".to_owned(),
@@ -313,9 +313,11 @@ fn report_schema_validates_external_package_boundary_findings() {
             framework_profiles_by_package: BTreeMap::new(),
         }],
         Vec::new(),
-        ReportOptions::new(FindingsShown::default(), &budgets)
-            .with_boundaries(configuration.boundaries.as_ref())
-            .with_dependencies(&dependencies),
+        ReportOptions {
+            boundaries: configuration.boundaries.as_ref(),
+            dependencies: Some(&dependencies),
+            ..ReportOptions::new(FindingsShown::default(), &budgets)
+        },
     )
     .expect("report with external boundary finding");
     let report_json: Value =
@@ -386,7 +388,10 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
             true,
         )],
         Vec::new(),
-        ReportOptions::new(FindingsShown::default(), &budgets).with_metric_plugins(&metric_plugins),
+        ReportOptions {
+            metric_plugins: &metric_plugins,
+            ..ReportOptions::new(FindingsShown::default(), &budgets)
+        },
     )
     .expect("report with external metric plugin");
 

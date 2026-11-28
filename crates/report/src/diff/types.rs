@@ -323,15 +323,6 @@ impl<'a> DiffReportOptions<'a> {
             include_test_gap_note: false,
         }
     }
-
-    with_fields! {
-        with_new_file_budgets(new_file_budgets: &'a Budgets) => Some(new_file_budgets),
-        with_new_files(new_files: Option<CommitMeasurement>) => new_files,
-        with_changed_files(changed_files: BTreeSet<String>) => changed_files,
-        with_ownership(ownership: OwnershipOptions<'a>) => ownership,
-        with_baseline(baseline: Option<&'a Baseline>) => baseline,
-        with_test_gap_note(include_test_gap_note: bool) => include_test_gap_note,
-    }
 }
 
 impl<T: Serialize> Serialize for MetricChanges<T> {
