@@ -1,8 +1,8 @@
 use std::num::NonZeroUsize;
 
 use codeint_model::{
-    CodeModel, FileModel, RepoPath, SourceFile, SourceSet, Token, TokenKind, language::Function,
-    token_text_hash,
+    FileModel, RepoPath, SourceFile, SourceSet, SourceSetModel, Token, TokenKind,
+    language::Function, token_text_hash,
 };
 
 use super::{
@@ -51,10 +51,10 @@ fn kind_of(text: &str) -> TokenKind {
     }
 }
 
-fn model(files: Vec<SourceFile>) -> CodeModel {
-    CodeModel {
+fn model(files: Vec<SourceFile>) -> SourceSetModel {
+    SourceSetModel {
         files,
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     }
 }
 
@@ -62,7 +62,7 @@ fn minimum(tokens: usize) -> MinimumCloneTokens {
     MinimumCloneTokens::new(NonZeroUsize::new(tokens).expect("not zero"))
 }
 
-fn measure(model: &CodeModel, minimum: MinimumCloneTokens) -> Duplication {
+fn measure(model: &SourceSetModel, minimum: MinimumCloneTokens) -> Duplication {
     Duplication::measure(model, minimum, MinimumDistinctTokens::new(0))
 }
 
@@ -159,7 +159,7 @@ fn a_fragment_of_exactly_the_minimum_size_is_a_clone() {
 
 #[test]
 fn a_model_without_source_lines_has_a_ratio_of_zero() {
-    let duplication = measure(&CodeModel::default(), minimum(4));
+    let duplication = measure(&SourceSetModel::default(), minimum(4));
 
     assert_eq!(duplication.ratio(), 0.0);
     assert_eq!(groups(&duplication), []);

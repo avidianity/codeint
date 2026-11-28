@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use codeint_model::{CodeModel, ImportResolution, Metric, RepoPath, token_text_hash};
+use codeint_model::{ImportResolution, Metric, RepoPath, SourceSetModel, token_text_hash};
 
 use crate::FindingId;
 use crate::finding_id::{FindingContext, FindingIds};
@@ -106,7 +106,7 @@ impl<'a> ZoneCache<'a> {
 }
 
 impl Boundaries {
-    pub fn measure(model: &CodeModel, policy: &dyn BoundaryPolicy) -> Boundaries {
+    pub fn measure(model: &SourceSetModel, policy: &dyn BoundaryPolicy) -> Boundaries {
         let mut zone_cache = ZoneCache::new(policy, model.files.len());
         let (resolved_imports, mut pending) = evaluate_imports(model, policy, &mut zone_cache);
         let evaluated_files = if policy.strict_zones() {
@@ -150,7 +150,7 @@ impl Boundaries {
 }
 
 fn evaluate_imports<'a>(
-    model: &'a CodeModel,
+    model: &'a SourceSetModel,
     policy: &'a dyn BoundaryPolicy,
     zone_cache: &mut ZoneCache<'a>,
 ) -> (usize, Vec<PendingFinding>) {
@@ -355,7 +355,7 @@ fn check_public_files_edge(
 }
 
 fn collect_unzoned_files<'a>(
-    model: &'a CodeModel,
+    model: &'a SourceSetModel,
     zone_cache: &mut ZoneCache<'a>,
     pending: &mut Vec<PendingFinding>,
 ) {

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use codeint_model::Metric;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::baseline::Baselined;
+use crate::baseline::{Baselined, BudgetedRatio};
 use crate::dependencies::{ImportedDependencyRow, UnusedDependencyRow};
 use crate::findings::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CognitiveComplexityFinding,
@@ -343,6 +343,202 @@ pub(crate) struct MetricSection<Totals, Finding: FindingKind> {
 pub(crate) struct NearClonesSummary {
     pub(crate) min_similarity: f64,
 }
+
+pub(crate) struct SourceSetMetricSummary<'a> {
+    pub(crate) key: &'a str,
+    pub(crate) label: &'a str,
+    pub(crate) ratio: Decimal,
+    pub(crate) metric_version: u32,
+    pub(crate) reference_range: Option<&'a ReferenceRangeEntry>,
+    pub(crate) budgeted_ratio: BudgetedRatio,
+    pub(crate) baselined_hidden: usize,
+}
+
+pub(crate) struct DependencyMetricSummary {
+    pub(crate) key: &'static str,
+    pub(crate) label: &'static str,
+    pub(crate) ratio: Decimal,
+    pub(crate) metric_version: u32,
+    pub(crate) numerator: usize,
+    pub(crate) denominator: usize,
+    pub(crate) budgeted_ratio: BudgetedRatio,
+    pub(crate) baselined_hidden: usize,
+}
+
+impl SourceSetSection {
+    pub(crate) fn metric_summaries(&self) -> Vec<SourceSetMetricSummary<'_>> {
+        let mut summaries = vec![
+            summary_with_reference(
+                Metric::Erosion.key(),
+                "Erosion",
+                &self.erosion.header,
+                &self.erosion.findings,
+            ),
+            summary_with_reference(
+                Metric::CognitiveComplexity.key(),
+                "Cognitive complexity",
+                &self.cognitive_complexity.header,
+                &self.cognitive_complexity.findings,
+            ),
+            summary_with_reference(
+                Metric::Duplication.key(),
+                "Duplication",
+                &self.duplication.header,
+                &self.duplication.clone_groups,
+            ),
+            summary_with_reference(
+                Metric::Verbosity.key(),
+                "Verbosity",
+                &self.verbosity.header,
+                &self.verbosity.findings,
+            ),
+        ];
+        macro_rules! push_opt {
+            ($field:expr, $metric:expr, $label:expr, ref) => {
+                if let Some(item) = &$field {
+                    summaries.push(summary_with_reference(
+                        $metric.key(),
+                        $label,
+                        &item.header,
+                        &item.findings,
+                    ));
+                }
+            };
+            ($field:expr, $metric:expr, $label:expr) => {
+                if let Some(item) = &$field {
+                    summaries.push(summary_without_reference(
+                        $metric.key(),
+                        $label,
+                        &item.header,
+                        &item.findings,
+                    ));
+                }
+            };
+        }
+        push_opt!(
+            self.import_cycles,
+            Metric::ImportCycles,
+            "Import cycles",
+            ref
+        );
+        push_opt!(self.boundaries, Metric::Boundaries, "Boundaries");
+        push_opt!(self.orphan_files, Metric::OrphanFiles, "Orphan files");
+        push_opt!(self.test_gap, Metric::TestGap, "Test gap");
+        push_opt!(self.hazards, Metric::Hazards, "Hazards");
+        for (key, item) in &self.external_metrics {
+            summaries.push(summary_with_reference(
+                key.as_str(),
+                item.name.as_str(),
+                &item.header,
+                &item.findings,
+            ));
+        }
+        summaries
+    }
+}
+
+fn metric_summary<'a, T>(
+    key: &'a str,
+    label: &'a str,
+    ratio: Decimal,
+    metric_version: u32,
+    reference_range: Option<&'a ReferenceRangeEntry>,
+    findings: &Findings<T>,
+) -> SourceSetMetricSummary<'a> {
+    SourceSetMetricSummary {
+        key,
+        label,
+        ratio,
+        metric_version,
+        reference_range,
+        budgeted_ratio: findings.budgeted(ratio),
+        baselined_hidden: findings.baselined.hidden,
+    }
+}
+
+fn summary_with_reference<'a, T>(
+    key: &'a str,
+    label: &'a str,
+    header: &'a MetricHeader,
+    findings: &Findings<T>,
+) -> SourceSetMetricSummary<'a> {
+    metric_summary(
+        key,
+        label,
+        header.ratio,
+        header.metric_version,
+        Some(&header.reference_range),
+        findings,
+    )
+}
+
+fn summary_without_reference<'a, T>(
+    key: &'a str,
+    label: &'a str,
+    header: &MetricRatioHeader,
+    findings: &Findings<T>,
+) -> SourceSetMetricSummary<'a> {
+    metric_summary(
+        key,
+        label,
+        header.ratio,
+        header.metric_version,
+        None,
+        findings,
+    )
+}
+
+impl DependenciesSection {
+    pub(crate) fn metric_summaries(&self) -> [DependencyMetricSummary; 3] {
+        [
+            DependencyMetricSummary {
+                key: Metric::UnusedDependencies.key(),
+                label: "Unused dependencies",
+                ratio: self.unused_dependencies.header.ratio,
+                metric_version: self.unused_dependencies.header.metric_version,
+                numerator: self.unused_dependencies.unused,
+                denominator: self.unused_dependencies.declared,
+                budgeted_ratio: self
+                    .unused_dependencies
+                    .findings
+                    .budgeted(self.unused_dependencies.header.ratio),
+                baselined_hidden: self.unused_dependencies.findings.baselined.hidden,
+            },
+            DependencyMetricSummary {
+                key: Metric::UnlistedDependencies.key(),
+                label: "Unlisted dependencies",
+                ratio: self.unlisted_dependencies.header.ratio,
+                metric_version: self.unlisted_dependencies.header.metric_version,
+                numerator: self.unlisted_dependencies.unlisted,
+                denominator: self.unlisted_dependencies.imported,
+                budgeted_ratio: self
+                    .unlisted_dependencies
+                    .findings
+                    .budgeted(self.unlisted_dependencies.header.ratio),
+                baselined_hidden: self.unlisted_dependencies.findings.baselined.hidden,
+            },
+            DependencyMetricSummary {
+                key: Metric::DevInProductionDependencies.key(),
+                label: "Dev dependencies in production",
+                ratio: self.dev_in_production_dependencies.header.ratio,
+                metric_version: self.dev_in_production_dependencies.header.metric_version,
+                numerator: self.dev_in_production_dependencies.dev_in_production,
+                denominator: self.dev_in_production_dependencies.production_imported,
+                budgeted_ratio: self
+                    .dev_in_production_dependencies
+                    .findings
+                    .budgeted(self.dev_in_production_dependencies.header.ratio),
+                baselined_hidden: self
+                    .dev_in_production_dependencies
+                    .findings
+                    .baselined
+                    .hidden,
+            },
+        ]
+    }
+}
+
+impl_ratchet_metrics_source!(SourceSetSection => ratio, DependenciesSection => ratio);
 
 impl<'de> Deserialize<'de> for DuplicationSection {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {

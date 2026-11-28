@@ -11,11 +11,17 @@ mod vue3;
 use std::collections::BTreeSet;
 
 use codeint_model::RepoPath;
+use codeint_model::frameworks::{
+    find_package_manifest, has_matching_package_file, matching_package_files, package_rel_path,
+    select_framework_profiles,
+};
 use codeint_model::language::{
     FrameworkProfileResult, FrameworkProfileSelection, Manifest, ReferenceRange,
 };
 use codeint_model::scan::build_reference_ranges;
 use serde_json::Value;
+
+const IGNORED_DIRS: [&str; 1] = ["node_modules"];
 
 pub(crate) const KNOWN_PROFILES: [&str; 9] = [
     "react",
@@ -60,18 +66,9 @@ pub(crate) struct PackageContext<'a> {
 
 impl<'a> PackageContext<'a> {
     fn new(package_root: &'a str, files: &'a [RepoPath], manifests: &[Manifest]) -> Self {
-        let expected_manifest = if package_root.is_empty() {
-            "package.json".to_owned()
-        } else {
-            format!("{package_root}/package.json")
-        };
-        let package_json = manifests
-            .iter()
-            .find(|manifest| {
-                manifest.path == expected_manifest
-                    && !manifest.path.split('/').any(|seg| seg == "node_modules")
-            })
-            .and_then(|manifest| serde_json::from_str::<Value>(&manifest.text).ok());
+        let package_json =
+            find_package_manifest(package_root, "package.json", manifests, &IGNORED_DIRS)
+                .and_then(|manifest| serde_json::from_str::<Value>(&manifest.text).ok());
         Self {
             package_root,
             files,
@@ -80,30 +77,15 @@ impl<'a> PackageContext<'a> {
     }
 
     pub(crate) fn rel_path<'p>(&self, full: &'p str) -> Option<&'p str> {
-        let rel = if self.package_root.is_empty() {
-            full
-        } else {
-            full.strip_prefix(self.package_root)?.strip_prefix('/')?
-        };
-        if rel.split('/').any(|segment| segment == "node_modules") {
-            return None;
-        }
-        Some(rel)
+        package_rel_path(self.package_root, full, &IGNORED_DIRS)
     }
 
     pub(crate) fn matching_files(&self, predicate: impl Fn(&str) -> bool) -> Vec<String> {
-        self.files
-            .iter()
-            .map(RepoPath::as_str)
-            .filter(|full| self.rel_path(full).is_some_and(&predicate))
-            .map(str::to_owned)
-            .collect()
+        matching_package_files(self.package_root, self.files, &IGNORED_DIRS, predicate)
     }
 
     pub(crate) fn has_matching_file(&self, predicate: impl Fn(&str) -> bool) -> bool {
-        self.files
-            .iter()
-            .any(|full| self.rel_path(full.as_str()).is_some_and(&predicate))
+        has_matching_package_file(self.package_root, self.files, &IGNORED_DIRS, predicate)
     }
 
     pub(crate) fn has_file(&self, rel: &str) -> bool {
@@ -392,33 +374,13 @@ fn select_active_profiles(
     ctx: &PackageContext<'_>,
     selection: FrameworkProfileSelection,
 ) -> Result<Vec<&'static ProfileDefinition>, String> {
-    match selection {
-        FrameworkProfileSelection::Disabled => Ok(Vec::new()),
-        FrameworkProfileSelection::Auto => Ok(PROFILES
-            .iter()
-            .copied()
-            .filter(|profile| (profile.detect)(ctx))
-            .collect()),
-        FrameworkProfileSelection::Exclude(excluded) => Ok(PROFILES
-            .iter()
-            .copied()
-            .filter(|profile| {
-                !excluded.iter().any(|name| name == profile.name) && (profile.detect)(ctx)
-            })
-            .collect()),
-        FrameworkProfileSelection::Only(only) => {
-            for name in &only {
-                if !KNOWN_PROFILES.contains(&name.as_str()) {
-                    return Err(format!("unknown Framework profile {name:?}"));
-                }
-            }
-            Ok(PROFILES
-                .iter()
-                .copied()
-                .filter(|profile| only.iter().any(|name| name == profile.name))
-                .collect())
-        }
-    }
+    select_framework_profiles(
+        &PROFILES,
+        |profile| profile.name,
+        |profile| (profile.detect)(ctx),
+        selection,
+        |name| format!("unknown Framework profile {name:?}"),
+    )
 }
 
 fn select_reference_ranges(

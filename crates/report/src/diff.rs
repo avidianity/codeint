@@ -1,15 +1,12 @@
 use std::collections::BTreeSet;
 
+use crate::measurement::CommitMeasurement;
+use crate::sarif::{ListedDependencies, ListedExternalMetric, ListedFindings, SarifLog};
+use crate::{RatchetFailure, ReportError, TEST_GAP_DIFF_NOTE};
 use codeint_config::{
     Budgets, FindingsShown, MeasuredBaselineMetric, MeasuredRatchetMetric, Ratchet,
     RatchetVersionMismatch, RegressionLimits, ReportFormat,
 };
-use codeint_model::{Metric, SourceSet};
-
-use crate::measurement::CommitMeasurement;
-use crate::ownership::OwnershipOptions;
-use crate::sarif::{ListedDependencies, ListedExternalMetric, ListedFindings, SarifLog};
-use crate::{Decimal, RatchetFailure, ReportError, TEST_GAP_DIFF_NOTE};
 
 mod classify;
 mod markdown;
@@ -40,23 +37,12 @@ impl DiffReport {
         budgets: &Budgets,
         limits: &RegressionLimits,
     ) -> DiffReport {
-        let empty_new_file_budgets = Budgets::default();
         DiffReport::compare_with_options(
             base,
             head,
             base_measurement,
             head_measurement,
-            DiffReportOptions {
-                findings,
-                budgets,
-                new_file_budgets: &empty_new_file_budgets,
-                new_files: None,
-                changed_files: BTreeSet::new(),
-                limits,
-                ownership: OwnershipOptions::default(),
-                baseline: None,
-                include_test_gap_note: false,
-            },
+            DiffReportOptions::new(findings, budgets, limits),
         )
     }
 
@@ -98,7 +84,9 @@ impl DiffReport {
             over_budget_failures.extend(deps.over_budget(options.budgets));
         }
         let over_new_file_budget_failures =
-            regressions::over_new_file_budget(options.new_files, options.new_file_budgets);
+            options.new_file_budgets.map_or_else(Vec::new, |budgets| {
+                regressions::over_new_file_budget(options.new_files, budgets)
+            });
         let empty_changed_files = BTreeSet::new();
         let per_file_targets = if options.limits.per_file() {
             &options.changed_files
@@ -144,28 +132,7 @@ impl DiffReport {
     }
 
     pub fn head_ratchet_metrics(&self) -> Vec<MeasuredRatchetMetric> {
-        let mut metrics = Vec::new();
-        for (source_set, changes) in self.source_sets.iter() {
-            push_diff_source_set_ratchet_metrics(&mut metrics, source_set, changes);
-        }
-        if let Some(deps) = &self.dependencies {
-            crate::ratchet::push_dependency_ratchet_metrics(
-                &mut metrics,
-                (
-                    deps.unused_dependencies.head_ratio.0,
-                    deps.unused_dependencies.metric_version,
-                ),
-                (
-                    deps.unlisted_dependencies.head_ratio.0,
-                    deps.unlisted_dependencies.metric_version,
-                ),
-                (
-                    deps.dev_in_production_dependencies.head_ratio.0,
-                    deps.dev_in_production_dependencies.metric_version,
-                ),
-            );
-        }
-        metrics
+        crate::ratchet::collect_ratchet_metrics(&self.source_sets, self.dependencies.as_ref())
     }
 
     pub fn head_baseline_metrics(&self) -> Vec<MeasuredBaselineMetric> {
@@ -286,76 +253,6 @@ impl DiffReport {
         .with_new_file_budget_failures(&self.over_new_file_budget)
         .with_ratchet_failures(&self.over_ratchet)
         .with_per_file_regressions(&self.regressions)
-    }
-}
-
-fn push_diff_source_set_ratchet_metrics(
-    metrics: &mut Vec<MeasuredRatchetMetric>,
-    source_set: SourceSet,
-    changes: &types::SourceSetChanges,
-) {
-    let mut push = |key: &str, ratio: Decimal, metric_version: u32| {
-        metrics.push(MeasuredRatchetMetric {
-            source_set: Some(source_set),
-            metric: key.to_owned(),
-            ratio: ratio.0,
-            metric_version,
-        });
-    };
-    push(
-        Metric::Erosion.key(),
-        changes.erosion.head_ratio,
-        changes.erosion.metric_version,
-    );
-    push(
-        Metric::CognitiveComplexity.key(),
-        changes.cognitive_complexity.head_ratio,
-        changes.cognitive_complexity.metric_version,
-    );
-    push(
-        Metric::Duplication.key(),
-        changes.duplication.groups.head_ratio,
-        changes.duplication.groups.metric_version,
-    );
-    push(
-        Metric::Verbosity.key(),
-        changes.verbosity.head_ratio,
-        changes.verbosity.metric_version,
-    );
-    if let Some(import_cycles) = &changes.import_cycles {
-        push(
-            Metric::ImportCycles.key(),
-            import_cycles.head_ratio,
-            import_cycles.metric_version,
-        );
-    }
-    if let Some(boundaries) = &changes.boundaries {
-        push(
-            Metric::Boundaries.key(),
-            boundaries.head_ratio,
-            boundaries.metric_version,
-        );
-    }
-    if let Some(orphan_files) = &changes.orphan_files {
-        push(
-            Metric::OrphanFiles.key(),
-            orphan_files.head_ratio,
-            orphan_files.metric_version,
-        );
-    }
-    if let Some(hazards) = &changes.hazards {
-        push(
-            Metric::Hazards.key(),
-            hazards.head_ratio,
-            hazards.metric_version,
-        );
-    }
-    for (key, external) in &changes.external_metrics {
-        push(
-            key.as_str(),
-            external.changes.head_ratio,
-            external.changes.metric_version,
-        );
     }
 }
 

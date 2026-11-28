@@ -5,6 +5,10 @@ mod flask;
 use std::collections::BTreeSet;
 
 use codeint_model::RepoPath;
+use codeint_model::frameworks::{
+    has_ignored_dir as path_has_ignored_dir, has_matching_package_file, matching_package_files,
+    package_rel_path, select_framework_profiles, strip_package_root,
+};
 use codeint_model::language::{FrameworkProfileResult, FrameworkProfileSelection, Manifest};
 use toml::Value;
 
@@ -75,8 +79,7 @@ impl<'a> PythonPackage<'a> {
     }
 
     pub(crate) fn rel_path<'p>(&self, full: &'p str) -> Option<&'p str> {
-        let rel = strip_package_root(self.root, full)?;
-        (!has_ignored_dir(rel)).then_some(rel)
+        package_rel_path(self.root, full, &IGNORED_DIRS)
     }
 
     pub(crate) fn has_dep(&self, normalized: &str) -> bool {
@@ -84,28 +87,20 @@ impl<'a> PythonPackage<'a> {
     }
 
     pub(crate) fn has_any_rel(&self, targets: &[&str]) -> bool {
-        self.files
-            .iter()
-            .filter_map(|full| self.rel_path(full.as_str()))
-            .any(|rel| targets.contains(&rel))
+        has_matching_package_file(self.root, self.files, &IGNORED_DIRS, |rel| {
+            targets.contains(&rel)
+        })
     }
 
     pub(crate) fn matching_py_files(&self, predicate: impl Fn(&str) -> bool) -> Vec<String> {
-        self.files
-            .iter()
-            .map(RepoPath::as_str)
-            .filter(|full| {
-                self.rel_path(full)
-                    .is_some_and(|rel| rel.ends_with(".py") && predicate(rel))
-            })
-            .map(str::to_owned)
-            .collect()
+        matching_package_files(self.root, self.files, &IGNORED_DIRS, |rel| {
+            rel.ends_with(".py") && predicate(rel)
+        })
     }
 
     pub(crate) fn has_non_test_py(&self, predicate: impl Fn(&str) -> bool) -> bool {
-        self.files.iter().any(|full| {
-            self.rel_path(full.as_str())
-                .is_some_and(|rel| rel.ends_with(".py") && !is_test_dir_rel(rel) && predicate(rel))
+        has_matching_package_file(self.root, self.files, &IGNORED_DIRS, |rel| {
+            rel.ends_with(".py") && !is_test_dir_rel(rel) && predicate(rel)
         })
     }
 
@@ -132,7 +127,7 @@ impl<'a> PythonPackage<'a> {
 }
 
 pub(crate) fn has_ignored_dir(path: &str) -> bool {
-    path.split('/').any(|seg| IGNORED_DIRS.contains(&seg))
+    path_has_ignored_dir(path, &IGNORED_DIRS)
 }
 
 pub(crate) fn is_test_dir_rel(rel: &str) -> bool {
@@ -200,21 +195,21 @@ pub(crate) fn resolve_framework_profiles(
     manifests: &[Manifest],
     selection: FrameworkProfileSelection,
 ) -> Result<FrameworkProfileResult, String> {
-    if let FrameworkProfileSelection::Only(ref only) = selection
-        && let Some(unknown) = only.iter().find(|n| !KNOWN_PROFILES.contains(&n.as_str()))
-    {
-        return Err(format!("unknown Framework profile {unknown:?}"));
-    }
     let pkg = PythonPackage::new(package_root, files, manifests);
+    let selected = select_framework_profiles(
+        &PROFILES,
+        |profile| profile.name,
+        |profile| (profile.detect)(&pkg),
+        selection,
+        |unknown| format!("unknown Framework profile {unknown:?}"),
+    )?;
     let mut active_profiles = BTreeSet::new();
     let mut entry_points = BTreeSet::new();
     let mut generated_paths = BTreeSet::new();
-    for profile in PROFILES {
-        if profile_matches(&selection, profile, &pkg) {
-            active_profiles.insert(profile.name.to_owned());
-            entry_points.extend((profile.entry_points)(&pkg));
-            generated_paths.extend((profile.generated_paths)(&pkg));
-        }
+    for profile in selected {
+        active_profiles.insert(profile.name.to_owned());
+        entry_points.extend((profile.entry_points)(&pkg));
+        generated_paths.extend((profile.generated_paths)(&pkg));
     }
     Ok(FrameworkProfileResult {
         active_profiles: active_profiles.into_iter().collect(),
@@ -223,21 +218,6 @@ pub(crate) fn resolve_framework_profiles(
         reference_ranges: Vec::new(),
         reference_range_note: None,
     })
-}
-
-fn profile_matches(
-    selection: &FrameworkProfileSelection,
-    profile: &PythonProfile,
-    pkg: &PythonPackage<'_>,
-) -> bool {
-    match selection {
-        FrameworkProfileSelection::Disabled => false,
-        FrameworkProfileSelection::Auto => (profile.detect)(pkg),
-        FrameworkProfileSelection::Exclude(excluded) => {
-            !excluded.iter().any(|item| item == profile.name) && (profile.detect)(pkg)
-        }
-        FrameworkProfileSelection::Only(only) => only.iter().any(|item| item == profile.name),
-    }
 }
 
 pub(crate) fn fallback_import_roots(
@@ -256,12 +236,4 @@ pub(crate) fn fallback_import_roots(
         }
     }
     roots
-}
-
-fn strip_package_root<'p>(root: &str, full: &'p str) -> Option<&'p str> {
-    if root.is_empty() {
-        Some(full)
-    } else {
-        full.strip_prefix(root)?.strip_prefix('/')
-    }
 }

@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 
 use codeint_model::{
-    CodeModel, FileModel, RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
+    FileModel, RepoPath, SourceFile, SourceSet, SourceSetModel, Token, TokenKind, token_text_hash,
 };
 
 use super::{CandidateBlock, MINHASH_SIZE, TokenSpan, record_bucket_pairs};
 
-fn synthetic_model(file_count: usize, same_content_prefix: usize) -> CodeModel {
+fn synthetic_model(file_count: usize, same_content_prefix: usize) -> SourceSetModel {
     let files = (0..file_count)
         .map(|idx| {
             let group = if idx < same_content_prefix { 0 } else { idx };
@@ -40,9 +40,9 @@ fn synthetic_model(file_count: usize, same_content_prefix: usize) -> CodeModel {
             }
         })
         .collect();
-    CodeModel {
+    SourceSetModel {
         files,
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     }
 }
 
@@ -64,7 +64,7 @@ fn synthetic_candidate(
 }
 
 fn collect_bucket_pairs(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
 ) -> HashSet<(usize, usize)> {
     let bucket: Vec<(u64, usize)> = (0..candidates.len()).map(|idx| (42u64, idx)).collect();

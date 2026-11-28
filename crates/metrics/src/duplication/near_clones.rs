@@ -1,7 +1,7 @@
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
-use codeint_model::{CodeModel, StableHasher, Token};
+use codeint_model::{SourceSetModel, StableHasher, Token};
 use rayon::prelude::*;
 
 use super::{
@@ -68,7 +68,7 @@ struct UnidentifiedNearGroup {
 }
 
 pub(super) fn detect_near_clones(
-    model: &CodeModel,
+    model: &SourceSetModel,
     runs: &[SearchedRun<'_>],
     window: usize,
     minimum_distinct: usize,
@@ -97,7 +97,7 @@ pub(super) fn detect_near_clones(
 }
 
 fn extract_candidates(
-    model: &CodeModel,
+    model: &SourceSetModel,
     runs: &[SearchedRun<'_>],
     window: usize,
     minimum_distinct: usize,
@@ -136,7 +136,7 @@ fn extract_candidates(
 }
 
 fn collect_run_candidate_spans(
-    model: &CodeModel,
+    model: &SourceSetModel,
     run: &SearchedRun<'_>,
     window: usize,
     minimum_distinct: usize,
@@ -356,7 +356,7 @@ fn normalized_content_hash(tokens: &[Token]) -> u64 {
 }
 
 fn candidates_normalized_equal(
-    model: &CodeModel,
+    model: &SourceSetModel,
     left: &CandidateBlock,
     right: &CandidateBlock,
 ) -> bool {
@@ -364,7 +364,7 @@ fn candidates_normalized_equal(
 }
 
 fn collect_candidate_pairs(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     min_similarity: f64,
 ) -> Vec<(usize, usize)> {
@@ -413,7 +413,7 @@ fn collect_candidate_pairs(
 }
 
 fn record_bucket_pairs(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     bucket: &[(u64, usize)],
     seen_pairs: &mut HashSet<(usize, usize)>,
@@ -439,7 +439,7 @@ fn record_bucket_pairs(
 }
 
 fn collect_bucket_pair_scores(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     bucket: &[(u64, usize)],
 ) -> Vec<(usize, usize, usize)> {
@@ -450,7 +450,7 @@ fn collect_bucket_pair_scores(
 }
 
 fn push_scored_bucket_pair(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     left: usize,
     right: usize,
@@ -464,7 +464,7 @@ fn push_scored_bucket_pair(
 }
 
 fn score_all_bucket_pairs(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     bucket: &[(u64, usize)],
 ) -> Vec<(usize, usize, usize)> {
@@ -478,7 +478,7 @@ fn score_all_bucket_pairs(
 }
 
 fn score_similarity_ordered_bucket_window(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     bucket: &[(u64, usize)],
 ) -> Vec<(usize, usize, usize)> {
@@ -559,7 +559,7 @@ fn index_exact_spans(
 }
 
 fn verify_pairs(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     pairs: &[(usize, usize)],
     exact_by_file: &HashMap<usize, Vec<(usize, TokenSpan)>>,
@@ -635,7 +635,7 @@ fn jaccard_sorted(left: &[u64], right: &[u64]) -> f64 {
     }
 }
 
-fn normalized_tokens_equal(model: &CodeModel, left: TokenSpan, right: TokenSpan) -> bool {
+fn normalized_tokens_equal(model: &SourceSetModel, left: TokenSpan, right: TokenSpan) -> bool {
     if left.end_token - left.start_token != right.end_token - right.start_token {
         return false;
     }
@@ -718,7 +718,7 @@ fn span_len(span: TokenSpan) -> usize {
 }
 
 fn build_near_clone_groups(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     pairs: &[MatchedPair],
 ) -> NearCloneOutput {
@@ -760,7 +760,7 @@ fn build_near_clone_groups(
 }
 
 fn candidate_order_key<'a>(
-    model: &'a CodeModel,
+    model: &'a SourceSetModel,
     candidates: &[CandidateBlock],
     idx: usize,
 ) -> (&'a codeint_model::RepoPath, usize, usize) {
@@ -784,7 +784,7 @@ struct NodeRank {
 }
 
 fn compare_node_ranks(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     ranks: &HashMap<usize, NodeRank>,
     left: usize,
@@ -830,7 +830,7 @@ fn compute_node_ranks(
 }
 
 fn pair_similarity_for_cluster(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     edge_similarity: &HashMap<(usize, usize), f64>,
     left: usize,
@@ -846,7 +846,7 @@ fn pair_similarity_for_cluster(
 }
 
 fn grow_anchor_clique(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     edge_similarity: &HashMap<(usize, usize), f64>,
     anchor: usize,
@@ -880,7 +880,7 @@ fn grow_anchor_clique(
 }
 
 fn cluster_pairs_by_anchor(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     pairs: &[MatchedPair],
 ) -> Vec<Vec<MatchedPair>> {
@@ -941,7 +941,7 @@ fn mark_cluster_edges_covered(members: &[usize], covered_edges: &mut HashSet<(us
 }
 
 fn collect_unidentified_near_groups(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     clusters: Vec<Vec<MatchedPair>>,
 ) -> Vec<UnidentifiedNearGroup> {
@@ -954,7 +954,7 @@ fn collect_unidentified_near_groups(
 }
 
 fn unidentified_near_group(
-    model: &CodeModel,
+    model: &SourceSetModel,
     candidates: &[CandidateBlock],
     component_pairs: &[MatchedPair],
 ) -> Option<UnidentifiedNearGroup> {

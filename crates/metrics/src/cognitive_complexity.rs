@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use codeint_model::{CodeModel, Metric, Package, RepoPath, SourceFile};
+use codeint_model::{Metric, Package, RepoPath, SourceFile, SourceSetModel};
 
 use crate::finding_id::{
     FindingContext, FindingId, FindingIds, function_finding_identity, group_by_package,
@@ -52,7 +52,7 @@ pub struct CognitiveComplexity {
 }
 
 impl CognitiveComplexity {
-    pub fn measure(model: &CodeModel) -> CognitiveComplexity {
+    pub fn measure(model: &SourceSetModel) -> CognitiveComplexity {
         let mut totals = CognitiveComplexityTotals::default();
         let mut totals_by_file = BTreeMap::new();
         let mut complex_functions = Vec::new();
@@ -87,7 +87,7 @@ impl CognitiveComplexity {
 
     pub fn by_package<'model>(
         &self,
-        model: &'model CodeModel,
+        model: &'model SourceSetModel,
     ) -> BTreeMap<Package<'model>, CognitiveComplexityTotals> {
         group_by_package(model, &self.totals_by_file, merge_totals)
     }

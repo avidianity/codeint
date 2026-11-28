@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use codeint_model::{CodeModel, Metric, Package, RepoPath, Token, token_text_hash};
+use codeint_model::{Metric, Package, RepoPath, SourceSetModel, Token, token_text_hash};
 
 use crate::FindingId;
 use crate::finding_id::{FindingContext, FindingIds};
@@ -27,7 +27,7 @@ pub struct Verbosity {
 }
 
 impl Verbosity {
-    pub fn measure(model: &CodeModel) -> Verbosity {
+    pub fn measure(model: &SourceSetModel) -> Verbosity {
         let flagged_lines: BTreeSet<(&RepoPath, u32, &str)> = model
             .files
             .iter()
@@ -84,7 +84,7 @@ impl Verbosity {
 
     pub fn by_package<'model>(
         &self,
-        model: &'model CodeModel,
+        model: &'model SourceSetModel,
     ) -> BTreeMap<Package<'model>, LineShare> {
         line_shares_by_package(
             model,
@@ -100,7 +100,7 @@ impl Verbosity {
 }
 
 fn flagged_line_findings(
-    model: &CodeModel,
+    model: &SourceSetModel,
     flagged_lines: &BTreeSet<(&RepoPath, u32, &str)>,
 ) -> Vec<FlaggedLineFinding> {
     let tokens_by_path: HashMap<&RepoPath, &[Token]> = model

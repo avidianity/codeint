@@ -162,6 +162,7 @@ impl LanguagePlugin for Plain {
 - External WebAssembly Plugins implement the generated `Guest` trait, which bridges into `LanguagePlugin` through a blanket implementation.
 - `RepoPath` implements `AsRef<str>`, so shared path helpers accept `&[RepoPath]` and `&[String]` without cloning paths.
 - Call `codeint_model::scan::find_manifests<P: AsRef<str>>` to match a manifest filename across any `&[P]` slice, and `codeint_model::scan::paths_with_suffix` to collect paths ending with a suffix into a `HashSet<&str>`.
+- Call `codeint_model::frameworks::{strip_package_root, has_ignored_dir, package_rel_path, find_package_manifest, matching_package_files, has_matching_package_file, select_framework_profiles}` to share package-relative path matching, manifest lookup, and `FrameworkProfileSelection` resolution across Language plugins.
 - Call `validate_manifest_analysis` to validate a `ManifestAnalysis` returned by `LanguagePlugin::analyze_manifests`.
 - Use `impl_builtin_language_plugin!` to wire a built-in Language plugin's `LanguagePlugin` implementation without repeating validation, framework-profile delegation, or empty default methods.
 - Use `empty_framework_profile_plugin_methods!` in test stubs that implement `LanguagePlugin` directly without Framework profiles.
@@ -307,19 +308,21 @@ model.source_set = settle_source_set(&path, text, model.source_set);
 ## Split the Code model by Source set
 
 ```rust
-use codeint_model::{CodeModel, SourceSet};
+use codeint_model::{CodeModel, SourceSet, SourceSetModel};
 
 let source_sets = model.into_source_sets();
-let test_model: &CodeModel = source_sets.get(SourceSet::Test);
+let test_model: &SourceSetModel = source_sets.get(SourceSet::Test);
 for (source_set, files) in source_sets.iter() {
     println!("{source_set:?} has {} files", files.files.len());
 }
 ```
 
-- `into_source_sets` moves each file into the `CodeModel` of its Source set.
-- It moves each `RuntimeImport` into the `CodeModel` of its importer's Source set, so an import of a file in another Source set adds no edge there.
-- Every Source set gets a `CodeModel`, empty when no file belongs to it.
-- Every Source set's `CodeModel` keeps the whole `workspace` and `languages`, so each Source set splits into the same workspace packages and carries the same per-language facts.
+- `into_source_sets` moves each file into the focused `SourceSetModel` of its Source set.
+- `SourceSetModel` holds only the per-Source-set fields (`source_set`, `files`, `workspace`, `runtime_imports`, and `languages`), leaving out repository-wide fields such as `skipped`, `declaration_only`, `declared_dependencies`, `dependency_manifests`, `manifest_used_dependencies`, and `root_dependency_inheritance`.
+- It moves each `RuntimeImport` into the `SourceSetModel` of its importer's Source set, so an import of a file in another Source set adds no edge there.
+- Every Source set gets a `SourceSetModel`, empty when no file belongs to it.
+- Every Source set's `SourceSetModel` keeps the whole `workspace` and `languages`, so each Source set splits into the same workspace packages and carries the same per-language facts.
+- `SourceSetModel::merge` and `SourceSets::merge` combine per-language Source-set models directly, and `SourceSetModel::to_code_model` adapts a `SourceSetModel` for external `MetricPlugin::measure`.
 - `iter` yields the Source sets in the order Production, Test, Generated, Vendored.
 - A skipped or declaration-only file belongs to no Source set.
   Read `skipped` and `declaration_only` before the split; the split leaves them out.
