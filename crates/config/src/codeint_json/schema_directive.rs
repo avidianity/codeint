@@ -185,6 +185,24 @@ fn extract_url_token(
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RewrittenSchemaForm {
+    JsonKey,
+    TomlDirective,
+    TomlKey,
+    TomlDirectiveAndKey,
+    YamlDirective,
+    YamlKey,
+    YamlDirectiveAndKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RewrittenSchema {
+    pub text: String,
+    pub url: String,
+    pub form: RewrittenSchemaForm,
+}
+
 struct Replacement {
     span: Range<usize>,
     text: String,
@@ -194,7 +212,7 @@ pub fn rewrite_schema_tag(
     kind: ConfigFileKind,
     text: &str,
     target_tag: &str,
-) -> Option<(String, String)> {
+) -> Option<RewrittenSchema> {
     match kind.syntax() {
         ConfigSyntax::Json => rewrite_json_schema_tag(text, target_tag),
         ConfigSyntax::Toml | ConfigSyntax::Yaml => {
@@ -214,7 +232,7 @@ fn updated_official_url(current_url: &str, target_tag: &str) -> Option<String> {
     ))
 }
 
-fn rewrite_json_schema_tag(text: &str, target_tag: &str) -> Option<(String, String)> {
+fn rewrite_json_schema_tag(text: &str, target_tag: &str) -> Option<RewrittenSchema> {
     let schema = schema_value_span(text)?;
     let new_url = updated_official_url(&schema.value, target_tag)?;
     let updated = apply_replacements(
@@ -224,7 +242,11 @@ fn rewrite_json_schema_tag(text: &str, target_tag: &str) -> Option<(String, Stri
             text: format!("\"{new_url}\""),
         }],
     )?;
-    Some((updated, new_url))
+    Some(RewrittenSchema {
+        text: updated,
+        url: new_url,
+        form: RewrittenSchemaForm::JsonKey,
+    })
 }
 
 fn parse_structured_document(kind: ConfigFileKind, text: &str) -> Option<Value> {
@@ -239,15 +261,19 @@ fn rewrite_toml_or_yaml_schema_tag(
     kind: ConfigFileKind,
     text: &str,
     target_tag: &str,
-) -> Option<(String, String)> {
+) -> Option<RewrittenSchema> {
     let value = parse_structured_document(kind, text)?;
     let active_url = resolve_schema_url(kind, text, &value).ok()??;
     let new_url = updated_official_url(&active_url, target_tag)?;
-    let replacements = collect_structured_replacements(kind, text, &value, &new_url)?;
+    let (replacements, form) = collect_structured_replacements(kind, text, &value, &new_url)?;
     let updated = apply_replacements(text, replacements)?;
     let reparsed = parse_structured_document(kind, &updated)?;
     let verified = resolve_schema_url(kind, &updated, &reparsed).ok()??;
-    (verified == new_url).then_some((updated, new_url))
+    (verified == new_url).then_some(RewrittenSchema {
+        text: updated,
+        url: new_url,
+        form,
+    })
 }
 
 fn collect_structured_replacements(
@@ -255,8 +281,9 @@ fn collect_structured_replacements(
     text: &str,
     value: &Value,
     new_url: &str,
-) -> Option<Vec<Replacement>> {
+) -> Option<(Vec<Replacement>, RewrittenSchemaForm)> {
     let directives = extract_schema_directives(kind, text).ok()?;
+    let has_directive = !directives.is_empty();
     let mut replacements: Vec<Replacement> = directives
         .into_iter()
         .map(|span| Replacement {
@@ -264,6 +291,7 @@ fn collect_structured_replacements(
             text: new_url.to_owned(),
         })
         .collect();
+    let mut has_key = false;
     if let Some(expected_key_url) = value.get("$schema").and_then(Value::as_str) {
         let key_span = unique_top_level_key_schema_span(kind.syntax(), text, expected_key_url)?;
         let original = text.get(key_span.span.clone())?;
@@ -271,8 +299,26 @@ fn collect_structured_replacements(
             span: key_span.span,
             text: format_scalar_replacement(original, new_url),
         });
+        has_key = true;
     }
-    Some(replacements)
+    let form = structured_schema_form(kind.syntax(), has_directive, has_key)?;
+    Some((replacements, form))
+}
+
+fn structured_schema_form(
+    syntax: ConfigSyntax,
+    has_directive: bool,
+    has_key: bool,
+) -> Option<RewrittenSchemaForm> {
+    match (syntax, has_directive, has_key) {
+        (ConfigSyntax::Toml, true, true) => Some(RewrittenSchemaForm::TomlDirectiveAndKey),
+        (ConfigSyntax::Toml, true, false) => Some(RewrittenSchemaForm::TomlDirective),
+        (ConfigSyntax::Toml, false, true) => Some(RewrittenSchemaForm::TomlKey),
+        (ConfigSyntax::Yaml, true, true) => Some(RewrittenSchemaForm::YamlDirectiveAndKey),
+        (ConfigSyntax::Yaml, true, false) => Some(RewrittenSchemaForm::YamlDirective),
+        (ConfigSyntax::Yaml, false, true) => Some(RewrittenSchemaForm::YamlKey),
+        _ => None,
+    }
 }
 
 fn format_scalar_replacement(original: &str, new_url: &str) -> String {

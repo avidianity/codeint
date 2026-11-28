@@ -33,7 +33,8 @@ pub use metric::{
     STRUCTURAL_REPORT_KEYS, is_reserved_report_key,
 };
 pub use runtime_imports::{
-    ImportResolution, ResolveError, RuntimeImport, choose_manifests, resolve_runtime_imports,
+    ImportResolution, ResolveError, RuntimeImport, choose_manifests,
+    is_valid_external_package_name, resolve_runtime_imports,
 };
 pub use source_set::{
     STANDARD_GENERATED_MARKERS, contains_ascii_ignore_case, has_any_ascii_marker, has_folder_named,
@@ -396,6 +397,8 @@ pub enum LanguagePluginError {
     FrameworkProfile { message: String },
     #[error("the Language plugin returned an invalid Framework profile Reference range")]
     InvalidFrameworkReferenceRange(#[from] InvalidReferenceRange),
+    #[error("the Language plugin returned an invalid Reference range")]
+    InvalidReferenceRange(#[source] InvalidReferenceRange),
     #[error(
         "the Language plugin declared a dependency with an invalid package root {package_root:?}"
     )]
@@ -614,8 +617,9 @@ macro_rules! impl_builtin_language_plugin {
 
             fn reference_ranges(
                 &self,
-            ) -> ::std::result::Result<$crate::ReferenceRanges, $crate::InvalidReferenceRange> {
+            ) -> ::std::result::Result<$crate::ReferenceRanges, $crate::LanguagePluginError> {
                 $crate::ReferenceRanges::new($ranges)
+                    .map_err($crate::LanguagePluginError::InvalidReferenceRange)
             }
 
             $crate::impl_builtin_language_plugin!(@imports $($imports)*);
@@ -629,8 +633,12 @@ macro_rules! impl_builtin_language_plugin {
             true
         }
 
-        fn manifest_paths(&self, repository_paths: &[$crate::RepoPath]) -> ::std::vec::Vec<::std::string::String> {
-            $manifest_paths(repository_paths)
+        fn manifest_paths(
+            &self,
+            repository_paths: &[$crate::RepoPath],
+        ) -> ::std::result::Result<::std::vec::Vec<::std::string::String>, $crate::LanguagePluginError>
+        {
+            ::std::result::Result::Ok($manifest_paths(repository_paths))
         }
 
         fn workspace_packages(
@@ -723,8 +731,11 @@ pub trait LanguagePlugin: Sync {
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError>;
 
-    fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
-        Vec::new()
+    fn manifest_paths(
+        &self,
+        _repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, LanguagePluginError> {
+        Ok(Vec::new())
     }
 
     fn workspace_packages(
@@ -759,7 +770,7 @@ pub trait LanguagePlugin: Sync {
         Ok(Vec::new())
     }
 
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange>;
+    fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError>;
 
     fn known_framework_profiles(&self) -> Vec<String> {
         Vec::new()
@@ -797,8 +808,11 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         Plugin::lower(path.as_str().to_owned(), text.to_owned()).map_err(LowerError::from)
     }
 
-    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
-        Plugin::manifest_paths(owned_paths(repository_paths))
+    fn manifest_paths(
+        &self,
+        repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, LanguagePluginError> {
+        Ok(Plugin::manifest_paths(owned_paths(repository_paths)))
     }
 
     fn workspace_packages(
@@ -841,8 +855,9 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         )
     }
 
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+    fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError> {
         ReferenceRanges::new(Plugin::reference_ranges())
+            .map_err(LanguagePluginError::InvalidReferenceRange)
     }
 
     fn known_framework_profiles(&self) -> Vec<String> {

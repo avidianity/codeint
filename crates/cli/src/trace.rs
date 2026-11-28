@@ -4,7 +4,7 @@ use codeint_config::PluginHostConfig;
 use codeint_model::{CodeModel, RepoPath};
 use codeint_report::{TraceError, TraceReport};
 
-use crate::check::{CheckError, WorkspaceContext};
+use crate::check::{CheckError, WorkspaceContext, WorkspaceRef};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum TraceCommandError {
@@ -26,9 +26,21 @@ pub(crate) fn trace(
     plugin_host: &PluginHostConfig,
 ) -> Result<TraceReport, TraceCommandError> {
     let context = WorkspaceContext::load(folder, plugin_host)?;
-    let model = context.measure_working_tree_model_for_package(package)?;
-    let from_path = resolve_model_path(from, folder, context.repository.root(), &model)?;
-    let to_path = resolve_model_path(to, folder, context.repository.root(), &model)?;
+    trace_with_workspace(folder, context.as_ref(), from, to, all, max_paths, package)
+}
+
+pub(crate) fn trace_with_workspace(
+    folder: &Path,
+    workspace: WorkspaceRef<'_>,
+    from: &str,
+    to: &str,
+    all: bool,
+    max_paths: usize,
+    package: Option<&str>,
+) -> Result<TraceReport, TraceCommandError> {
+    let model = workspace.measure_working_tree_model_for_package(package)?;
+    let from_path = resolve_model_path(from, folder, workspace.repository.root(), &model)?;
+    let to_path = resolve_model_path(to, folder, workspace.repository.root(), &model)?;
     Ok(TraceReport::trace(
         &model, &from_path, &to_path, all, max_paths,
     )?)

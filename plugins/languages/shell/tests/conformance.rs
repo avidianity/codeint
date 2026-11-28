@@ -100,7 +100,12 @@ fn plugin_metadata_capabilities_and_no_imports_contract() {
     assert_eq!(SHELL_FLAGGED_RULES.len(), 4);
 
     let paths = vec![repo_path("scripts/deploy.sh")];
-    assert!(Shell.manifest_paths(&paths).is_empty());
+    assert!(
+        Shell
+            .manifest_paths(&paths)
+            .expect("manifest paths")
+            .is_empty()
+    );
     assert!(Shell.workspace_packages(Vec::new()).unwrap().is_empty());
     assert!(
         Shell

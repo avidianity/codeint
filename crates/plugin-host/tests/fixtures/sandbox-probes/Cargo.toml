@@ -53,6 +53,10 @@ members = [
     "crlf-miscount-language",
     "duplicate-extension-language",
     "empty-finding-id-metric",
+    "reference-ranges-trap-language",
+    "stateful-language",
+    "stateful-metric",
+    "oversized-lifted-metric",
 ]
 
 [workspace.package]

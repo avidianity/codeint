@@ -52,6 +52,14 @@ impl Guest for LoopLanguagePlugin {
     }
 
     fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
+        if repository_paths
+            .iter()
+            .any(|path| path == "loop-manifest-paths")
+        {
+            loop {
+                core::hint::spin_loop();
+            }
+        }
         repository_paths
             .into_iter()
             .filter(|path| path == "trapper" || path.ends_with(".loopmanifest"))

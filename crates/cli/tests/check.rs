@@ -2318,15 +2318,10 @@ fn unresolved_import_row(importer: &str, index: usize) -> String {
     format!("{importer},./missing{index:02}")
 }
 
-fn unresolved_import_rows_of_both_files(later_from: usize) -> Vec<String> {
+fn unresolved_import_rows_of_both_files(later_to: usize) -> Vec<String> {
     (1..=11)
-        .rev()
         .map(|index| unresolved_import_row("src/earlier.ts", index))
-        .chain(
-            (later_from..=21)
-                .rev()
-                .map(|index| unresolved_import_row("src/later.ts", index)),
-        )
+        .chain((12..=later_to).map(|index| unresolved_import_row("src/later.ts", index)))
         .collect()
 }
 
@@ -2343,7 +2338,7 @@ fn the_report_lists_the_first_20_unresolved_imports_by_importer_and_says_how_man
         "count: 21".to_string(),
         "imports[20]{importer,specifier,reason}:".to_string(),
     ];
-    expected.extend(unresolved_import_rows_of_both_files(13));
+    expected.extend(unresolved_import_rows_of_both_files(20));
     expected.push("imports_left_out: 1".to_string());
     assert_eq!(unresolved_import_rows(&output), expected);
 }
@@ -2361,7 +2356,7 @@ fn all_lists_every_unresolved_import() {
         "count: 21".to_string(),
         "imports[21]{importer,specifier,reason}:".to_string(),
     ];
-    expected.extend(unresolved_import_rows_of_both_files(12));
+    expected.extend(unresolved_import_rows_of_both_files(21));
     assert_eq!(unresolved_import_rows(&output), expected);
 }
 
@@ -6023,5 +6018,34 @@ fn sql_check_displays_calibrated_reference_ranges_next_to_sql_values() {
     assert_eq!(
         report["source_sets"]["production"].get("import_cycles"),
         None
+    );
+}
+
+#[test]
+fn typescript_blank_and_invisible_import_specifiers_report_unresolved_without_aborting() {
+    let repository = Repository::new();
+    repository.write("package.json", r#"{"name":"demo","private":true}"#);
+    repository.write(
+        "src/ws.ts",
+        concat!(
+            "import a from \" \";\n",
+            "import b from \"\u{00a0}\";\n",
+            "import c from \"\u{200B}\";\n",
+            "require(\" /x\");\n",
+            "export const used = [a, b, c];\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "json"]);
+    assert_success(&output);
+    let report: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("parse check JSON report");
+    let unresolved = &report["source_sets"]["production"]["import_cycles"]["unresolved_imports"];
+    assert_eq!(unresolved["count"], 4, "report: {report}");
+    assert_eq!(
+        report.get("dependencies"),
+        None,
+        "blank and invisible specifiers must not emit unlisted dependencies: {report}"
     );
 }

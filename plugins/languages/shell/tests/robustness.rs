@@ -217,3 +217,21 @@ fn busybox_shebang_selects_the_applet_dialect() {
             .any(|h| h.rule == "posix-sh-bashism" && h.line == 3)
     );
 }
+
+#[test]
+fn malformed_and_edge_case_case_patterns_lower_without_panicking() {
+    let cases = [
+        "#!/bin/sh\nf() {\n  case $1 in\n    ) echo empty ;;\n    a) echo a ;;\n    *) echo default ;;\n  esac\n}\n",
+        "#!/bin/sh\nf() {\n  case $1 in\n    a)\n      case $2 in\n        b) echo b ;;\n      esac\n    ;;\n  esac\n}\n",
+        "#!/bin/sh\ncase $1 in\n  a) echo unterminated\n",
+    ];
+    for (idx, src) in cases.iter().enumerate() {
+        let model = lower(&format!("case_edge_{idx}.sh"), src);
+        assert!(
+            !model.functions.is_empty(),
+            "case edge {idx} produced no functions"
+        );
+    }
+    let model = lower("case_decisions.sh", cases[0]);
+    assert_eq!(function_named(&model, "f").decision_points, 1);
+}

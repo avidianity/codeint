@@ -8,15 +8,18 @@ use crate::calendar_day::CalendarDay;
 use crate::churn::{ChurnSince, ChurnWindow};
 use crate::command::{
     AgentCommand, BaselineCommand, Command, ConfigError, ConfigFormat,
-    DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS, FindingsShown, Invocation, PluginCommand,
-    PluginHostConfig, RatchetCommand, ReportDestination, ReportInput, ReportRenderFormat,
-    SchemaFormat, TrendFormat, TrendRange, WORST_FINDINGS_PER_METRIC,
+    DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS, DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES, FindingsShown,
+    Invocation, MAX_PLUGIN_DOWNLOAD_MIB, PluginCommand, PluginHostConfig, RatchetCommand,
+    ReportDestination, ReportInput, ReportRenderFormat, SchemaFormat, TrendFormat, TrendRange,
+    WORST_FINDINGS_PER_METRIC,
 };
 use crate::coupling::{CouplingRatio, CouplingSettings};
 use crate::resolved::ConfigOverrides;
 use crate::result_cache_folder;
 
 mod args;
+#[cfg(test)]
+mod tests;
 
 pub(crate) use args::Arguments;
 
@@ -27,8 +30,10 @@ use args::{
 };
 
 const TEST_CA_CERT_VARIABLE: &str = "CODEINT_TEST_CA_CERT";
+const PLUGIN_MAX_DOWNLOAD_MB_VARIABLE: &str = "CODEINT_PLUGIN_MAX_DOWNLOAD_MB";
 const RELEASE_BASE_URL_VARIABLE: &str = "CODEINT_RELEASE_BASE_URL";
 const PLUGIN_CACHE_SUBDIR: &str = "plugins";
+const BYTES_PER_MIB: u64 = 1024 * 1024;
 
 pub fn read_invocation() -> Result<Invocation, ConfigError> {
     let arguments = Arguments::parse();
@@ -65,9 +70,19 @@ fn build_command(
             since,
             output,
             format,
-        } => build_trend_command(current_folder, since, output.output, format),
-        CommandArguments::Impact(args) => build_impact_command(current_folder, args),
-        CommandArguments::Trace(args) => build_trace_command(current_folder, args),
+        } => Ok(report_target(current_folder, output.output)?.into_trend(
+            since,
+            format,
+            result_cache_folder_of_this_process(current_folder),
+        )),
+        CommandArguments::Impact(mut args) => {
+            let output = args.output.output.take();
+            Ok(report_target(current_folder, output)?.into_impact(args))
+        }
+        CommandArguments::Trace(mut args) => {
+            let output = args.output.output.take();
+            Ok(report_target(current_folder, output)?.into_trace(args))
+        }
         other => build_auxiliary_command(current_folder, other),
     }
 }
@@ -81,12 +96,12 @@ fn build_auxiliary_command(
             folder: current_folder.to_path_buf(),
             adopt,
             format,
-            plugin_host: plugin_host_config_of_this_process(current_folder),
+            plugin_host: plugin_host_config_of_this_process(current_folder)?,
         }),
         CommandArguments::Update { check, version } => Ok(build_update_command(check, version)),
         CommandArguments::Mcp => Ok(Command::Mcp {
             result_cache: result_cache_folder_of_this_process(current_folder),
-            plugin_host: plugin_host_config_of_this_process(current_folder),
+            plugin_host: plugin_host_config_of_this_process(current_folder)?,
             folder: current_folder.to_path_buf(),
         }),
         CommandArguments::Guard { path, format } => Ok(Command::Guard {
@@ -145,11 +160,18 @@ fn build_tooling_command(
             all,
             format,
         } => build_report_command(current_folder, input, output.output, all, format),
-        CommandArguments::Doctor { path, format } => Ok(Command::Doctor {
-            folder: existing_folder(current_folder, path)?,
-            format,
-            plugin_host: plugin_host_config_of_this_process(current_folder),
-        }),
+        CommandArguments::Doctor { path, format } => {
+            build_doctor_command(current_folder, path, format)
+        }
+        other => build_management_command(current_folder, other),
+    }
+}
+
+fn build_management_command(
+    current_folder: &Path,
+    arguments: CommandArguments,
+) -> Result<Command, ConfigError> {
+    match arguments {
         CommandArguments::Agent { command } => build_agent_command(current_folder, command),
         CommandArguments::Ratchet { command } => build_ratchet_command(current_folder, command),
         CommandArguments::Plugin { command } => Ok(build_plugin_command(current_folder, command)),
@@ -164,8 +186,24 @@ fn build_tooling_command(
         | CommandArguments::Mcp
         | CommandArguments::Guard { .. }
         | CommandArguments::Churn { .. }
-        | CommandArguments::Coupling { .. } => unreachable!("handled by build_command"),
+        | CommandArguments::Coupling { .. }
+        | CommandArguments::Schema { .. }
+        | CommandArguments::Config { .. }
+        | CommandArguments::Report { .. }
+        | CommandArguments::Doctor { .. } => unreachable!("handled by build_command"),
     }
+}
+
+fn build_doctor_command(
+    current_folder: &Path,
+    path: Option<PathBuf>,
+    format: crate::command::DoctorFormat,
+) -> Result<Command, ConfigError> {
+    Ok(Command::Doctor {
+        folder: existing_folder(current_folder, path)?,
+        format,
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
+    })
 }
 
 fn build_schema_command(
@@ -283,7 +321,7 @@ fn build_ratchet_command(
             reset,
             coverage_reports,
             format,
-            plugin_host: plugin_host_config_of_this_process(current_folder),
+            plugin_host: plugin_host_config_of_this_process(current_folder)?,
         })),
     }
 }
@@ -303,7 +341,7 @@ fn build_baseline_command(
             reset,
             coverage_reports,
             format,
-            plugin_host: plugin_host_config_of_this_process(current_folder),
+            plugin_host: plugin_host_config_of_this_process(current_folder)?,
         })),
     }
 }
@@ -337,7 +375,7 @@ fn build_churn_command(
         destination: report_destination(current_folder, history.output.output)?,
         findings: findings_shown(history.all),
         format: history.format,
-        plugin_host: plugin_host_config_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
     })
 }
 
@@ -361,7 +399,7 @@ fn build_coupling_command(
         destination: report_destination(current_folder, history.output.output)?,
         findings: findings_shown(history.all),
         format: history.format,
-        plugin_host: plugin_host_config_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
     })
 }
 
@@ -385,7 +423,7 @@ fn build_check_command(
         owner: report.owner,
         coverage_reports: selection.coverage_reports,
         ignore_baseline: selection.ignore_baseline,
-        plugin_host: plugin_host_config_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
     })
 }
 
@@ -405,56 +443,69 @@ fn build_diff_command(
         package: report.package,
         owner: report.owner,
         result_cache: result_cache_folder_of_this_process(current_folder),
-        plugin_host: plugin_host_config_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
     })
 }
 
-fn build_trend_command(
+struct ReportTarget {
+    folder: PathBuf,
+    destination: ReportDestination,
+    plugin_host: PluginHostConfig,
+}
+
+impl ReportTarget {
+    fn into_trend(
+        self,
+        since: Option<CalendarDay>,
+        format: Option<TrendFormat>,
+        result_cache: Option<PathBuf>,
+    ) -> Command {
+        Command::Trend {
+            folder: self.folder,
+            range: since.map_or_else(TrendRange::default, TrendRange::Since),
+            destination: self.destination,
+            format,
+            result_cache,
+            plugin_host: self.plugin_host,
+        }
+    }
+
+    fn into_impact(self, args: ImpactArguments) -> Command {
+        Command::Impact {
+            folder: self.folder,
+            paths: args.paths,
+            changed: args.changed,
+            depth: args.depth,
+            package: args.package,
+            destination: self.destination,
+            format: args.format,
+            plugin_host: self.plugin_host,
+        }
+    }
+
+    fn into_trace(self, args: TraceArguments) -> Command {
+        Command::Trace {
+            folder: self.folder,
+            from: args.from,
+            to: args.to,
+            all: args.all,
+            max_paths: args.max_paths,
+            package: args.package,
+            destination: self.destination,
+            format: args.format,
+            plugin_host: self.plugin_host,
+        }
+    }
+}
+
+fn report_target(
     current_folder: &Path,
-    since: Option<CalendarDay>,
     output: Option<PathBuf>,
-    format: Option<TrendFormat>,
-) -> Result<Command, ConfigError> {
-    Ok(Command::Trend {
+) -> Result<ReportTarget, ConfigError> {
+    Ok(ReportTarget {
         folder: current_folder.to_path_buf(),
-        range: since.map_or_else(TrendRange::default, TrendRange::Since),
         destination: report_destination(current_folder, output)?,
-        format,
-        result_cache: result_cache_folder_of_this_process(current_folder),
-        plugin_host: plugin_host_config_of_this_process(current_folder),
-    })
-}
-
-fn build_impact_command(
-    current_folder: &Path,
-    args: ImpactArguments,
-) -> Result<Command, ConfigError> {
-    Ok(Command::Impact {
-        folder: current_folder.to_path_buf(),
-        paths: args.paths,
-        changed: args.changed,
-        depth: args.depth,
-        package: args.package,
-        destination: report_destination(current_folder, args.output.output)?,
-        format: args.format,
-        plugin_host: plugin_host_config_of_this_process(current_folder),
-    })
-}
-
-fn build_trace_command(
-    current_folder: &Path,
-    args: TraceArguments,
-) -> Result<Command, ConfigError> {
-    Ok(Command::Trace {
-        folder: current_folder.to_path_buf(),
-        from: args.from,
-        to: args.to,
-        all: args.all,
-        max_paths: args.max_paths,
-        package: args.package,
-        destination: report_destination(current_folder, args.output.output)?,
-        format: args.format,
-        plugin_host: plugin_host_config_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
     })
 }
 
@@ -480,17 +531,45 @@ fn result_cache_folder_of_this_process(current_folder: &Path) -> Option<PathBuf>
     )
 }
 
-fn plugin_host_config_of_this_process(current_folder: &Path) -> PluginHostConfig {
+fn plugin_host_config_of_this_process(
+    current_folder: &Path,
+) -> Result<PluginHostConfig, ConfigError> {
     let cache_dir = result_cache_folder_of_this_process(current_folder)
         .map(|dir| dir.join(PLUGIN_CACHE_SUBDIR));
     let ca_cert = std::env::var_os(TEST_CA_CERT_VARIABLE)
         .filter(|value| !value.is_empty())
         .map(|value| current_folder.join(value));
-    PluginHostConfig {
+    let max_download_bytes = parse_plugin_max_download_bytes(read_env_var)?;
+    Ok(PluginHostConfig {
         cache_dir,
         ca_cert,
         download_timeout_seconds: DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS,
+        max_download_bytes,
+    })
+}
+
+fn parse_plugin_max_download_bytes(
+    lookup: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<u64, ConfigError> {
+    let Some(raw) = lookup(PLUGIN_MAX_DOWNLOAD_MB_VARIABLE) else {
+        return Ok(DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES);
+    };
+    if raw.is_empty() {
+        return Ok(DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES);
     }
+    let Some(text) = raw.to_str() else {
+        return Err(ConfigError::InvalidPluginMaxDownloadMb {
+            value: raw.to_string_lossy().into_owned(),
+        });
+    };
+    let parsed = text
+        .parse::<u64>()
+        .ok()
+        .filter(|&mb| mb > 0 && mb <= MAX_PLUGIN_DOWNLOAD_MIB)
+        .and_then(|mb| mb.checked_mul(BYTES_PER_MIB));
+    parsed.ok_or_else(|| ConfigError::InvalidPluginMaxDownloadMb {
+        value: text.to_owned(),
+    })
 }
 
 fn existing_folder(current_folder: &Path, path: Option<PathBuf>) -> Result<PathBuf, ConfigError> {

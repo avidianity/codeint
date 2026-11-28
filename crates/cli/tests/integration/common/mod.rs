@@ -149,7 +149,9 @@ pub(crate) fn send_mcp_requests(dir: &Path, requests: &[Value]) -> Vec<Value> {
 
 pub(crate) fn mcp_payload(response: &Value) -> Value {
     assert_eq!(response["result"]["isError"], false);
-    serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+    let text = response["result"]["content"][0]["text"].as_str().unwrap();
+    toon_format::decode_default(text)
+        .unwrap_or_else(|err| panic!("expected valid TOON MCP payload: {err}\n{text}"))
 }
 
 pub(crate) fn mcp_tool_call(id: u64, name: &str, arguments: Value) -> Value {

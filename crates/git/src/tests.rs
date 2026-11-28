@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -6,9 +7,12 @@ use std::time::{Duration, SystemTime};
 
 use codeint_model::RepoPath;
 
-use crate::Repository;
+use crate::history::SECONDS_PER_DAY;
+use crate::{ChurnRange, CommitId, CommitRange, Repository};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+const MAY_10_UTC: i64 = 1_778_371_200;
 
 pub(crate) struct TempRepo {
     root: PathBuf,
@@ -64,6 +68,20 @@ impl TempRepo {
         git(&self.root, &["add", "--all"]);
         git(&self.root, &["commit", "-q", "-m", message]);
     }
+
+    fn commit_at(&self, files: &[(&str, &str)], message: &str, committer_date: &str) -> CommitId {
+        self.write_all(files);
+        let date_envs = [
+            ("GIT_AUTHOR_DATE", committer_date),
+            ("GIT_COMMITTER_DATE", committer_date),
+        ];
+        git_with_env(&self.root, &["add", "-A"], &date_envs);
+        git_with_env(&self.root, &["commit", "-q", "-m", message], &date_envs);
+        Repository::discover(self.path())
+            .expect("open repo")
+            .resolve("HEAD")
+            .expect("resolve HEAD")
+    }
 }
 
 impl Drop for TempRepo {
@@ -73,6 +91,10 @@ impl Drop for TempRepo {
 }
 
 pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
+    git_with_env(cwd, args, &[])
+}
+
+fn git_with_env(cwd: &Path, args: &[&str], extra_envs: &[(&str, &str)]) -> String {
     let output = Command::new("git")
         .args(args)
         .current_dir(cwd)
@@ -84,6 +106,7 @@ pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
             ("GIT_COMMITTER_NAME", "Tester"),
             ("GIT_COMMITTER_EMAIL", "tester@example.invalid"),
         ])
+        .envs(extra_envs.iter().copied())
         .output()
         .expect("spawn git");
     assert!(
@@ -94,9 +117,20 @@ pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
     String::from_utf8(output.stdout).expect("utf8 stdout")
 }
 
+fn repo_path(path: &str) -> RepoPath {
+    RepoPath::new(path).expect("valid repo path")
+}
+
 fn repo_paths(raw: &[&str]) -> Vec<RepoPath> {
-    raw.iter()
-        .map(|item| RepoPath::new((*item).to_owned()).expect("valid repo path"))
+    raw.iter().map(|item| repo_path(item)).collect()
+}
+
+fn first_parent_ids_since(temp: &TempRepo, unix_seconds: i64) -> Vec<CommitId> {
+    let repo = Repository::discover(temp.path()).expect("discover repo");
+    repo.first_parent_history(CommitRange::CommittedSince { unix_seconds })
+        .expect("walk history")
+        .into_iter()
+        .map(|entry| entry.commit)
         .collect()
 }
 
@@ -235,4 +269,193 @@ fn mode_change_falls_back_safely_without_false_positive_or_miss() {
         .changed_files_since("main")
         .expect("changed_files_since after edit");
     assert_eq!(changed.files, repo_paths(&["script.sh"]));
+}
+
+#[test]
+fn first_parent_history_tolerates_14_day_skew_and_stops_beyond_14_days() {
+    let temp = TempRepo::new("skew-test");
+    let _beyond_skew_newer = temp.commit_at(
+        &[("src/beyond.ts", "export const beyond = 1;\n")],
+        "newer commit hidden behind >14d commit",
+        "2026-05-12T12:00:00Z",
+    );
+    let _beyond_skew_older = temp.commit_at(
+        &[("src/old_stop.ts", "export const oldStop = 1;\n")],
+        "commit older than cutoff by >14 days",
+        "2026-04-25T23:59:59Z",
+    );
+    let behind_skew = temp.commit_at(
+        &[("src/behind_skew.ts", "export const behind = 1;\n")],
+        "newer commit behind 1-day skew",
+        "2026-05-11T12:00:00Z",
+    );
+    let _skewed_older = temp.commit_at(
+        &[("src/skewed.ts", "export const skewed = 1;\n")],
+        "1-day older skewed commit",
+        "2026-05-09T12:00:00Z",
+    );
+    let head = temp.commit_at(
+        &[("src/head.ts", "export const head = 1;\n")],
+        "head commit",
+        "2026-05-15T12:00:00Z",
+    );
+
+    assert_eq!(
+        first_parent_ids_since(&temp, MAY_10_UTC),
+        vec![behind_skew, head]
+    );
+}
+
+#[test]
+fn first_parent_history_exact_14_day_boundary_scans_at_14_days_and_stops_past_it() {
+    let temp = TempRepo::new("skew-boundary");
+    let _unreachable = temp.commit_at(
+        &[("src/unreachable.ts", "export const u = 1;\n")],
+        "newer commit behind 14d+1s commit",
+        &format!("@{} +0000", MAY_10_UTC + SECONDS_PER_DAY),
+    );
+    let _just_past_window = temp.commit_at(
+        &[("src/stop.ts", "export const s = 1;\n")],
+        "commit at cutoff - 14d - 1s",
+        &format!("@{} +0000", MAY_10_UTC - 14 * SECONDS_PER_DAY - 1),
+    );
+    let reachable = temp.commit_at(
+        &[("src/reachable.ts", "export const r = 1;\n")],
+        "newer commit behind exact 14d commit",
+        &format!("@{} +0000", MAY_10_UTC + 2 * SECONDS_PER_DAY),
+    );
+    let _exact_boundary = temp.commit_at(
+        &[("src/boundary.ts", "export const b = 1;\n")],
+        "commit at exact cutoff - 14d",
+        &format!("@{} +0000", MAY_10_UTC - 14 * SECONDS_PER_DAY),
+    );
+    let head = temp.commit_at(
+        &[("src/head.ts", "export const h = 1;\n")],
+        "head commit",
+        &format!("@{} +0000", MAY_10_UTC + 3 * SECONDS_PER_DAY),
+    );
+
+    assert_eq!(
+        first_parent_ids_since(&temp, MAY_10_UTC),
+        vec![reachable, head]
+    );
+}
+
+#[test]
+fn churn_and_coupling_tolerate_14_day_skew_in_since_and_days_walks() {
+    let temp = TempRepo::new("skew-churn-coupling");
+    temp.commit_at(
+        &[
+            ("src/beyond.ts", "export const beyond = 1;\n"),
+            ("src/shared.ts", "export const shared = 1;\n"),
+        ],
+        "newer commit behind >14d commit",
+        "2026-05-12T12:00:00Z",
+    );
+    temp.commit_at(
+        &[("src/old_stop.ts", "export const oldStop = 1;\n")],
+        "commit older than cutoff by >14 days",
+        "2026-04-25T23:59:59Z",
+    );
+    temp.commit_at(
+        &[
+            ("src/behind_skew.ts", "export const behind = 1;\n"),
+            ("src/shared.ts", "export const shared = 2;\n"),
+        ],
+        "newer commit behind 1-day skew",
+        "2026-05-11T12:00:00Z",
+    );
+    temp.commit_at(
+        &[
+            ("src/excluded_skew.ts", "export const excluded = 1;\n"),
+            ("src/shared.ts", "export const shared = 3;\n"),
+        ],
+        "1-day older skewed commit",
+        "2026-05-09T12:00:00Z",
+    );
+    temp.commit_at(
+        &[
+            ("src/head.ts", "export const head = 1;\n"),
+            ("src/shared.ts", "export const shared = 4;\n"),
+        ],
+        "head commit",
+        "2026-05-15T12:00:00Z",
+    );
+
+    let repo = Repository::discover(temp.path()).expect("discover repo");
+    let allowed: BTreeSet<RepoPath> = [
+        "src/beyond.ts",
+        "src/old_stop.ts",
+        "src/behind_skew.ts",
+        "src/excluded_skew.ts",
+        "src/head.ts",
+        "src/shared.ts",
+    ]
+    .into_iter()
+    .map(repo_path)
+    .collect();
+
+    for range in [
+        ChurnRange::Since {
+            unix_seconds: MAY_10_UTC,
+        },
+        ChurnRange::Days(5),
+    ] {
+        let churn = repo.file_churn(range).expect("file churn");
+        assert_eq!(churn.commits_analyzed, 2, "range={range:?}");
+        assert_eq!(
+            churn.touches_by_file.get(&repo_path("src/behind_skew.ts")),
+            Some(&1)
+        );
+        assert_eq!(
+            churn.touches_by_file.get(&repo_path("src/head.ts")),
+            Some(&1)
+        );
+        assert_eq!(
+            churn.touches_by_file.get(&repo_path("src/shared.ts")),
+            Some(&2)
+        );
+        assert!(
+            !churn
+                .touches_by_file
+                .contains_key(&repo_path("src/excluded_skew.ts"))
+        );
+        assert!(
+            !churn
+                .touches_by_file
+                .contains_key(&repo_path("src/old_stop.ts"))
+        );
+        assert!(
+            !churn
+                .touches_by_file
+                .contains_key(&repo_path("src/beyond.ts"))
+        );
+
+        let coupling = repo
+            .co_change_coupling(range, 50, &allowed)
+            .expect("co-change coupling");
+        assert_eq!(coupling.commits_analyzed, 2, "range={range:?}");
+        assert_eq!(
+            coupling
+                .co_changes
+                .get(&(repo_path("src/behind_skew.ts"), repo_path("src/shared.ts"))),
+            Some(&1)
+        );
+        assert_eq!(
+            coupling
+                .co_changes
+                .get(&(repo_path("src/head.ts"), repo_path("src/shared.ts"))),
+            Some(&1)
+        );
+        assert!(
+            !coupling
+                .touches_by_file
+                .contains_key(&repo_path("src/excluded_skew.ts"))
+        );
+        assert!(
+            !coupling
+                .touches_by_file
+                .contains_key(&repo_path("src/beyond.ts"))
+        );
+    }
 }

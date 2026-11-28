@@ -8,7 +8,9 @@ use codeint_report::{
     BaseCommit, CommitMeasurement, DiffReport, DiffReportOptions, Head, HeadCommit,
 };
 
-use crate::check::{CheckError, PreparedRun, SelectedPackage, WorkspaceContext};
+use crate::check::{
+    CheckError, PreparedOwnership, SelectedPackage, WorkspaceContext, WorkspaceRef,
+};
 use crate::commit_measurement::{
     CommitMeasurer, SnapshotRef, measure_all_languages_for_package,
     measure_all_languages_with_new_files,
@@ -42,14 +44,33 @@ pub(crate) fn diff(
     result_cache: Option<&ResultCache>,
     plugin_host: &PluginHostConfig,
 ) -> Result<DiffReport, CheckError> {
-    let run = PreparedRun::load(folder, owner, plugin_host)?;
+    let context = WorkspaceContext::load(folder, plugin_host)?;
+    diff_with_workspace(
+        context.as_ref(),
+        refs,
+        findings,
+        package,
+        owner,
+        result_cache,
+    )
+}
+
+pub(crate) fn diff_with_workspace(
+    workspace: WorkspaceRef<'_>,
+    refs: Refs<'_>,
+    findings: FindingsShown,
+    package: Option<&str>,
+    owner: Option<&str>,
+    result_cache: Option<&ResultCache>,
+) -> Result<DiffReport, CheckError> {
+    let ownership = PreparedOwnership::load(workspace.repository.root(), owner)?;
     let Sides {
         merge_base,
         head,
         head_commit,
-    } = sides(&run.context.repository, &refs)?;
-    let check_new_file_budgets = !run.context.configuration.new_file_budgets.is_empty();
-    let check_per_file = run.context.configuration.regression_limits.per_file();
+    } = sides(workspace.repository, &refs)?;
+    let check_new_file_budgets = !workspace.configuration.new_file_budgets.is_empty();
+    let check_per_file = workspace.configuration.regression_limits.per_file();
     let MeasuredHead {
         selected,
         measurement: head_measurement,
@@ -57,7 +78,7 @@ pub(crate) fn diff(
         changed_files,
         base_snapshot,
     } = measure_head(
-        &run.context,
+        workspace,
         merge_base,
         head_commit,
         package,
@@ -66,9 +87,9 @@ pub(crate) fn diff(
         check_per_file,
     )?;
     let base_measurer = CommitMeasurer::for_package(
-        &run.context.repository,
-        &run.context.configuration,
-        &run.context.plugins,
+        workspace.repository,
+        workspace.configuration,
+        workspace.plugins,
         result_cache,
         selected.as_ref().map(|pkg| pkg.as_str()),
     );
@@ -77,7 +98,7 @@ pub(crate) fn diff(
         selected.as_ref(),
         base_snapshot.as_ref(),
     )?;
-    let baseline = Baseline::load_optional(run.context.repository.root())?;
+    let baseline = Baseline::load_optional(workspace.repository.root())?;
     let mut report = DiffReport::compare_with_options(
         BaseCommit {
             git_ref: refs.base.to_owned(),
@@ -88,14 +109,14 @@ pub(crate) fn diff(
         head_measurement,
         DiffReportOptions {
             findings,
-            budgets: &run.context.configuration.budgets,
-            new_file_budgets: &run.context.configuration.new_file_budgets,
+            budgets: &workspace.configuration.budgets,
+            new_file_budgets: &workspace.configuration.new_file_budgets,
             new_files: new_files_measurement,
             changed_files,
-            limits: &run.context.configuration.regression_limits,
-            ownership: run.ownership(),
+            limits: &workspace.configuration.regression_limits,
+            ownership: ownership.options(),
             baseline: baseline.as_ref(),
-            include_test_gap_note: !run.context.configuration.coverage_reports.is_empty(),
+            include_test_gap_note: !workspace.configuration.coverage_reports.is_empty(),
         },
     );
     if let Some(baseline) = baseline.as_ref() {
@@ -108,8 +129,8 @@ pub(crate) fn diff(
         }
     }
     crate::ratchet::enforce_if_present(
-        run.context.repository.root(),
-        &run.context.configuration.ratchet.path,
+        workspace.repository.root(),
+        &workspace.configuration.ratchet.path,
         package.is_some(),
         &mut report,
         DiffReport::set_ratchet_note,
@@ -125,7 +146,7 @@ struct NewFilesHeadMeasurement {
 }
 
 fn measure_head(
-    context: &WorkspaceContext,
+    context: WorkspaceRef<'_>,
     merge_base: CommitId,
     head_commit: Option<CommitId>,
     package: Option<&str>,
@@ -144,7 +165,7 @@ fn measure_head(
             base_snapshot: None,
         });
     }
-    let head_snapshot = open_head_snapshot(&context.repository, head_commit)?;
+    let head_snapshot = open_head_snapshot(context.repository, head_commit)?;
     let base_snapshot = context.repository.commit(merge_base)?;
     let changed_files = collect_changed_files(&base_snapshot, &head_snapshot, check_per_file)?;
     if let Some(measured) = measure_head_if_new_files(
@@ -194,7 +215,7 @@ fn collect_changed_files(
 }
 
 fn measure_head_if_new_files(
-    context: &WorkspaceContext,
+    context: WorkspaceRef<'_>,
     base_snapshot: &Snapshot,
     head_snapshot: &Snapshot,
     package: Option<&str>,
@@ -210,8 +231,8 @@ fn measure_head_if_new_files(
     let (selected, measurement, new_files) = measure_all_languages_with_new_files(
         head_snapshot,
         &new_files,
-        &context.plugins,
-        &context.configuration,
+        context.plugins,
+        context.configuration,
         package,
     )?;
     Ok(Some(NewFilesHeadMeasurement {
@@ -242,7 +263,7 @@ fn newly_added_files(base_snapshot: &Snapshot, head_snapshot: &Snapshot) -> Hash
 }
 
 fn measure_head_without_new_files(
-    context: &WorkspaceContext,
+    context: WorkspaceRef<'_>,
     head_commit: Option<CommitId>,
     head_snapshot: Option<&Snapshot>,
     package: Option<&str>,
@@ -252,8 +273,8 @@ fn measure_head_without_new_files(
         let tree = SnapshotRef::get_or_open(head_snapshot, || context.repository.working_tree())?;
         return measure_all_languages_for_package(
             tree.as_snapshot(),
-            &context.plugins,
-            &context.configuration,
+            context.plugins,
+            context.configuration,
             package,
         );
     };
@@ -261,15 +282,15 @@ fn measure_head_without_new_files(
         let tree = SnapshotRef::get_or_open(head_snapshot, || context.repository.commit(commit))?;
         measure_all_languages_for_package(
             tree.as_snapshot(),
-            &context.plugins,
-            &context.configuration,
+            context.plugins,
+            context.configuration,
             Some(requested),
         )
     } else {
         let measurer = CommitMeasurer::new(
-            &context.repository,
-            &context.configuration,
-            &context.plugins,
+            context.repository,
+            context.configuration,
+            context.plugins,
             result_cache,
         );
         Ok((None, measurer.measure_with_snapshot(commit, head_snapshot)?))

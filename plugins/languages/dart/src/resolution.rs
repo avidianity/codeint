@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
-use codeint_model::scan::{find_manifests, resolve_relative_file};
+use codeint_model::scan::{RelativeFileResolution, find_manifests, resolve_relative_file};
 use serde::Deserialize;
 
 use crate::dependencies::normalize_pub_name;
@@ -80,11 +80,14 @@ fn resolve_one(
         return resolved;
     }
     match resolve_relative_file(files, &request.importer, spec, false) {
-        Resolution::External(pkg) if pkg.is_empty() => Resolution::Builtin,
-        Resolution::Unresolved(_) if is_virtual_generated_import(active_profiles, spec) => {
+        RelativeFileResolution::Resolved(path) => Resolution::Resolved(vec![path]),
+        RelativeFileResolution::Ignored => Resolution::Builtin,
+        RelativeFileResolution::Unresolved(_)
+            if is_virtual_generated_import(active_profiles, spec) =>
+        {
             Resolution::Builtin
         }
-        other => other,
+        RelativeFileResolution::Unresolved(reason) => Resolution::Unresolved(reason),
     }
 }
 
@@ -99,7 +102,7 @@ fn resolve_package_uri(
         None => (pkg_rest, None),
     };
     let pkg_name = normalize_pub_name(raw_pkg);
-    if pkg_name.is_empty() {
+    if !codeint_model::is_valid_external_package_name(&pkg_name) {
         return Resolution::Unresolved(format!("malformed Dart package URI package:{pkg_rest:?}"));
     }
     let Some(pkg_dir) = packages.get(&pkg_name) else {

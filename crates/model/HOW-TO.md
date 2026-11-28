@@ -51,8 +51,11 @@ impl LanguagePlugin for Plain {
         })
     }
 
-    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
-        find_manifests(repository_paths, "plain.toml")
+    fn manifest_paths(
+        &self,
+        repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, LanguagePluginError> {
+        Ok(find_manifests(repository_paths, "plain.toml"))
     }
 
     fn workspace_packages(
@@ -90,7 +93,7 @@ impl LanguagePlugin for Plain {
         Ok(Vec::new())
     }
 
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+    fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError> {
         ReferenceRanges::new(vec![ReferenceRange {
             metric: "erosion".to_owned(),
             metric_version: 1,
@@ -98,6 +101,7 @@ impl LanguagePlugin for Plain {
             high: 0.56,
             source: "Plain text panel of 40 repositories, Table 3".to_owned(),
         }])
+        .map_err(LanguagePluginError::InvalidReferenceRange)
     }
 
     fn known_framework_profiles(&self) -> Vec<String> {
@@ -216,7 +220,7 @@ assert_eq!(model.source_lines, 2);
 - Before lowering, call `choose_manifests(plugin, repository_paths)` once per Language plugin and read each path it returns, once, as `Manifest { path, text }`.
   Pass those manifests to `workspace_packages`, and after lowering to `resolve_runtime_imports(plugin, repository_paths, manifests, &importers, active_profiles)` with the files the plugin lowered and the active Framework profile names.
   `choose_manifests` fails with `ResolveError::UnknownManifest` when the plugin names a path outside the snapshot.
-  `resolve_runtime_imports` returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests, returns an empty `Resolved` target list, or names a file outside the snapshot.
+  `resolve_runtime_imports` returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests, returns an empty `Resolved` target list, returns an empty, blank/whitespace-only, invisible, or control-character `External` package name, or names a file outside the snapshot.
 - `codeint_model::LowerError` is the core's error; it converts from the WIT `lower-error` and names the failure in its message.
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.

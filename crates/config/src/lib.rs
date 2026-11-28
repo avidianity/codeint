@@ -41,21 +41,23 @@ pub use codeint_json::{
     Budget, Budgets, Configuration, ConfigurationInspection, DEPENDENCY_METRIC_KEYS,
     DetectedLanguage, DiscoveredConfigFile, DuplicationConfig, EntryPoints, HAZARDS_METRIC_KEY,
     LanguageCoverage, Languages, MinSimilarity, OutputFormat, PluginDeclaration, PluginKind,
-    PluginLimits, PluginSource, SchemaValueSpan, SchemaVersionStatus, Sha256Digest,
-    SourceSetOverrides, StarterBoundaries, StarterBoundaryZone, StarterConfigurationError,
-    TEST_GAP_METRIC_KEY, configuration_schema, discover_config_file, inspect_configuration,
-    is_broken_symlink, published_schema_address, read_configuration, read_resolved_configuration,
-    rewrite_schema_tag, schema_value_span, write_adoption_starter_configuration,
-    write_adoption_zero_budgets, write_starter_configuration,
+    PluginLimits, PluginSource, RewrittenSchema, RewrittenSchemaForm, SchemaValueSpan,
+    SchemaVersionStatus, Sha256Digest, SourceSetOverrides, StarterBoundaries, StarterBoundaryZone,
+    StarterConfigurationError, TEST_GAP_METRIC_KEY, configuration_schema, discover_config_file,
+    inspect_configuration, is_broken_symlink, published_schema_address, read_configuration,
+    read_resolved_configuration, rewrite_schema_tag, schema_value_span,
+    write_adoption_starter_configuration, write_adoption_zero_budgets, write_starter_configuration,
     write_starter_configuration_in_format,
 };
 pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use command::{
     AgentClient, AgentCommand, AgentFormat, BaselineCommand, BaselineFormat, Command, ConfigError,
-    ConfigFormat, DEFAULT_MAX_TRACE_PATHS, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat,
-    InitFormat, Invocation, PluginCommand, PluginHostConfig, PluginTestFormat, RatchetCommand,
-    RatchetFormat, ReportDestination, ReportFormat, ReportInput, ReportRenderFormat, SchemaFormat,
-    TraceFormat, TrendFormat, TrendRange,
+    ConfigFormat, DEFAULT_MAX_TRACE_PATHS, DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES,
+    DEFAULT_UPDATE_CONNECT_TIMEOUT_SECONDS, DEFAULT_UPDATE_DOWNLOAD_MAX_TIME_SECONDS,
+    DEFAULT_UPDATE_METADATA_MAX_TIME_SECONDS, DoctorFormat, FindingsShown, GuardFormat,
+    ImpactFormat, InitFormat, Invocation, PluginCommand, PluginHostConfig, PluginTestFormat,
+    RatchetCommand, RatchetFormat, ReportDestination, ReportFormat, ReportInput,
+    ReportRenderFormat, SchemaFormat, TraceFormat, TrendFormat, TrendRange,
 };
 pub use config_error::{
     ConfigFileKind, ConfigSyntax, ConfigurationFileError, JsonType, JsoncError, KeyPath, KeySegment,

@@ -7,7 +7,7 @@ use codeint_metrics::{ImpactAnalysis, ImpactError};
 use codeint_model::{CodeModel, RepoPath};
 use codeint_report::{ChangedBase, ImpactReport};
 
-use crate::check::{CheckError, WorkspaceContext, select_workspace_package};
+use crate::check::{CheckError, WorkspaceContext, WorkspaceRef, select_workspace_package};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ImpactCommandError {
@@ -39,14 +39,25 @@ pub(crate) fn impact(
         return Err(ImpactCommandError::MissingTargets);
     }
     let context = WorkspaceContext::load(folder, request.plugin_host)?;
-    let model = context.measure_working_tree_model()?;
+    impact_with_workspace(folder, context.as_ref(), request)
+}
+
+pub(crate) fn impact_with_workspace(
+    folder: &Path,
+    workspace: WorkspaceRef<'_>,
+    request: &ImpactRequest<'_>,
+) -> Result<ImpactReport, ImpactCommandError> {
+    if request.paths.is_empty() && request.changed.is_none() {
+        return Err(ImpactCommandError::MissingTargets);
+    }
+    let model = workspace.measure_working_tree_model()?;
     let selected_package = request
         .package
         .map(|requested| select_workspace_package(&model.workspace, requested))
         .transpose()?;
     let (target_paths, changed_base) = collect_targets(
         folder,
-        &context.repository,
+        workspace.repository,
         &model,
         request.paths,
         request.changed,

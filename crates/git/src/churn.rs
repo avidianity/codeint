@@ -5,12 +5,11 @@ use codeint_model::RepoPath;
 use gix::ObjectId;
 use gix::objs::tree::{EntryMode, EntryRef};
 
-use crate::{CommitId, GitError, Repository};
+use crate::history::{SECONDS_PER_DAY, WalkDecision};
+use crate::{CommitId, CommitRange, GitError, Repository};
 
 #[cfg(test)]
 mod tests;
-
-const SECONDS_PER_DAY: i64 = 86_400;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChurnRange {
@@ -43,26 +42,14 @@ struct WalkOutcome {
     truncated_by_shallow_boundary: bool,
 }
 
-enum EffectiveRange {
-    Commits(usize),
-    Since(i64),
-}
-
-impl EffectiveRange {
-    fn from_head(range: ChurnRange, head_unix_seconds: i64) -> EffectiveRange {
-        match range {
-            ChurnRange::Days(days) => EffectiveRange::Since(
-                head_unix_seconds.saturating_sub(i64::from(days) * SECONDS_PER_DAY),
-            ),
-            ChurnRange::Since { unix_seconds } => EffectiveRange::Since(unix_seconds),
-            ChurnRange::Commits(count) => EffectiveRange::Commits(count),
-        }
-    }
-
-    fn admits(&self, analyzed: usize, committed_at_unix_seconds: i64) -> bool {
+impl ChurnRange {
+    fn into_commit_range(self, head_unix_seconds: i64) -> CommitRange {
         match self {
-            EffectiveRange::Commits(limit) => analyzed < *limit,
-            EffectiveRange::Since(cutoff) => committed_at_unix_seconds >= *cutoff,
+            ChurnRange::Days(days) => CommitRange::CommittedSince {
+                unix_seconds: head_unix_seconds.saturating_sub(i64::from(days) * SECONDS_PER_DAY),
+            },
+            ChurnRange::Since { unix_seconds } => CommitRange::CommittedSince { unix_seconds },
+            ChurnRange::Commits(count) => CommitRange::Latest(count),
         }
     }
 }
@@ -148,10 +135,10 @@ impl Repository {
                 source,
             })?
             .seconds;
-        let effective = EffectiveRange::from_head(range, head_time);
+        let effective = range.into_commit_range(head_time);
         self.walk_commits(
             head_id,
-            &effective,
+            effective,
             shallow,
             shallow_boundary.as_ref(),
             on_commit,
@@ -161,7 +148,7 @@ impl Repository {
     fn walk_commits(
         &self,
         start: ObjectId,
-        effective: &EffectiveRange,
+        effective: CommitRange,
         shallow: bool,
         shallow_boundary: Option<&gix::shallow::Commits>,
         mut on_commit: impl FnMut(BTreeSet<RepoPath>),
@@ -179,7 +166,8 @@ impl Repository {
                 .time()
                 .map_err(|source| GitError::History { commit, source })?
                 .seconds;
-            if !effective.admits(commits_analyzed, committed_at) {
+            let decision = effective.decide(commits_analyzed, committed_at);
+            if decision == WalkDecision::Stop {
                 break;
             }
             let at_boundary = shallow_boundary.is_some_and(|boundary| boundary.contains(&id));
@@ -187,10 +175,12 @@ impl Repository {
                 truncated_by_shallow_boundary = true;
                 break;
             }
-            commits_analyzed += 1;
             let parent_id = found.parent_ids().next().map(|parent| parent.detach());
-            let touched = self.touched_files_in_commit(commit, &found, parent_id)?;
-            on_commit(touched);
+            if decision == WalkDecision::Include {
+                commits_analyzed += 1;
+                let touched = self.touched_files_in_commit(commit, &found, parent_id)?;
+                on_commit(touched);
+            }
             next = parent_id;
         }
         Ok(WalkOutcome {
