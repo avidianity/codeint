@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use codeint_model::{CodeModel, Metric, Package, RepoPath, SourceFile, Token, token_text_hash};
+use codeint_model::{
+    Metric, Package, RepoPath, SourceFile, SourceSetModel, Token, token_text_hash,
+};
 
 use crate::FindingId;
 use crate::finding_id::{FindingContext, FindingIds};
@@ -48,7 +50,7 @@ pub struct Hazards {
 }
 
 impl Hazards {
-    pub fn measure(model: &CodeModel, disabled_rules: &BTreeSet<String>) -> Option<Hazards> {
+    pub fn measure(model: &SourceSetModel, disabled_rules: &BTreeSet<String>) -> Option<Hazards> {
         if !model.languages.iter().any(|facts| facts.has_hazard_rules) {
             return None;
         }
@@ -72,7 +74,7 @@ impl Hazards {
 
     pub fn by_package<'model>(
         &self,
-        model: &'model CodeModel,
+        model: &'model SourceSetModel,
     ) -> BTreeMap<Package<'model>, HazardLines> {
         let mut grouped: BTreeMap<Package<'model>, HazardLines> = BTreeMap::new();
         for (path, &lines) in &self.lines_by_file {
@@ -109,7 +111,7 @@ impl Hazards {
     }
 }
 
-fn group_files_in_path_order(model: &CodeModel) -> BTreeMap<&RepoPath, Vec<&SourceFile>> {
+fn group_files_in_path_order(model: &SourceSetModel) -> BTreeMap<&RepoPath, Vec<&SourceFile>> {
     let mut grouped: BTreeMap<&RepoPath, Vec<&SourceFile>> = BTreeMap::new();
     for file in &model.files {
         grouped.entry(&file.path).or_default().push(file);

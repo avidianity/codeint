@@ -1,5 +1,5 @@
 use codeint_model::language::{FileModel, Function, SourceSet, Token, TokenKind};
-use codeint_model::{CodeModel, Package, RepoPath, SourceFile, Workspace};
+use codeint_model::{Package, RepoPath, SourceFile, SourceSetModel, Workspace};
 
 use super::CognitiveComplexity;
 
@@ -32,7 +32,7 @@ fn token(line: u32, text_hash: u64) -> Token {
 
 #[test]
 fn flags_only_functions_over_15_and_sorts_worst_first() {
-    let model = CodeModel {
+    let model = SourceSetModel {
         files: vec![file(
             "src/logic.ts",
             vec![
@@ -66,7 +66,7 @@ fn flags_only_functions_over_15_and_sorts_worst_first() {
             ],
             vec![token(1, 10), token(12, 20), token(27, 30)],
         )],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
 
     let metric = CognitiveComplexity::measure(&model);
@@ -90,7 +90,7 @@ fn finding_id_stays_stable_when_function_moves_lines_and_by_package_sums_to_tota
         RepoPath::new("packages/a").expect("valid"),
         RepoPath::new("packages/b").expect("valid"),
     ]);
-    let model_a = CodeModel {
+    let model_a = SourceSetModel {
         files: vec![
             file(
                 "packages/a/src/mod.ts",
@@ -120,9 +120,9 @@ fn finding_id_stays_stable_when_function_moves_lines_and_by_package_sums_to_tota
             ),
         ],
         workspace: workspace.clone(),
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
-    let model_shifted = CodeModel {
+    let model_shifted = SourceSetModel {
         files: vec![file(
             "packages/a/src/mod.ts",
             vec![Function {
@@ -137,7 +137,7 @@ fn finding_id_stays_stable_when_function_moves_lines_and_by_package_sums_to_tota
             vec![token(21, 111), token(22, 222)],
         )],
         workspace,
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
 
     let measured_a = CognitiveComplexity::measure(&model_a);

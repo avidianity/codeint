@@ -501,7 +501,7 @@ fn measure_check_report(
         selected.as_ref(),
         configuration.config_file(),
     )?;
-    Report::summarize_with_extras(
+    Report::summarize_with_options(
         snapshot.languages,
         tree.submodules().to_vec(),
         ReportOptions {
@@ -509,7 +509,7 @@ fn measure_check_report(
             budgets: &configuration.budgets,
             metric_plugins,
             boundaries: configuration.boundaries.as_ref(),
-            dependencies: &configuration.dependencies,
+            dependencies: Some(&configuration.dependencies),
             dependency_hygiene: Some(&dependency_hygiene),
             dependency_hygiene_by_language: Some(&dependency_hygiene_by_language),
             duplication: configuration.duplication,
@@ -519,12 +519,12 @@ fn measure_check_report(
             coverage_reports_named,
             unmatched_coverage_paths: &coverage_outcome.unmatched_paths,
             baseline: request.baseline,
+            extras: ReportExtras::default()
+                .with_disabled_hazard_rules(configuration.hazards.disabled_rules_set())
+                .with_file_diagnostics(snapshot.file_diagnostics)
+                .with_scope_summaries(snapshot.scope_summaries)
+                .with_manifest_warnings(snapshot.manifest_warnings),
         },
-        ReportExtras::default()
-            .with_disabled_hazard_rules(configuration.hazards.disabled_rules_set())
-            .with_file_diagnostics(snapshot.file_diagnostics)
-            .with_scope_summaries(snapshot.scope_summaries)
-            .with_manifest_warnings(snapshot.manifest_warnings),
     )
     .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))
 }

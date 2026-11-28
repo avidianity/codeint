@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
 
-use codeint_model::{CodeModel, Metric, Package, RepoPath, StableHasher, Token, TokenKind};
+use codeint_model::{Metric, Package, RepoPath, SourceSetModel, StableHasher, Token, TokenKind};
 use rayon::prelude::*;
 
 use crate::line_share::{LineShare, line_shares_by_package};
@@ -50,7 +50,7 @@ pub struct Duplication {
 
 impl Duplication {
     pub fn measure(
-        model: &CodeModel,
+        model: &SourceSetModel,
         minimum: MinimumCloneTokens,
         minimum_distinct: MinimumDistinctTokens,
     ) -> Duplication {
@@ -58,7 +58,7 @@ impl Duplication {
     }
 
     pub fn measure_with_near_clones(
-        model: &CodeModel,
+        model: &SourceSetModel,
         minimum: MinimumCloneTokens,
         minimum_distinct: MinimumDistinctTokens,
         near_clones: Option<NearCloneConfig>,
@@ -205,7 +205,7 @@ impl Duplication {
 
     pub fn by_package<'model>(
         &self,
-        model: &'model CodeModel,
+        model: &'model SourceSetModel,
     ) -> BTreeMap<Package<'model>, LineShare> {
         line_shares_by_package(model, self.clone_lines.count_by_file())
     }
@@ -215,7 +215,7 @@ impl Duplication {
 pub struct CloneLines(BTreeMap<RepoPath, Vec<u32>>);
 
 impl CloneLines {
-    fn of_files(model: &CodeModel, lines_by_file: Vec<Vec<u32>>) -> CloneLines {
+    fn of_files(model: &SourceSetModel, lines_by_file: Vec<Vec<u32>>) -> CloneLines {
         CloneLines(
             lines_by_file
                 .into_iter()
@@ -321,7 +321,7 @@ pub(super) struct FragmentIdentifier<'model> {
 }
 
 impl<'model> FragmentIdentifier<'model> {
-    pub(super) fn new(metric_key: &'static str, model: &'model CodeModel) -> Self {
+    pub(super) fn new(metric_key: &'static str, model: &'model SourceSetModel) -> Self {
         let tokens_by_path = model
             .files
             .iter()
@@ -441,7 +441,7 @@ fn content_digest(normalized_content: &[u64]) -> u64 {
         .finish()
 }
 
-fn build_clone_families(model: &CodeModel, groups: &[GroupClusterInput]) -> Vec<CloneFamily> {
+fn build_clone_families(model: &SourceSetModel, groups: &[GroupClusterInput]) -> Vec<CloneFamily> {
     if groups.is_empty() {
         return Vec::new();
     }
@@ -508,7 +508,7 @@ fn overlapping_group_components(groups: &[GroupClusterInput]) -> BTreeMap<usize,
 }
 
 fn family_from_component(
-    model: &CodeModel,
+    model: &SourceSetModel,
     groups: &[GroupClusterInput],
     group_indices: &[usize],
 ) -> Option<UnidentifiedFamily> {
@@ -603,7 +603,7 @@ fn merge_overlapping_spans(mut spans: Vec<TokenSpan>) -> Vec<TokenSpan> {
     merged
 }
 
-fn unique_line_count(model: &CodeModel, spans: &[TokenSpan]) -> u64 {
+fn unique_line_count(model: &SourceSetModel, spans: &[TokenSpan]) -> u64 {
     let mut lines_by_file: HashMap<usize, Vec<u32>> = HashMap::new();
     for span in spans {
         let covered = &model.files[span.file].model.tokens[span.start_token..span.end_token];
@@ -672,7 +672,7 @@ struct SearchedRun<'model> {
     tokens: &'model [Token],
 }
 
-fn searched_runs(model: &CodeModel) -> Vec<SearchedRun<'_>> {
+fn searched_runs(model: &SourceSetModel) -> Vec<SearchedRun<'_>> {
     let mut runs = Vec::new();
     for (file, source_file) in model.files.iter().enumerate() {
         let mut first_token = 0;
@@ -723,7 +723,7 @@ impl FirstTokenIndexes {
 }
 
 fn equal_window_classes(
-    model: &CodeModel,
+    model: &SourceSetModel,
     runs: &[SearchedRun<'_>],
     window: usize,
 ) -> WindowClasses {

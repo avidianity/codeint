@@ -2,6 +2,7 @@ mod flutter;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+use codeint_model::frameworks::select_framework_profiles;
 use codeint_model::language::{
     FrameworkProfileResult, FrameworkProfileSelection, Manifest, Resolution,
 };
@@ -39,20 +40,14 @@ fn is_flutter_selected(
     manifests: &[Manifest],
     selection: FrameworkProfileSelection,
 ) -> Result<bool, String> {
-    match selection {
-        FrameworkProfileSelection::Disabled => Ok(false),
-        FrameworkProfileSelection::Auto => Ok(flutter::detect(root, manifests)),
-        FrameworkProfileSelection::Exclude(excluded) => {
-            Ok(!excluded.iter().any(|name| name == flutter::NAME)
-                && flutter::detect(root, manifests))
-        }
-        FrameworkProfileSelection::Only(only) => {
-            if let Some(unknown) = only.iter().find(|name| name.as_str() != flutter::NAME) {
-                return Err(format!("unknown Framework profile {unknown:?}"));
-            }
-            Ok(only.iter().any(|name| name == flutter::NAME))
-        }
-    }
+    let selected = select_framework_profiles(
+        &[flutter::NAME],
+        |name| name,
+        |_| flutter::detect(root, manifests),
+        selection,
+        |unknown| format!("unknown Framework profile {unknown:?}"),
+    )?;
+    Ok(!selected.is_empty())
 }
 
 pub(crate) fn fallback_package_import(

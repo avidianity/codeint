@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use codeint_model::{CodeModel, Package, RepoPath};
+use codeint_model::{Package, RepoPath, SourceSetModel};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LineShare {
@@ -19,7 +19,7 @@ impl LineShare {
 }
 
 pub(crate) fn line_shares_by_package<'model, 'path>(
-    model: &'model CodeModel,
+    model: &'model SourceSetModel,
     lines_by_file: impl IntoIterator<Item = (&'path RepoPath, u64)>,
 ) -> BTreeMap<Package<'model>, LineShare> {
     let workspace = &model.workspace;

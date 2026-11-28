@@ -99,7 +99,7 @@ fn saved_check_and_diff_reports_preserve_metric_versions_across_json_and_toon_ro
     let plugins: [&dyn MetricPlugin; 1] = [&plugin];
     let budgets = Budgets::default();
 
-    let check = Report::summarize_with_metrics(
+    let check = Report::summarize_with_options(
         vec![MeasuredLanguage::new(
             "typescript-javascript",
             model.clone(),
@@ -107,9 +107,10 @@ fn saved_check_and_diff_reports_preserve_metric_versions_across_json_and_toon_ro
             true,
         )],
         Vec::new(),
-        FindingsShown::default(),
-        &budgets,
-        &plugins,
+        crate::ReportOptions {
+            metric_plugins: &plugins,
+            ..crate::ReportOptions::new(FindingsShown::default(), &budgets)
+        },
     )
     .expect("check report");
     let check_json = check.render(ReportFormat::Json).expect("check json");
@@ -161,10 +162,14 @@ fn saved_check_and_diff_reports_preserve_metric_versions_across_json_and_toon_ro
         1
     );
 
-    let base_measurement =
-        CommitMeasurement::of_with_metrics(model.clone(), &plugins).expect("base measurement");
+    let plugin_options = crate::CommitMeasurementOptions {
+        metric_plugins: &plugins,
+        ..crate::CommitMeasurementOptions::default()
+    };
+    let base_measurement = CommitMeasurement::of_languages(vec![model.clone()], plugin_options)
+        .expect("base measurement");
     let head_measurement =
-        CommitMeasurement::of_with_metrics(model, &plugins).expect("head measurement");
+        CommitMeasurement::of_languages(vec![model], plugin_options).expect("head measurement");
     let diff = DiffReport::compare(
         BaseCommit {
             git_ref: "main".to_owned(),

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use codeint_model::language::Function;
-use codeint_model::{CodeModel, Metric, Package, RepoPath, SourceFile, SourceSet};
+use codeint_model::{Metric, Package, RepoPath, SourceFile, SourceSet, SourceSetModel};
 
 use crate::FindingId;
 use crate::erosion::function_mass;
@@ -60,7 +60,7 @@ pub struct TestGap {
 }
 
 impl TestGap {
-    pub fn measure(model: &CodeModel) -> Option<TestGap> {
+    pub fn measure(model: &SourceSetModel) -> Option<TestGap> {
         if !model_has_coverage(model) {
             return None;
         }
@@ -124,13 +124,13 @@ impl TestGap {
 
     pub fn by_package<'model>(
         &self,
-        model: &'model CodeModel,
+        model: &'model SourceSetModel,
     ) -> BTreeMap<Package<'model>, TestGapMasses> {
         group_by_package(model, &self.masses_by_file, TestGapMasses::add)
     }
 }
 
-fn model_has_coverage(model: &CodeModel) -> bool {
+fn model_has_coverage(model: &SourceSetModel) -> bool {
     if !model.languages.is_empty() {
         return model.languages.iter().any(|facts| facts.has_coverage);
     }

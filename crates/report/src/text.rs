@@ -347,34 +347,10 @@ fn should_show_source_set(section: &SourceSetSection, show_all: bool) -> bool {
 }
 
 fn source_set_has_non_zero_metric(section: &SourceSetSection) -> bool {
-    section.erosion.header.ratio.0 > 0.0
-        || section.cognitive_complexity.header.ratio.0 > 0.0
-        || section.duplication.header.ratio.0 > 0.0
-        || section.verbosity.header.ratio.0 > 0.0
-        || section
-            .import_cycles
-            .as_ref()
-            .is_some_and(|item| item.header.ratio.0 > 0.0)
-        || section
-            .boundaries
-            .as_ref()
-            .is_some_and(|item| item.header.ratio.0 > 0.0)
-        || section
-            .orphan_files
-            .as_ref()
-            .is_some_and(|item| item.header.ratio.0 > 0.0)
-        || section
-            .test_gap
-            .as_ref()
-            .is_some_and(|item| item.header.ratio.0 > 0.0)
-        || section
-            .hazards
-            .as_ref()
-            .is_some_and(|item| item.header.ratio.0 > 0.0)
-        || section
-            .external_metrics
-            .values()
-            .any(|item| item.header.ratio.0 > 0.0)
+    section
+        .metric_summaries()
+        .iter()
+        .any(|summary| summary.ratio.0 > 0.0)
 }
 
 fn reference_cell(entry: &ReferenceRangeEntry) -> String {
@@ -413,40 +389,36 @@ fn metric_status(
     "ok".to_owned()
 }
 
-struct MetricRowSpec<'a> {
-    name: &'a str,
-    key: &'a str,
-    ratio: f64,
-    reference: Option<&'a ReferenceRangeEntry>,
-    baselined_hidden: usize,
-}
-
 fn build_source_set_row(
     source_set_key: &str,
-    spec: MetricRowSpec<'_>,
+    summary: crate::sections::SourceSetMetricSummary<'_>,
     show_reference: bool,
     over_budget: &[BudgetFailure],
     over_ratchet: &[RatchetFailure],
 ) -> Vec<String> {
     let status = metric_status(
         Some(source_set_key),
-        spec.key,
-        spec.baselined_hidden,
+        summary.key,
+        summary.baselined_hidden,
         over_budget,
         over_ratchet,
     );
     if show_reference {
-        let reference = spec
-            .reference
+        let reference = summary
+            .reference_range
             .map_or_else(|| "-".to_owned(), reference_cell);
         vec![
-            spec.name.to_owned(),
-            spec.ratio.to_string(),
+            summary.label.to_owned(),
+            summary.ratio.0.to_string(),
             reference,
             status,
         ]
     } else {
-        vec![spec.name.to_owned(), spec.ratio.to_string(), status]
+        vec![
+            summary.label.to_owned(),
+            summary.ratio.0.to_string(),
+            status,
+        ]
     }
 }
 
@@ -458,10 +430,12 @@ fn source_set_table_block(
     over_ratchet: &[RatchetFailure],
 ) -> String {
     let key = source_set.key();
-    let specs = collect_source_set_metric_specs(section);
-    let rows: Vec<Vec<String>> = specs
+    let rows: Vec<Vec<String>> = section
+        .metric_summaries()
         .into_iter()
-        .map(|spec| build_source_set_row(key, spec, show_reference, over_budget, over_ratchet))
+        .map(|summary| {
+            build_source_set_row(key, summary, show_reference, over_budget, over_ratchet)
+        })
         .collect();
     let heading = format!(
         "{} ({} {}, {} {})",
@@ -486,196 +460,29 @@ fn source_set_table_block(
     lines.join("\n")
 }
 
-fn collect_source_set_metric_specs<'a>(section: &'a SourceSetSection) -> Vec<MetricRowSpec<'a>> {
-    let mut specs = vec![
-        MetricRowSpec {
-            name: "Erosion",
-            key: Metric::Erosion.key(),
-            ratio: section.erosion.header.ratio.0,
-            reference: Some(&section.erosion.header.reference_range),
-            baselined_hidden: section.erosion.findings.baselined.hidden,
-        },
-        MetricRowSpec {
-            name: "Cognitive complexity",
-            key: Metric::CognitiveComplexity.key(),
-            ratio: section.cognitive_complexity.header.ratio.0,
-            reference: Some(&section.cognitive_complexity.header.reference_range),
-            baselined_hidden: section.cognitive_complexity.findings.baselined.hidden,
-        },
-        MetricRowSpec {
-            name: "Duplication",
-            key: Metric::Duplication.key(),
-            ratio: section.duplication.header.ratio.0,
-            reference: Some(&section.duplication.header.reference_range),
-            baselined_hidden: section.duplication.clone_groups.baselined.hidden,
-        },
-        MetricRowSpec {
-            name: "Verbosity",
-            key: Metric::Verbosity.key(),
-            ratio: section.verbosity.header.ratio.0,
-            reference: Some(&section.verbosity.header.reference_range),
-            baselined_hidden: section.verbosity.findings.baselined.hidden,
-        },
-    ];
-    push_optional_metric_specs(section, &mut specs);
-    specs
-}
-
-fn push_spec<'a>(
-    specs: &mut Vec<MetricRowSpec<'a>>,
-    name: &'a str,
-    key: &'a str,
-    ratio: f64,
-    reference: Option<&'a ReferenceRangeEntry>,
-    baselined_hidden: usize,
-) {
-    specs.push(MetricRowSpec {
-        name,
-        key,
-        ratio,
-        reference,
-        baselined_hidden,
-    });
-}
-
-fn push_optional_metric_specs<'a>(
-    section: &'a SourceSetSection,
-    specs: &mut Vec<MetricRowSpec<'a>>,
-) {
-    if let Some(item) = &section.import_cycles {
-        push_spec(
-            specs,
-            "Import cycles",
-            Metric::ImportCycles.key(),
-            item.header.ratio.0,
-            Some(&item.header.reference_range),
-            item.findings.baselined.hidden,
-        );
-    }
-    if let Some(item) = &section.boundaries {
-        push_spec(
-            specs,
-            "Boundaries",
-            Metric::Boundaries.key(),
-            item.header.ratio.0,
-            None,
-            item.findings.baselined.hidden,
-        );
-    }
-    if let Some(item) = &section.orphan_files {
-        push_spec(
-            specs,
-            "Orphan files",
-            Metric::OrphanFiles.key(),
-            item.header.ratio.0,
-            None,
-            item.findings.baselined.hidden,
-        );
-    }
-    if let Some(item) = &section.test_gap {
-        push_spec(
-            specs,
-            "Test gap",
-            Metric::TestGap.key(),
-            item.header.ratio.0,
-            None,
-            item.findings.baselined.hidden,
-        );
-    }
-    if let Some(item) = &section.hazards {
-        push_spec(
-            specs,
-            "Hazards",
-            Metric::Hazards.key(),
-            item.header.ratio.0,
-            None,
-            item.findings.baselined.hidden,
-        );
-    }
-    for (key, item) in &section.external_metrics {
-        push_spec(
-            specs,
-            &item.name,
-            key.as_str(),
-            item.header.ratio.0,
-            Some(&item.header.reference_range),
-            item.findings.baselined.hidden,
-        );
-    }
-}
-
 fn dependencies_table_block(
     dependencies: &DependenciesSection,
     over_budget: &[BudgetFailure],
     over_ratchet: &[RatchetFailure],
 ) -> String {
-    let rows = vec![
-        vec![
-            "Unused dependencies".to_owned(),
-            dependencies.unused_dependencies.header.ratio.0.to_string(),
-            format!(
-                "{}/{}",
-                dependencies.unused_dependencies.unused, dependencies.unused_dependencies.declared
-            ),
-            metric_status(
-                None,
-                Metric::UnusedDependencies.key(),
-                dependencies.unused_dependencies.findings.baselined.hidden,
-                over_budget,
-                over_ratchet,
-            ),
-        ],
-        vec![
-            "Unlisted dependencies".to_owned(),
-            dependencies
-                .unlisted_dependencies
-                .header
-                .ratio
-                .0
-                .to_string(),
-            format!(
-                "{}/{}",
-                dependencies.unlisted_dependencies.unlisted,
-                dependencies.unlisted_dependencies.imported
-            ),
-            metric_status(
-                None,
-                Metric::UnlistedDependencies.key(),
-                dependencies.unlisted_dependencies.findings.baselined.hidden,
-                over_budget,
-                over_ratchet,
-            ),
-        ],
-        vec![
-            "Dev dependencies in production".to_owned(),
-            dependencies
-                .dev_in_production_dependencies
-                .header
-                .ratio
-                .0
-                .to_string(),
-            format!(
-                "{}/{}",
-                dependencies
-                    .dev_in_production_dependencies
-                    .dev_in_production,
-                dependencies
-                    .dev_in_production_dependencies
-                    .production_imported
-            ),
-            metric_status(
-                None,
-                Metric::DevInProductionDependencies.key(),
-                dependencies
-                    .dev_in_production_dependencies
-                    .findings
-                    .baselined
-                    .hidden,
-                over_budget,
-                over_ratchet,
-            ),
-        ],
-    ];
+    let rows: Vec<Vec<String>> = dependencies
+        .metric_summaries()
+        .into_iter()
+        .map(|summary| {
+            vec![
+                summary.label.to_owned(),
+                summary.ratio.0.to_string(),
+                format!("{}/{}", summary.numerator, summary.denominator),
+                metric_status(
+                    None,
+                    summary.key,
+                    summary.baselined_hidden,
+                    over_budget,
+                    over_ratchet,
+                ),
+            ]
+        })
+        .collect();
     let mut lines = vec!["Dependencies".to_owned()];
     lines.extend(align_table(
         &["Metric", "Ratio", "Count", "Status"],

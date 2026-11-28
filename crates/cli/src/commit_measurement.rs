@@ -78,24 +78,6 @@ impl<'run> CommitMeasurer<'run> {
         result_cache: Option<&'run ResultCache>,
         lowering_cache: Option<&'run LoweringCache>,
     ) -> CommitMeasurer<'run> {
-        CommitMeasurer::for_package(
-            repository,
-            configuration,
-            plugins,
-            result_cache,
-            lowering_cache,
-            None,
-        )
-    }
-
-    pub(crate) fn for_package(
-        repository: &'run Repository,
-        configuration: &'run Configuration,
-        plugins: &'run LoadedPlugins,
-        result_cache: Option<&'run ResultCache>,
-        lowering_cache: Option<&'run LoweringCache>,
-        package: Option<&'run str>,
-    ) -> CommitMeasurer<'run> {
         let mut language_plugins: Vec<PluginIdentity> = built_in_language_names()
             .into_iter()
             .map(|name| PluginIdentity {
@@ -127,35 +109,23 @@ impl<'run> CommitMeasurer<'run> {
                 metric_versions,
                 language_plugins,
                 configuration,
-                package,
+                package: None,
             },
             result_cache,
             lowering_cache,
         }
     }
 
+    pub(crate) fn with_package(mut self, package: Option<&'run str>) -> CommitMeasurer<'run> {
+        self.settings.package = package;
+        self
+    }
+
     pub(crate) fn measure(&self, commit: CommitId) -> Result<CommitMeasurement, CheckError> {
-        self.measure_with_package(commit, None, None)
+        self.measure_with(commit, None, None)
     }
 
-    pub(crate) fn measure_with_snapshot(
-        &self,
-        commit: CommitId,
-        snapshot: Option<&Snapshot>,
-    ) -> Result<CommitMeasurement, CheckError> {
-        self.measure_with_package(commit, None, snapshot)
-    }
-
-    pub(crate) fn measure_selected_package_with_snapshot(
-        &self,
-        commit: CommitId,
-        selected: Option<&SelectedPackage>,
-        snapshot: Option<&Snapshot>,
-    ) -> Result<CommitMeasurement, CheckError> {
-        self.measure_with_package(commit, selected, snapshot)
-    }
-
-    fn measure_with_package(
+    pub(crate) fn measure_with(
         &self,
         commit: CommitId,
         selected: Option<&SelectedPackage>,
@@ -263,16 +233,16 @@ fn measure_new_files_subset(
     let metric_plugins = plugins.metric_plugins();
     let disabled_hazard_rules = configuration.hazards.disabled_rules_set();
     let empty_hygiene = DependencyHygiene::default();
-    let measurement = CommitMeasurement::of_languages_with_full_options(
+    let measurement = CommitMeasurement::of_languages(
         models,
         CommitMeasurementOptions {
             metric_plugins: &metric_plugins,
             boundaries: configuration.boundaries.as_ref(),
-            dependencies: &configuration.dependencies,
+            dependencies: Some(&configuration.dependencies),
             duplication: configuration.duplication,
             orphan_files: orphan_files.as_ref(),
             dependency_hygiene: Some(&empty_hygiene),
-            disabled_hazard_rules: &disabled_hazard_rules,
+            disabled_hazard_rules: Some(&disabled_hazard_rules),
         },
     )
     .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))?;
@@ -344,16 +314,16 @@ fn measure_snapshot_to_commit(
         .map(|language| language.model)
         .collect();
     let disabled_hazard_rules = configuration.hazards.disabled_rules_set();
-    CommitMeasurement::of_languages_with_full_options(
+    CommitMeasurement::of_languages(
         models,
         CommitMeasurementOptions {
             metric_plugins: &metric_plugins,
             boundaries: configuration.boundaries.as_ref(),
-            dependencies: &configuration.dependencies,
+            dependencies: Some(&configuration.dependencies),
             duplication: configuration.duplication,
             orphan_files: orphan_files.as_ref(),
             dependency_hygiene: Some(&dependency_hygiene),
-            disabled_hazard_rules: &disabled_hazard_rules,
+            disabled_hazard_rules: Some(&disabled_hazard_rules),
         },
     )
     .map(|measurement| measurement.with_manifest_warnings(manifest_warnings))

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use codeint_model::{CodeModel, Metric, Package, RepoPath};
+use codeint_model::{Metric, Package, RepoPath, SourceSetModel};
 
 use crate::FindingId;
 use crate::finding_id::{FindingContext, FindingIds, function_finding_identity, group_by_package};
@@ -58,7 +58,7 @@ pub(crate) fn function_mass(function: &codeint_model::language::Function) -> f64
 }
 
 impl Erosion {
-    pub fn measure(model: &CodeModel) -> Erosion {
+    pub fn measure(model: &SourceSetModel) -> Erosion {
         let mut masses = FunctionMasses::default();
         let mut masses_by_file = BTreeMap::new();
         let mut eroded_functions = Vec::new();
@@ -126,7 +126,7 @@ impl Erosion {
 
     pub fn by_package<'model>(
         &self,
-        model: &'model CodeModel,
+        model: &'model SourceSetModel,
     ) -> BTreeMap<Package<'model>, FunctionMasses> {
         group_by_package(model, &self.masses_by_file, FunctionMasses::add)
     }
