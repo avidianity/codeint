@@ -1217,7 +1217,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `duplication` | object | Settings for Duplication detection, including opt-in shingle-based near-clone detection; see [Duplication](#duplication) |
 | `duplication.near_clones` | boolean | When `true`, detect near-duplicate code blocks using shingle similarity in addition to exact Clone groups; `false` by default |
 | `duplication.min_similarity` | number in (0, 1] | Minimum Jaccard shingle similarity required for two blocks to match as a near-clone; `0.85` by default |
-| `entry_points` | list of strings | Globs of repository-relative paths treated as additional Production entry points for Orphan files detection; empty by default |
+| `entry_points` | list of strings | Globs of repository-relative paths treated as additional Production entry points for Orphan files detection, including overriding the Orphan files exclusion (not `dev_in_production_dependencies`) for matching Tooling files; empty by default |
 | `coverage_reports` | list of strings | Paths relative to the repository root of LCOV or Cobertura XML Coverage reports used to measure Test gap; empty by default; see [Test gap](#test-gap) |
 | `sql` | object | SQL settings, including Dialect mappings for folders or files; see [SQL](#sql) |
 | `sql.dialects` | list of objects | Folder or file patterns mapped to a SQL Dialect; files covered by no entry use generic SQL |
@@ -1655,7 +1655,7 @@ codeint compares declared manifest dependencies against imported external packag
   Standard library and runtime built-ins are never flagged.
   In JavaScript and TypeScript workspaces, a workspace member may import dependencies hoisted in the root `package.json`, crediting the root as used while still enforcing `dev_in_production_dependencies` for root dev dependencies imported by runtime Production files.
 - `dev_in_production_dependencies`: dependencies declared only as dev dependencies (including Go modules named only by `tool` directives without a plain `require` line) that are imported by runtime Production files.
-  Dev dependencies imported by Test files or non-runtime tooling paths (tooling dot-directories, `scripts/`, `examples/`, `example/`, `tool/`, `tools/`, `benchmarks/`, `bench/`, `benches/`, and `docs/` at the repository root or a package root, root-level or package-root config/build files such as `*.config.*`, rc dotfiles, `conf.py`, `setup.py`, `noxfile.py`, and `fabfile.py`, and `conftest.py`) are treated as used and are not flagged.
+  Dev dependencies imported by Test files or Tooling files (files inside universal repository tooling folders `.github/`, `scripts/`, `docs/`, `examples/`, `tools/`, and `benches/` at the repository root or a package root, plus language-specific Tooling files marked `is-tooling-file` by their owning Language plugin) are treated as used and are not flagged.
 
 List canonical external package names under `dependencies.ignore` to exclude them from all three dependency Metrics.
 Set independent Budgets under `budgets.unused_dependencies`, `budgets.unlisted_dependencies`, and `budgets.dev_in_production_dependencies`, and adjust `codeint diff` Regression limits under `regression_limits` (all three default to `new_findings: "any_new_finding"`):

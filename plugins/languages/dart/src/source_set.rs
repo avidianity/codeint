@@ -25,6 +25,16 @@ const GENERATED_MARKERS: [&str; 6] = [
 ];
 
 const TEST_FOLDERS: [&str; 3] = ["test", "tests", "integration_test"];
+const WORKSPACE_CONTAINERS: [&str; 8] = [
+    "packages",
+    "pkgs",
+    "apps",
+    "libs",
+    "modules",
+    "crates",
+    "services",
+    "workspaces",
+];
 
 pub(crate) fn classify(path: &str, header_comments: &str) -> SourceSet {
     if is_generated(path, header_comments) {
@@ -40,15 +50,40 @@ pub(crate) fn is_tooling_file(path: &str) -> bool {
     let Some((dir, _)) = path.rsplit_once('/') else {
         return false;
     };
-    for segment in dir.split('/') {
+    let segments: Vec<&str> = dir.split('/').collect();
+    for (index, segment) in segments.iter().enumerate() {
         if segment.eq_ignore_ascii_case("lib") {
             return false;
         }
-        if segment.eq_ignore_ascii_case("tool") || segment.eq_ignore_ascii_case("example") {
+        if is_dart_tooling_segment(&segments, index) {
             return true;
         }
     }
     false
+}
+
+fn is_dart_tooling_segment(segments: &[&str], index: usize) -> bool {
+    let Some(segment) = segments.get(index) else {
+        return false;
+    };
+    let is_tool = segment.eq_ignore_ascii_case("tool");
+    let is_example = segment.eq_ignore_ascii_case("example");
+    if !is_tool && !is_example {
+        return false;
+    }
+    if is_tool
+        && segments
+            .get(index + 1)
+            .is_some_and(|next| next.eq_ignore_ascii_case("lib"))
+    {
+        return false;
+    }
+    let Some(parent) = index.checked_sub(1).and_then(|prev| segments.get(prev)) else {
+        return true;
+    };
+    !WORKSPACE_CONTAINERS
+        .iter()
+        .any(|container| parent.eq_ignore_ascii_case(container))
 }
 
 fn is_generated(path: &str, header_comments: &str) -> bool {

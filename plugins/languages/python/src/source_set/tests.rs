@@ -13,19 +13,22 @@ fn classifies_python_tooling_files_and_preserves_nested_runtime_modules() {
         "setup.py",
         "noxfile.py",
         "fabfile.py",
+        "packages/api/conf.py",
+        "packages/api/setup.py",
+        "packages/app/setup.py",
+        "packages/py/noxfile.py",
+        "packages/py/fabfile.py",
     ] {
         assert!(is_tooling_file(path, &[]), "expected tooling file: {path}");
     }
+    assert!(is_tooling_file("backend/conf.py", &["sphinx".to_owned()]));
     assert!(is_tooling_file(
-        "packages/py/setup.py",
+        "backend/setup.py",
         &["setuptools".to_owned()]
     ));
+    assert!(is_tooling_file("backend/noxfile.py", &["nox".to_owned()]));
     assert!(is_tooling_file(
-        "packages/py/noxfile.py",
-        &["nox".to_owned()]
-    ));
-    assert!(is_tooling_file(
-        "packages/py/fabfile.py",
+        "backend/fabfile.py",
         &["fabric".to_owned()]
     ));
 
@@ -33,6 +36,8 @@ fn classifies_python_tooling_files_and_preserves_nested_runtime_modules() {
         "myapp/conf.py",
         "django_app/core/conf.py",
         "myapp/billing/setup.py",
+        "packages/api/src/conf.py",
+        "packages/api/src/setup.py",
         "src/conf.py",
         "src/setup.py",
         "src/noxfile.py",

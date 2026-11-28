@@ -27,6 +27,18 @@ fn assert_package_paths(cases: &[(&str, &str)], expected: bool) {
     }
 }
 
+fn assert_paths_with_roots(cases: &[(&str, &[&str])], expected: bool) {
+    for &(path, package_roots) in cases {
+        let tooling = UniversalToolingPaths::from_roots(package_roots.iter().copied());
+        let repo_path = RepoPath::new(path).expect("valid repo path");
+        assert_eq!(
+            tooling.is_universal_tooling_path(&repo_path),
+            expected,
+            "unexpected multi-root classification for {path} (package_roots={package_roots:?})"
+        );
+    }
+}
+
 #[test]
 fn matches_only_canonical_universal_tooling_folders_at_repo_and_package_roots() {
     assert_root_paths(
@@ -52,6 +64,13 @@ fn matches_only_canonical_universal_tooling_folders_at_repo_and_package_roots() 
             ("crates/foo/benches/parse.rs", "crates/foo"),
             ("packages/web/.github/check.ts", "packages/web"),
         ],
+        true,
+    );
+    assert_paths_with_roots(
+        &[(
+            "packages/sdk/examples/demo/src/index.ts",
+            &["packages/sdk", "packages/sdk/examples/demo"],
+        )],
         true,
     );
 }
@@ -97,6 +116,13 @@ fn preserves_monorepo_packages_named_like_tooling_dirs_and_nested_runtime_module
             ("packages/examples/src/main.ts", "packages/examples"),
             ("crates/benches/src/lib.rs", "crates/benches"),
         ],
+        false,
+    );
+    assert_paths_with_roots(
+        &[(
+            "packages/tools/src/index.ts",
+            &["packages/tools", "packages/sdk"],
+        )],
         false,
     );
     assert_root_paths(

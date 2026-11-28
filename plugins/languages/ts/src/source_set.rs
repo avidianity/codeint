@@ -8,77 +8,33 @@ const TEST_FOLDERS: [&str; 5] = ["__tests__", "test", "tests", "test-dts", "type
 const TEST_FILE_MARKERS: [&str; 4] = ["test", "spec", "test-d", "spec-d"];
 const EXTRA_GENERATED_MARKERS: [&str; 1] = ["auto generated"];
 
-const KNOWN_CONFIG_STEMS: &[&str] = &[
-    "angular",
-    "astro",
-    "babel",
-    "biome",
-    "capacitor",
-    "commitlint",
-    "craco",
-    "cypress",
-    "docusaurus",
-    "drizzle",
-    "electron",
-    "eleventy",
-    "esbuild",
-    "eslint",
-    "expo",
-    "farm",
-    "forge",
-    "ionic",
-    "jest",
-    "karma",
-    "knip",
-    "lerna",
-    "lint-staged",
-    "metro",
-    "mocha",
-    "next",
-    "nuxt",
-    "nx",
-    "oxlint",
-    "playwright",
-    "postcss",
-    "prettier",
-    "prisma",
-    "release",
-    "remix",
-    "rollup",
-    "rsbuild",
-    "rspack",
-    "storybook",
-    "stylelint",
-    "svelte",
-    "tailwind",
-    "tsdown",
-    "tsup",
-    "turbo",
-    "typedoc",
-    "unbuild",
-    "uno",
-    "vite",
-    "vitest",
-    "vue",
-    "webpack",
-    "wrangler",
-];
-
-const KNOWN_RC_STEMS: &[&str] = &[
-    "babelrc",
-    "commitlintrc",
-    "eslintrc",
-    "graphqlrc",
-    "lintstagedrc",
-    "mocharc",
-    "nycrc",
-    "parcelrc",
-    "postcssrc",
-    "prettierrc",
-    "releaserc",
-    "stylelintrc",
-    "svgrrc",
-    "swcrc",
+const WORKSPACE_CONTAINERS: [&str; 5] = ["packages", "pkgs", "apps", "libs", "workspaces"];
+const SOURCE_FOLDERS: [&str; 25] = [
+    "src",
+    "lib",
+    "app",
+    "source",
+    "config",
+    "pages",
+    "routes",
+    "components",
+    "features",
+    "modules",
+    "server",
+    "client",
+    "shared",
+    "internal",
+    "core",
+    "api",
+    "utils",
+    "helpers",
+    "services",
+    "models",
+    "controllers",
+    "views",
+    "hooks",
+    "store",
+    "domain",
 ];
 
 pub(crate) fn source_set<'text>(
@@ -104,10 +60,10 @@ pub(crate) fn is_tooling_file(path: &str) -> bool {
     if lower.is_empty() {
         return false;
     }
-    if !path.contains('/') {
-        return is_dotted_config_filename(&lower) || is_leading_dot_config_filename(&lower);
+    if !(is_dotted_config_filename(&lower) || is_leading_dot_config_filename(&lower)) {
+        return false;
     }
-    is_known_nested_config_filename(&lower)
+    !is_inside_source_folder(path)
 }
 
 fn has_storybook_folder(path: &str) -> bool {
@@ -136,26 +92,28 @@ fn is_leading_dot_config_filename(lower: &str) -> bool {
         .is_some_and(|stem| stem.ends_with("rc") && stem != "rc" && stem != "src")
 }
 
-fn is_known_nested_config_filename(lower: &str) -> bool {
-    if let Some(rest) = lower.strip_prefix('.') {
-        if let Some(stem) = rest.split('.').next()
-            && KNOWN_RC_STEMS.contains(&stem)
-        {
-            return true;
-        }
-        return is_known_dotted_config_stem(rest);
-    }
-    is_known_dotted_config_stem(lower)
-}
-
-fn is_known_dotted_config_stem(lower: &str) -> bool {
-    let Some(index) = lower.find(".config.") else {
+fn is_inside_source_folder(path: &str) -> bool {
+    let Some((dir, _)) = path.rsplit_once('/') else {
         return false;
     };
-    if index == 0 || index + ".config.".len() >= lower.len() {
+    let mut segments = dir.split('/');
+    let Some(first) = segments.next() else {
         return false;
+    };
+    if WORKSPACE_CONTAINERS
+        .iter()
+        .any(|container| first.eq_ignore_ascii_case(container))
+    {
+        let _package_name = segments.next();
+        return segments.any(is_source_folder);
     }
-    KNOWN_CONFIG_STEMS.contains(&&lower[..index])
+    is_source_folder(first) || segments.any(is_source_folder)
+}
+
+fn is_source_folder(segment: &str) -> bool {
+    SOURCE_FOLDERS
+        .iter()
+        .any(|folder| segment.eq_ignore_ascii_case(folder))
 }
 
 fn is_test_file_name(file_name: &str) -> bool {

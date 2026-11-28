@@ -49,13 +49,29 @@ fn dartdoc_mentioning_generated_code_remains_production() {
 
 #[test]
 fn classifies_dart_tool_and_example_folders_outside_lib_as_tooling_files() {
-    assert!(is_tooling_file("tool/jnigen.dart"));
-    assert!(is_tooling_file("pkgs/foo/tool/jnigen.dart"));
-    assert!(is_tooling_file("example/main.dart"));
-    assert!(is_tooling_file("pkgs/foo/example/lib/main.dart"));
-    assert!(!is_tooling_file("lib/client.dart"));
-    assert!(!is_tooling_file("lib/src/example/x.dart"));
-    assert!(!is_tooling_file("lib/src/tools_helper.dart"));
+    for path in [
+        "tool/jnigen.dart",
+        "tool/gen.dart",
+        "pkgs/foo/tool/jnigen.dart",
+        "packages/sdk/tool/gen.dart",
+        "example/main.dart",
+        "example/lib/main.dart",
+        "pkgs/foo/example/lib/main.dart",
+        "packages/sdk/example/lib/main.dart",
+    ] {
+        assert!(is_tooling_file(path), "expected tooling file: {path}");
+    }
+    for path in [
+        "lib/client.dart",
+        "lib/src/example/x.dart",
+        "lib/src/tools_helper.dart",
+        "packages/tool/lib/client.dart",
+        "packages/example/lib/client.dart",
+        "apps/tool/lib/runner.dart",
+        "tool/lib/client.dart",
+    ] {
+        assert!(!is_tooling_file(path), "unexpected tooling file: {path}");
+    }
     let lowered = Dart
         .lower(
             &RepoPath::new("tool/jnigen.dart").expect("valid path"),

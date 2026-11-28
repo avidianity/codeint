@@ -181,7 +181,7 @@ _Avoid_: analyzer, detector, rule
 - A **Baseline** stores the **Finding** identifiers and **Metric version** of each measured **Metric**; a **Budget** applies to the **Findings** that the **Baseline** does not hide.
 - Every source file belongs to exactly one **Source set**.
 - A **Tooling file** stays in the Production **Source set** for all Production **Metrics** and **Hazards** except **Orphan files** and **Dependency hygiene** dev-in-production checks.
-  Listing a **Tooling file** under `entry_points` overrides that exclusion.
+  Listing a **Tooling file** under `entry_points` overrides the **Orphan files** exclusion (not `dev_in_production_dependencies`).
 
 ## Flagged ambiguities
 

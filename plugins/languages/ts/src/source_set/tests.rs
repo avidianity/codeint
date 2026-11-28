@@ -32,9 +32,16 @@ fn classifies_js_ts_tooling_configs_rc_files_and_storybook_paths() {
         ".commitlintrc.ts",
         ".storybook/main.ts",
         "packages/core/vite.config.ts",
+        "packages/app/vite.config.ts",
         "packages/web/.prettierrc.cjs",
+        "packages/web/.customrc.js",
         "packages/web/.storybook/main.ts",
+        "packages/web/react-router.config.ts",
+        "packages/web/sst.config.ts",
+        "packages/web/orval.config.ts",
         "frontend/vite.config.ts",
+        "frontend/panda.config.ts",
+        "apps/admin/graphql.config.ts",
     ] {
         assert!(is_tooling_file(path), "expected tooling file: {path}");
     }
@@ -44,8 +51,13 @@ fn classifies_js_ts_tooling_configs_rc_files_and_storybook_paths() {
 fn preserves_nested_app_configs_and_runtime_modules_as_non_tooling() {
     for path in [
         "packages/core/src/app.config.ts",
+        "packages/web/src/db.config.ts",
+        "packages/web/app/db.config.ts",
         "app/app.config.ts",
+        "app/auth.config.ts",
+        "lib/env.config.ts",
         "src/app.config.ts",
+        "src/vite.config.ts",
         "config/auth.config.ts",
         "server/stripe.config.ts",
         "src/.app.config.ts",

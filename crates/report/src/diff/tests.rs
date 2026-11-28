@@ -215,6 +215,15 @@ fn trace_omits_program_start_mark_for_non_runtime_tooling_paths() {
     let traced = TraceReport::trace(&model, &script, &script, false, 5).expect("trace");
     assert!(traced.from_entry_point.is_none());
     assert!(traced.to_entry_point.is_none());
+
+    let (config, mut plugin_model) =
+        single_file_model("vite.config.prog", "program-start", true, true);
+    plugin_model.files[0].model.is_tooling_file = true;
+
+    let traced_plugin =
+        TraceReport::trace(&plugin_model, &config, &config, false, 5).expect("trace plugin");
+    assert!(traced_plugin.from_entry_point.is_none());
+    assert!(traced_plugin.to_entry_point.is_none());
 }
 
 #[test]
