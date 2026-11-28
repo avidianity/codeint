@@ -1,0 +1,27 @@
+name: codeint
+description: Programmatic Dart client SDK and CLI runner for codeint, measuring Software entropy and Hazards.
+version: 0.8.0
+homepage: https://github.com/avidianity/codeint
+repository: https://github.com/avidianity/codeint
+issue_tracker: https://github.com/avidianity/codeint/issues
+topics:
+  - static-analysis
+  - code-quality
+  - metrics
+  - cli
+  - linter
+
+environment:
+  sdk: ^3.6.0
+
+executables:
+  codeint: codeint
+  install: install
+
+dependencies:
+  archive: ^4.7.1
+  crypto: ^3.0.8
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.33.0

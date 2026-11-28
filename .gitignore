@@ -4,3 +4,5 @@ node_modules/
 .DS_Store
 /.claude/worktrees/
 /.reasonix/
+/sdks/dart/.dart_tool/
+/sdks/dart/pubspec.lock

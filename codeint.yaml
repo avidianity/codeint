@@ -63,6 +63,7 @@ dependencies:
   ignore:
     - jscpd
     - lefthook
+    - lints
     - markdownlint-cli2
     - skills
     - typescript
@@ -172,6 +173,8 @@ boundaries:
         - plugins/languages/python/src/frameworks/flask/**
     npm_wrapper:
       patterns: [npm/**]
+    dart_sdk:
+      patterns: [sdks/dart/**]
     scripts:
       patterns: [scripts/**]
     agent_tooling:
@@ -318,6 +321,10 @@ boundaries:
       allow: []
       allow_external: []
       reason: The npm wrapper package uses only Node.js built-ins and imports no workspace modules or third-party packages.
+    - from: dart_sdk
+      allow: []
+      allow_external: [archive, crypto]
+      reason: The Dart client SDK is a standalone pure Dart package and imports only archive and crypto at runtime.
     - from: scripts
       allow: []
       allow_external: []
