@@ -12,13 +12,17 @@ else
   printf 'codeint action: neither CODEINT_INSTALL_DIR nor HOME is set\n' >&2
   exit 1
 fi
+INSTALLER_FILE="$(mktemp)"
+trap 'rm -f "$INSTALLER_FILE"' EXIT
 if [ "$VERSION" = "latest" ]; then
   URL="https://github.com/avidianity/codeint/releases/latest/download/install.sh"
   unset CODEINT_VERSION
-  curl -fsSL "$URL" | bash
+  curl -fsSL -o "$INSTALLER_FILE" "$URL"
+  bash "$INSTALLER_FILE"
 else
   URL="https://github.com/avidianity/codeint/releases/download/${VERSION}/install.sh"
-  curl -fsSL "$URL" | CODEINT_VERSION="$VERSION" bash
+  curl -fsSL -o "$INSTALLER_FILE" "$URL"
+  CODEINT_VERSION="$VERSION" bash "$INSTALLER_FILE"
 fi
 if [ "$VERSION" != "latest" ]; then
   EXPECTED_VERSION="${VERSION#v}"

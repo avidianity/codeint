@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use codeint_config::{
-    CalendarDay, ChurnSince, ChurnWindow, CouplingRatio, CouplingSettings, FindingsShown,
-    PluginHostConfig, TrendRange,
+    ChurnSince, ChurnWindow, CouplingRatio, CouplingSettings, FindingsShown, PluginHostConfig,
+    TrendRange,
 };
 use codeint_git::{Repository, ResultCache};
 use codeint_report::McpToolSchema;
@@ -642,13 +642,13 @@ fn call_trend(
 }
 
 fn parse_trend_range(args: Option<&Value>) -> Result<TrendRange, ToolCallResult> {
-    match parse_since_or_commits(args)? {
-        WindowArg::Since(day_str) => CalendarDay::from_str(day_str)
-            .map(TrendRange::Since)
-            .map_err(|err| tool_err(&format!("Invalid since date {day_str:?}: {err}"))),
-        WindowArg::Commits(count) => Ok(TrendRange::Latest(count)),
-        WindowArg::Default => Ok(TrendOptions::default().range),
-    }
+    resolve_window_arg(
+        args,
+        "since date",
+        TrendRange::Since,
+        TrendRange::Latest,
+        TrendOptions::default().range,
+    )
 }
 
 fn call_impact(
@@ -874,14 +874,34 @@ fn parse_since_or_commits(args: Option<&Value>) -> Result<WindowArg<'_>, ToolCal
     Ok(WindowArg::Default)
 }
 
-fn parse_churn_window(args: Option<&Value>) -> Result<ChurnWindow, ToolCallResult> {
+fn resolve_window_arg<T, S>(
+    args: Option<&Value>,
+    since_label: &str,
+    from_since: impl FnOnce(S) -> T,
+    from_commits: impl FnOnce(usize) -> T,
+    default: T,
+) -> Result<T, ToolCallResult>
+where
+    S: FromStr,
+    S::Err: std::fmt::Display,
+{
     match parse_since_or_commits(args)? {
-        WindowArg::Since(text) => ChurnSince::from_str(text)
-            .map(ChurnWindow::from)
-            .map_err(|err| tool_err(&format!("Invalid since window {text:?}: {err}"))),
-        WindowArg::Commits(count) => Ok(ChurnWindow::Commits(count)),
-        WindowArg::Default => Ok(ChurnWindow::default()),
+        WindowArg::Since(text) => S::from_str(text)
+            .map(from_since)
+            .map_err(|err| tool_err(&format!("Invalid {since_label} {text:?}: {err}"))),
+        WindowArg::Commits(count) => Ok(from_commits(count)),
+        WindowArg::Default => Ok(default),
     }
+}
+
+fn parse_churn_window(args: Option<&Value>) -> Result<ChurnWindow, ToolCallResult> {
+    resolve_window_arg(
+        args,
+        "since window",
+        |since: ChurnSince| ChurnWindow::from(since),
+        ChurnWindow::Commits,
+        ChurnWindow::default(),
+    )
 }
 
 fn parse_package(args: Option<&Value>) -> Option<String> {

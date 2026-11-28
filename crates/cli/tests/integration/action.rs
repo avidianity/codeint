@@ -430,11 +430,36 @@ fn sarif_pass_unexpected_exit_code_fails_diff_wrapper_and_exit_enforcement() {
     );
 }
 
-#[test]
-fn action_install_pins_version_tag_through_installer_and_verifies_binary_version() {
+fn build_dual_stub_releases() -> TempDir {
     let releases = TempDir::new().expect("create stub releases");
     build_stub_release_dir(&releases.path().join("download/v0.8.0"), "0.8.0");
     build_stub_release_dir(&releases.path().join("latest/download"), "0.9.0");
+    releases
+}
+
+fn assert_release_urls_fetched(
+    urls: &str,
+    release_subpath: &str,
+    forbidden_subpath: &str,
+    label: &str,
+) {
+    let archive_name = format!("codeint-{}.tar.gz", host_target());
+    let base = format!("https://github.com/avidianity/codeint/releases/{release_subpath}");
+    for asset in ["install.sh", "SHA256SUMS", archive_name.as_str()] {
+        assert!(
+            urls.contains(&format!("{base}/{asset}")),
+            "expected {label} {asset} URL, got:\n{urls}"
+        );
+    }
+    assert!(
+        !urls.contains(forbidden_subpath),
+        "{label} install must not touch {forbidden_subpath}:\n{urls}"
+    );
+}
+
+#[test]
+fn action_install_pins_version_tag_through_installer_and_verifies_binary_version() {
+    let releases = build_dual_stub_releases();
 
     let (output, curl_log, github_path, sandbox) =
         run_action_install_with_stub_releases("v0.8.0", releases.path(), None);
@@ -446,24 +471,11 @@ fn action_install_pins_version_tag_through_installer_and_verifies_binary_version
     );
 
     let urls = fs::read_to_string(&curl_log).expect("read curl log");
-    let archive_name = format!("codeint-{}.tar.gz", host_target());
-    assert!(
-        urls.contains("https://github.com/avidianity/codeint/releases/download/v0.8.0/install.sh"),
-        "expected tagged installer URL, got:\n{urls}"
-    );
-    assert!(
-        urls.contains("https://github.com/avidianity/codeint/releases/download/v0.8.0/SHA256SUMS"),
-        "expected tagged SHA256SUMS URL, got:\n{urls}"
-    );
-    assert!(
-        urls.contains(&format!(
-            "https://github.com/avidianity/codeint/releases/download/v0.8.0/{archive_name}"
-        )),
-        "expected tagged archive URL, got:\n{urls}"
-    );
-    assert!(
-        !urls.contains("releases/latest/download"),
-        "pinned install must not touch latest release:\n{urls}"
+    assert_release_urls_fetched(
+        &urls,
+        "download/v0.8.0",
+        "releases/latest/download",
+        "tagged",
     );
 
     let expected_bin_dir = sandbox.path().join("home/.local/bin");
@@ -500,9 +512,7 @@ fn action_install_fails_when_installed_binary_version_mismatches_requested_tag()
 
 #[test]
 fn action_install_latest_uses_latest_release_with_codeint_version_unset() {
-    let releases = TempDir::new().expect("create stub releases");
-    build_stub_release_dir(&releases.path().join("latest/download"), "0.9.0");
-    build_stub_release_dir(&releases.path().join("download/v0.8.0"), "0.8.0");
+    let releases = build_dual_stub_releases();
 
     let (output, curl_log, _github_path, _sandbox) =
         run_action_install_with_stub_releases("latest", releases.path(), Some("v0.8.0"));
@@ -514,23 +524,10 @@ fn action_install_latest_uses_latest_release_with_codeint_version_unset() {
     );
 
     let urls = fs::read_to_string(&curl_log).expect("read curl log");
-    let archive_name = format!("codeint-{}.tar.gz", host_target());
-    assert!(
-        urls.contains("https://github.com/avidianity/codeint/releases/latest/download/install.sh"),
-        "expected latest installer URL, got:\n{urls}"
-    );
-    assert!(
-        urls.contains("https://github.com/avidianity/codeint/releases/latest/download/SHA256SUMS"),
-        "expected latest SHA256SUMS URL, got:\n{urls}"
-    );
-    assert!(
-        urls.contains(&format!(
-            "https://github.com/avidianity/codeint/releases/latest/download/{archive_name}"
-        )),
-        "expected latest archive URL, got:\n{urls}"
-    );
-    assert!(
-        !urls.contains("releases/download/v0.8.0"),
-        "latest install must unset CODEINT_VERSION:\n{urls}"
+    assert_release_urls_fetched(
+        &urls,
+        "latest/download",
+        "releases/download/v0.8.0",
+        "latest",
     );
 }
