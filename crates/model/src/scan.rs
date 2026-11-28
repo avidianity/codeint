@@ -1,6 +1,9 @@
 use std::collections::{BTreeSet, HashSet};
 
-use crate::language::{FlaggedLine, Function, LowerError, ReferenceRange};
+use crate::language::{
+    DeclaredDep, DependencyManifestOwner, FlaggedLine, Function, LowerError, Manifest,
+    ManifestAnalysis, ReferenceRange, WorkspaceError,
+};
 
 #[cfg(test)]
 mod tests;
@@ -402,4 +405,75 @@ pub fn build_reference_ranges<const N: usize>(
             source: source.to_owned(),
         })
         .collect()
+}
+
+pub fn manifest_root_excluding<'a>(
+    path: &'a str,
+    file_name: &str,
+    ignored_dirs: &[&str],
+) -> Option<&'a str> {
+    if path == file_name {
+        return Some("");
+    }
+    let dir = path.strip_suffix(file_name)?.strip_suffix('/')?;
+    (!dir.split('/').any(|seg| ignored_dirs.contains(&seg))).then_some(dir)
+}
+
+pub fn analyze_parsed_manifests<'a, Doc>(
+    manifests: &'a [Manifest],
+    root_manifest_path: &str,
+    parse_one: impl Fn(&'a Manifest) -> Option<Result<(String, Doc), WorkspaceError>>,
+    discover: impl FnOnce(
+        &'a [Manifest],
+        &[(String, String, Doc)],
+    ) -> Result<Vec<String>, WorkspaceError>,
+    include_owner: impl Fn(&Doc) -> bool,
+    extract_declared: impl FnOnce(&[(String, String, Doc)]) -> Vec<DeclaredDep>,
+) -> ManifestAnalysis {
+    let mut invalid_manifests = Vec::new();
+    let mut invalid_paths = HashSet::new();
+    let mut parsed = Vec::new();
+    for manifest in manifests {
+        let Some(result) = parse_one(manifest) else {
+            continue;
+        };
+        match result {
+            Ok((root, doc)) => parsed.push((root, manifest.path.clone(), doc)),
+            Err(error) => {
+                invalid_paths.insert(manifest.path.as_str());
+                invalid_manifests.push(error);
+            }
+        }
+    }
+    let workspace_packages = if !invalid_paths.contains(root_manifest_path)
+        && parsed.iter().any(|(_, path, _)| path == root_manifest_path)
+    {
+        match discover(manifests, &parsed) {
+            Ok(members) => members,
+            Err(error) => {
+                invalid_manifests.push(error);
+                parsed.retain(|(_, path, _)| path != root_manifest_path);
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    let dependency_manifests = parsed
+        .iter()
+        .filter(|(_, _, doc)| include_owner(doc))
+        .map(|(package_root, path, _)| DependencyManifestOwner {
+            package_root: package_root.clone(),
+            path: path.clone(),
+        })
+        .collect();
+    let declared_dependencies = extract_declared(&parsed);
+    ManifestAnalysis {
+        workspace_packages,
+        invalid_manifests,
+        dependency_manifests,
+        declared_dependencies,
+        manifest_used_dependencies: Vec::new(),
+        root_dependency_inheritance: Vec::new(),
+    }
 }

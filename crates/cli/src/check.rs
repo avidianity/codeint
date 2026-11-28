@@ -647,9 +647,11 @@ fn measure(
     )?;
     let workspace = discovery.workspace();
     let manifest_warnings = discovery.warnings();
-    let plugin_members = discovery.members_by_plugin;
-    let manifests_by_plugin = discovery.manifests_by_plugin;
-    let declared_dependencies_by_plugin = discovery.declared_dependencies_by_plugin;
+    let manifest_facts_by_plugin = discovery.plugins;
+    let manifests_by_plugin: Vec<Vec<Manifest>> = manifest_facts_by_plugin
+        .iter()
+        .map(|facts| facts.valid_manifests.clone())
+        .collect();
     let outcomes = lowering::lower_covered_files(
         tree,
         plugins,
@@ -682,9 +684,7 @@ fn measure(
         tree,
         plugins: &named_plugins,
         models: collected.models,
-        manifests_by_plugin,
-        declared_dependencies_by_plugin,
-        plugin_members: &plugin_members,
+        manifest_facts_by_plugin,
         profiles_by_plugin,
         configured_entry_points: &configuration.entry_points,
         config_file,
@@ -700,9 +700,7 @@ struct SnapshotInputs<'a> {
     tree: &'a Snapshot,
     plugins: &'a [NamedLanguagePlugin<'a>],
     models: Vec<CodeModel>,
-    manifests_by_plugin: Vec<Vec<Manifest>>,
-    declared_dependencies_by_plugin: Vec<Vec<codeint_model::DeclaredDep>>,
-    plugin_members: &'a [Vec<RepoPath>],
+    manifest_facts_by_plugin: Vec<manifests::PluginManifestFacts>,
     profiles_by_plugin: Vec<frameworks::ResolvedLanguageProfiles>,
     configured_entry_points: &'a EntryPoints,
     config_file: ConfigFileKind,
@@ -713,9 +711,7 @@ fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnaps
         tree,
         plugins,
         models,
-        manifests_by_plugin,
-        declared_dependencies_by_plugin,
-        plugin_members,
+        manifest_facts_by_plugin,
         profiles_by_plugin,
         configured_entry_points,
         config_file,
@@ -724,18 +720,16 @@ fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnaps
     let mut entry_points_by_language = BTreeMap::new();
     let mut explicit_entry_points_by_language = BTreeMap::new();
     let mut framework_profiles_by_language = BTreeMap::new();
-    for (((((named, model), manifests), declared_dependencies), members), profiles) in plugins
+    for (((named, model), manifest_facts), profiles) in plugins
         .iter()
         .zip(models)
-        .zip(manifests_by_plugin)
-        .zip(declared_dependencies_by_plugin)
-        .zip(plugin_members)
+        .zip(manifest_facts_by_plugin)
         .zip(profiles_by_plugin)
     {
         let manifest_entries = if named.plugin.has_imports() {
             named
                 .plugin
-                .entry_points(tree.files(), manifests.clone())
+                .entry_points(tree.files(), manifest_facts.valid_manifests.clone())
                 .map_err(|error| CheckError::language_plugin(config_file, error))?
         } else {
             Vec::new()
@@ -755,9 +749,7 @@ fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnaps
         let measured = manifests::finalize_language_model(manifests::FinalizeLanguageInputs {
             named,
             model,
-            manifests,
-            declared_dependencies,
-            plugin_members: members,
+            manifest_facts,
             profiles: &profiles,
             repository_paths: tree.files(),
             config_file,

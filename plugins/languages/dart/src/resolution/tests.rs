@@ -31,3 +31,21 @@ fn resolves_dart_builtins_and_normalizes_package_uris() {
     assert_eq!(resolved[4], Resolution::Builtin);
     assert!(matches!(resolved[5], Resolution::Unresolved(_)));
 }
+
+#[test]
+fn single_pass_resolve_imports_isolates_heterogeneous_monorepo_profiles() {
+    use codeint_model::PackageFrameworkProfiles;
+
+    let files = ["packages/mobile/lib/app.dart", "packages/core/lib/app.dart"];
+    let reqs = files.map(|importer| ImportRequest {
+        importer: importer.into(),
+        specifier: "app.g.dart".into(),
+    });
+    let profiles = [PackageFrameworkProfiles {
+        package_root: "packages/mobile".into(),
+        active_profiles: vec!["flutter".into()],
+    }];
+    let resolved = super::resolve_dart_imports(&files, &[], &reqs, &profiles);
+    assert_eq!(resolved[0], Resolution::Builtin);
+    assert!(matches!(resolved[1], Resolution::Unresolved(_)));
+}

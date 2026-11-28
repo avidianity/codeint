@@ -38,3 +38,30 @@ fn composer_workspace_discovery_and_error_cases() {
     assert_eq!(err.path, "composer.json");
     assert!(err.message.contains("is not valid JSON"));
 }
+
+#[test]
+fn analyze_manifests_reports_malformed_member_composer_json_and_keeps_valid_siblings() {
+    let mut manifests = vec![Manifest {
+        path: "composer.json".into(),
+        text: r#"{"repositories":[{"type":"path","url":"packages/*"}]}"#.into(),
+    }];
+    manifests.push(Manifest {
+        path: "packages/good/composer.json".into(),
+        text: r#"{"name":"acme/good","require":{"monolog/monolog":"^3.0"}}"#.into(),
+    });
+    manifests.push(Manifest {
+        path: "packages/broken/composer.json".into(),
+        text: "{not json".into(),
+    });
+    let analysis = super::analyze_manifests(&manifests);
+    assert_eq!(
+        analysis.invalid_manifests[0].path,
+        "packages/broken/composer.json"
+    );
+    assert_eq!(
+        analysis.workspace_packages,
+        ["packages/broken", "packages/good"]
+    );
+    assert_eq!(analysis.dependency_manifests.len(), 2);
+    assert_eq!(analysis.declared_dependencies[0].name, "monolog/monolog");
+}

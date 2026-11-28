@@ -4,8 +4,9 @@ use codeint_config::{ConfigFileKind, display_package_key};
 use codeint_git::Snapshot;
 use codeint_model::{
     CodeModel, DeclaredDep, DependencyManifest, LanguageFacts, LanguagePluginError, Manifest,
-    PackageFrameworkProfiles, RepoPath, ResolveError, RuntimeImport, SkippedManifest, SourceFile,
-    Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports,
+    ManifestUsedDep, PackageFrameworkProfiles, RepoPath, ResolveError, RuntimeImport,
+    SkippedManifest, SourceFile, Workspace, WorkspaceError, choose_manifests,
+    resolve_runtime_imports,
 };
 use codeint_plugin_host::NamedLanguagePlugin;
 use codeint_report::MeasuredLanguage;
@@ -46,10 +47,17 @@ pub(crate) fn read_manifests(
         .collect()
 }
 
+pub(crate) struct PluginManifestFacts {
+    pub(crate) members: Vec<RepoPath>,
+    pub(crate) valid_manifests: Vec<Manifest>,
+    pub(crate) dependency_manifests: Vec<DependencyManifest>,
+    pub(crate) declared_dependencies: Vec<DeclaredDep>,
+    pub(crate) manifest_used_dependencies: Vec<ManifestUsedDep>,
+    pub(crate) root_dependency_inheritance: Vec<String>,
+}
+
 pub(crate) struct WorkspaceDiscovery {
-    pub(crate) members_by_plugin: Vec<Vec<RepoPath>>,
-    pub(crate) manifests_by_plugin: Vec<Vec<Manifest>>,
-    pub(crate) declared_dependencies_by_plugin: Vec<Vec<DeclaredDep>>,
+    pub(crate) plugins: Vec<PluginManifestFacts>,
     pub(crate) skipped: Vec<SkippedManifest>,
 }
 
@@ -59,8 +67,12 @@ impl WorkspaceDiscovery {
     }
 
     pub(crate) fn workspace(&self) -> Workspace {
-        Workspace::new(self.members_by_plugin.iter().flatten().cloned())
-            .with_skipped_manifests(self.skipped.iter().cloned())
+        Workspace::new(
+            self.plugins
+                .iter()
+                .flat_map(|facts| facts.members.iter().cloned()),
+        )
+        .with_skipped_manifests(self.skipped.iter().cloned())
     }
 }
 
@@ -84,62 +96,60 @@ pub(super) fn find_plugin_workspaces(
     manifests_by_plugin: Vec<Vec<Manifest>>,
 ) -> Result<WorkspaceDiscovery, CheckError> {
     let mut discovery = WorkspaceDiscovery {
-        members_by_plugin: Vec::with_capacity(plugins.len()),
-        manifests_by_plugin: Vec::with_capacity(plugins.len()),
-        declared_dependencies_by_plugin: Vec::with_capacity(plugins.len()),
+        plugins: Vec::with_capacity(plugins.len()),
         skipped: Vec::new(),
     };
     for (named, manifests) in plugins.iter().zip(manifests_by_plugin) {
         if !named.plugin.has_imports() {
-            discovery.members_by_plugin.push(Vec::new());
-            discovery.manifests_by_plugin.push(manifests);
-            discovery.declared_dependencies_by_plugin.push(Vec::new());
+            discovery.plugins.push(PluginManifestFacts {
+                members: Vec::new(),
+                valid_manifests: manifests,
+                dependency_manifests: Vec::new(),
+                declared_dependencies: Vec::new(),
+                manifest_used_dependencies: Vec::new(),
+                root_dependency_inheritance: Vec::new(),
+            });
             continue;
         }
         let found = find_valid_plugin_workspace(named, manifests, &mut discovery.skipped)?;
-        discovery.members_by_plugin.push(found.members);
-        discovery.manifests_by_plugin.push(found.valid_manifests);
-        discovery
-            .declared_dependencies_by_plugin
-            .push(found.declared_dependencies);
+        discovery.plugins.push(found);
     }
     Ok(discovery)
 }
 
-struct PluginWorkspaceAnalysis {
-    members: Vec<RepoPath>,
-    valid_manifests: Vec<Manifest>,
-    declared_dependencies: Vec<DeclaredDep>,
-}
-
-fn find_valid_plugin_workspace(
+fn analyze_plugin_manifests(
     named: &NamedLanguagePlugin<'_>,
-    mut manifests: Vec<Manifest>,
-    skipped: &mut Vec<SkippedManifest>,
-) -> Result<PluginWorkspaceAnalysis, CheckError> {
-    let analysis = match named.plugin.analyze_manifests(manifests.clone()) {
-        Ok(analysis) => analysis,
+    manifests: &[Manifest],
+) -> Result<codeint_model::ManifestAnalysis, CheckError> {
+    match named.plugin.analyze_manifests(manifests.to_vec()) {
+        Ok(analysis) => Ok(analysis),
         Err(LanguagePluginError::UnknownInvalidManifest { path, message }) => {
-            return Err(WorkspaceError::Manifest { path, message }.into());
+            Err(WorkspaceError::Manifest { path, message }.into())
         }
         Err(LanguagePluginError::InvalidWorkspacePackageRoot { path }) => {
-            return match RepoPath::new(path.clone()) {
+            match RepoPath::new(path.clone()) {
                 Err(err) => Err(WorkspaceError::InvalidPackageRoot(err).into()),
                 Ok(_) => Err(WorkspaceError::PluginFailed {
                     plugin: named.name.to_owned(),
                     message: format!("invalid workspace package root {path:?}"),
                 }
                 .into()),
-            };
-        }
-        Err(error) => {
-            return Err(WorkspaceError::PluginFailed {
-                plugin: named.name.to_owned(),
-                message: error.to_string(),
             }
-            .into());
         }
-    };
+        Err(error) => Err(WorkspaceError::PluginFailed {
+            plugin: named.name.to_owned(),
+            message: error.to_string(),
+        }
+        .into()),
+    }
+}
+
+fn find_valid_plugin_workspace(
+    named: &NamedLanguagePlugin<'_>,
+    mut manifests: Vec<Manifest>,
+    skipped: &mut Vec<SkippedManifest>,
+) -> Result<PluginManifestFacts, CheckError> {
+    let analysis = analyze_plugin_manifests(named, &manifests)?;
     for invalid in analysis.invalid_manifests {
         if let Some(position) = manifests.iter().position(|m| m.path == invalid.path) {
             manifests.remove(position);
@@ -160,19 +170,39 @@ fn find_valid_plugin_workspace(
         .into_iter()
         .map(|root| Ok(RepoPath::new(root)?))
         .collect::<Result<Vec<RepoPath>, WorkspaceError>>()?;
-    Ok(PluginWorkspaceAnalysis {
+    let dependency_manifests = analysis
+        .dependency_manifests
+        .into_iter()
+        .map(|owner| {
+            let path = RepoPath::new(owner.path)?;
+            Ok(DependencyManifest {
+                package_root: owner.package_root,
+                path,
+            })
+        })
+        .collect::<Result<Vec<DependencyManifest>, WorkspaceError>>()?;
+    let manifest_used_dependencies = analysis
+        .manifest_used_dependencies
+        .into_iter()
+        .map(|dep| ManifestUsedDep {
+            package_root: dep.package_root,
+            name: dep.name,
+        })
+        .collect();
+    Ok(PluginManifestFacts {
         members,
         valid_manifests: manifests,
+        dependency_manifests,
         declared_dependencies: analysis.declared_dependencies,
+        manifest_used_dependencies,
+        root_dependency_inheritance: analysis.root_dependency_inheritance,
     })
 }
 
 pub(super) struct FinalizeLanguageInputs<'a> {
     pub(super) named: &'a NamedLanguagePlugin<'a>,
     pub(super) model: CodeModel,
-    pub(super) manifests: Vec<Manifest>,
-    pub(super) declared_dependencies: Vec<DeclaredDep>,
-    pub(super) plugin_members: &'a [RepoPath],
+    pub(super) manifest_facts: PluginManifestFacts,
     pub(super) profiles: &'a ResolvedLanguageProfiles,
     pub(super) repository_paths: &'a [RepoPath],
     pub(super) config_file: ConfigFileKind,
@@ -184,9 +214,7 @@ pub(super) fn finalize_language_model(
     let FinalizeLanguageInputs {
         named,
         mut model,
-        manifests,
-        declared_dependencies,
-        plugin_members,
+        manifest_facts,
         profiles,
         repository_paths,
         config_file,
@@ -195,24 +223,26 @@ pub(super) fn finalize_language_model(
         profiles.reference_ranges_for_scope(named, None, config_file)?;
     let has_imports = named.plugin.has_imports();
     if has_imports {
-        model.dependency_manifests = collect_dependency_manifests(
-            &manifests,
-            plugin_members,
-            &declared_dependencies,
+        model.dependency_manifests = filter_active_dependency_manifests(
+            manifest_facts.dependency_manifests,
+            &manifest_facts.members,
+            &manifest_facts.declared_dependencies,
             &model.files,
         );
-        model.manifest_used_dependencies =
-            crate::package_scripts::extract_manifest_used_dependencies(
-                &manifests,
-                plugin_members,
-                &declared_dependencies,
-            );
-        model.declared_dependencies = declared_dependencies;
+        let mut manifest_used = manifest_facts.manifest_used_dependencies;
+        manifest_used.sort();
+        manifest_used.dedup();
+        model.manifest_used_dependencies = manifest_used;
+        model.declared_dependencies = manifest_facts.declared_dependencies;
+        let mut inheritance = manifest_facts.root_dependency_inheritance;
+        inheritance.sort();
+        inheritance.dedup();
+        model.root_dependency_inheritance = inheritance;
         model.runtime_imports = resolve_imports_with_profiles(
             named,
             &model,
             repository_paths,
-            manifests,
+            manifest_facts.valid_manifests,
             profiles,
             config_file,
         )?;
@@ -278,8 +308,8 @@ fn resolve_imports_with_profiles(
     })
 }
 
-fn collect_dependency_manifests(
-    manifests: &[Manifest],
+fn filter_active_dependency_manifests(
+    dependency_manifests: Vec<DependencyManifest>,
     plugin_members: &[RepoPath],
     declared: &[DeclaredDep],
     files: &[SourceFile],
@@ -289,46 +319,18 @@ fn collect_dependency_manifests(
         .map(|dep| dep.package_root.as_str())
         .collect();
     let member_roots: HashSet<&str> = plugin_members.iter().map(RepoPath::as_str).collect();
-    let mut collected: Vec<DependencyManifest> = manifests
-        .iter()
-        .filter(|manifest| should_include_manifest(manifest, &declared_roots, &member_roots, files))
-        .filter_map(|manifest| {
-            let repo_path = RepoPath::new(&manifest.path).ok()?;
-            Some(DependencyManifest {
-                package_root: manifest_root(&manifest.path).to_owned(),
-                path: repo_path,
-            })
+    let mut collected: Vec<DependencyManifest> = dependency_manifests
+        .into_iter()
+        .filter(|manifest| {
+            let root = manifest.package_root.as_str();
+            declared_roots.contains(root)
+                || member_roots.contains(root)
+                || owns_any_file(root, files)
         })
         .collect();
     collected.sort();
     collected.dedup();
     collected
-}
-
-fn should_include_manifest(
-    manifest: &Manifest,
-    declared_roots: &HashSet<&str>,
-    member_roots: &HashSet<&str>,
-    files: &[SourceFile],
-) -> bool {
-    if !is_dependency_manifest_path(&manifest.path) || is_virtual_cargo_workspace(manifest) {
-        return false;
-    }
-    let root = manifest_root(&manifest.path);
-    if declared_roots.contains(root) || member_roots.contains(root) {
-        return true;
-    }
-    owns_any_file(root, files)
-}
-
-fn is_virtual_cargo_workspace(manifest: &Manifest) -> bool {
-    let is_cargo = manifest.path == "Cargo.toml" || manifest.path.ends_with("/Cargo.toml");
-    if !is_cargo {
-        return false;
-    }
-    toml::from_str::<toml::Value>(&manifest.text)
-        .ok()
-        .is_some_and(|doc| doc.get("workspace").is_some() && doc.get("package").is_none())
 }
 
 fn owns_any_file(root: &str, files: &[SourceFile]) -> bool {
@@ -339,25 +341,6 @@ fn owns_any_file(root: &str, files: &[SourceFile]) -> bool {
     files
         .iter()
         .any(|file| file.path.as_str().starts_with(&prefix))
-}
-
-fn is_dependency_manifest_path(path: &str) -> bool {
-    let ignored_dir = path.split('/').any(|segment| {
-        matches!(
-            segment,
-            "node_modules" | "target" | "vendor" | ".venv" | "venv" | ".dart_tool"
-        )
-    });
-    if ignored_dir {
-        return false;
-    }
-    let file_name = path.rsplit_once('/').map_or(path, |(_, name)| name);
-    let is_ts_config = file_name.starts_with("tsconfig") && file_name.ends_with(".json");
-    !is_ts_config && file_name != "pnpm-workspace.yaml"
-}
-
-fn manifest_root(path: &str) -> &str {
-    path.rsplit_once('/').map_or("", |(dir, _)| dir)
 }
 
 pub(super) fn refresh_profiles_for_package(

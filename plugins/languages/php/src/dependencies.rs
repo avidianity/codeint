@@ -30,24 +30,27 @@ pub(crate) fn declared_package_names(manifests: &[Manifest]) -> HashSet<String> 
 
 pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
     let suffix = format!("/{COMPOSER_MANIFEST}");
-    let parsed: Vec<(String, Value)> = manifests
+    let parsed: Vec<(String, String, Value)> = manifests
         .iter()
         .filter(|m| is_project_composer(&m.path, &suffix))
         .filter_map(|m| {
             let doc = serde_json::from_str::<Value>(&m.text).ok()?;
             let root = m.path.strip_suffix(&suffix).unwrap_or("").to_owned();
-            Some((root, doc))
+            Some((root, m.path.clone(), doc))
         })
         .collect();
+    extract_declared_from_parsed(&parsed)
+}
 
+pub(crate) fn extract_declared_from_parsed(parsed: &[(String, String, Value)]) -> Vec<DeclaredDep> {
     let local_packages: HashSet<String> = parsed
         .iter()
-        .filter_map(|(_, doc)| doc.get("name").and_then(Value::as_str))
+        .filter_map(|(_, _, doc)| doc.get("name").and_then(Value::as_str))
         .filter_map(normalize_composer_name)
         .collect();
 
     let mut entries = BTreeSet::new();
-    for (root, doc) in &parsed {
+    for (root, _, doc) in parsed {
         collect_section(root, doc, "require", 0, &local_packages, &mut entries);
         collect_section(root, doc, "require-dev", 1, &local_packages, &mut entries);
         collect_section(root, doc, "suggest", 2, &local_packages, &mut entries);

@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
-use codeint_model::language::{Manifest, WorkspaceError};
+use codeint_model::language::{Manifest, ManifestAnalysis, WorkspaceError};
+use codeint_model::scan::{analyze_parsed_manifests, manifest_root_excluding};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 
@@ -9,6 +10,35 @@ mod tests;
 
 pub(crate) const COMPOSER_MANIFEST: &str = "composer.json";
 
+pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
+    analyze_parsed_manifests(
+        manifests,
+        COMPOSER_MANIFEST,
+        |manifest| {
+            let root = manifest_root_excluding(&manifest.path, COMPOSER_MANIFEST, &["vendor"])?;
+            Some(
+                serde_json::from_str::<Value>(&manifest.text)
+                    .map(|doc| (root.to_owned(), doc))
+                    .map_err(|err| WorkspaceError {
+                        path: manifest.path.clone(),
+                        message: format!("is not valid JSON: {err}"),
+                    }),
+            )
+        },
+        |all, parsed| {
+            let Some((_, _, root_doc)) = parsed.iter().find(|(_, p, _)| p == COMPOSER_MANIFEST)
+            else {
+                return Ok(Vec::new());
+            };
+            Ok(build_path_glob_set(root_doc)?
+                .map(|set| matching_package_folders(all, &set))
+                .unwrap_or_default())
+        },
+        |_| true,
+        crate::dependencies::extract_declared_from_parsed,
+    )
+}
+
 fn composer_error(message: String) -> WorkspaceError {
     WorkspaceError {
         path: COMPOSER_MANIFEST.to_owned(),
@@ -16,6 +46,7 @@ fn composer_error(message: String) -> WorkspaceError {
     }
 }
 
+#[cfg(test)]
 fn parse_root_composer(manifests: &[Manifest]) -> Result<Option<Value>, WorkspaceError> {
     for manifest in manifests {
         if manifest.path == COMPOSER_MANIFEST {
@@ -28,6 +59,7 @@ fn parse_root_composer(manifests: &[Manifest]) -> Result<Option<Value>, Workspac
     Ok(None)
 }
 
+#[cfg(test)]
 pub(crate) fn workspace_packages(manifests: &[Manifest]) -> Result<Vec<String>, WorkspaceError> {
     let Some(parsed) = parse_root_composer(manifests)? else {
         return Ok(Vec::new());

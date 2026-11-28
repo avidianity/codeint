@@ -44,7 +44,6 @@ fn file_name(path: &str) -> &str {
 pub(crate) struct ProjectResolver {
     resolver: ResolverGeneric<Snapshot>,
     package_folders: HashMap<String, String>,
-    active_profiles: Vec<String>,
     manifest_package_roots: Vec<String>,
 }
 
@@ -52,7 +51,6 @@ impl ProjectResolver {
     pub(crate) fn new<P: AsRef<str>>(
         repository_paths: &[P],
         manifests: Vec<Manifest>,
-        active_profiles: &[String],
     ) -> ProjectResolver {
         let mut manifest_package_roots: Vec<String> = manifests
             .iter()
@@ -103,19 +101,28 @@ impl ProjectResolver {
         ProjectResolver {
             resolver: ResolverGeneric::new_with_file_system(file_system, options),
             package_folders,
-            active_profiles: active_profiles.to_vec(),
             manifest_package_roots,
         }
     }
 
-    pub(crate) fn resolve(&self, request: &ImportRequest) -> Resolution {
+    pub(crate) fn resolve(
+        &self,
+        request: &ImportRequest,
+        active_profiles: &[String],
+    ) -> Resolution {
         let specifier = request.specifier.as_str();
         if let Some(early) = precheck_specifier(&request.importer, specifier) {
             return early;
         }
         let importer = snapshot::absolute(&request.importer);
         let resolved = self.resolve_with_fallback(&importer, specifier);
-        self.classify_resolution(&request.importer, &importer, specifier, resolved)
+        self.classify_resolution(
+            &request.importer,
+            &importer,
+            specifier,
+            resolved,
+            active_profiles,
+        )
     }
 
     fn resolve_with_fallback(
@@ -139,6 +146,7 @@ impl ProjectResolver {
         importer: &std::path::Path,
         specifier: &str,
         resolved: Result<oxc_resolver::Resolution, ResolveError>,
+        active_profiles: &[String],
     ) -> Resolution {
         match resolved {
             Ok(resolution) => snapshot::repository_path(resolution.path()).map_or_else(
@@ -150,7 +158,9 @@ impl ProjectResolver {
                 },
                 |path| Resolution::Resolved(vec![path]),
             ),
-            Err(error) => self.classify_error(importer_path, importer, specifier, error),
+            Err(error) => {
+                self.classify_error(importer_path, importer, specifier, error, active_profiles)
+            }
         }
     }
 
@@ -160,15 +170,17 @@ impl ProjectResolver {
         importer: &std::path::Path,
         specifier: &str,
         error: ResolveError,
+        active_profiles: &[String],
     ) -> Resolution {
         if matches!(error, ResolveError::Builtin { .. })
             || is_framework_virtual_module(specifier)
-            || crate::frameworks::is_profile_virtual_module(&self.active_profiles, specifier)
+            || crate::frameworks::is_profile_virtual_module(active_profiles, specifier)
         {
             return Resolution::Builtin;
         }
         if (matches!(error, ResolveError::NotFound(_)) || specifier.starts_with('#'))
-            && let Some(resolution) = self.resolve_not_found_fallback(importer_path, specifier)
+            && let Some(resolution) =
+                self.resolve_not_found_fallback(importer_path, specifier, active_profiles)
         {
             return resolution;
         }
@@ -187,6 +199,7 @@ impl ProjectResolver {
         &self,
         importer_path: &str,
         specifier: &str,
+        active_profiles: &[String],
     ) -> Option<Resolution> {
         if !is_relative(specifier)
             && !specifier.starts_with('#')
@@ -194,8 +207,8 @@ impl ProjectResolver {
         {
             return Some(resolution);
         }
-        if !self.active_profiles.is_empty() {
-            return self.resolve_framework_fallback(importer_path, specifier);
+        if !active_profiles.is_empty() {
+            return self.resolve_framework_fallback(importer_path, specifier, active_profiles);
         }
         None
     }
@@ -211,9 +224,9 @@ impl ProjectResolver {
         &self,
         importer_path: &str,
         specifier: &str,
+        active_profiles: &[String],
     ) -> Option<Resolution> {
-        let candidates =
-            crate::frameworks::fallback_import_candidates(&self.active_profiles, specifier);
+        let candidates = crate::frameworks::fallback_import_candidates(active_profiles, specifier);
         if candidates.is_empty() {
             return None;
         }

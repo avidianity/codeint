@@ -223,3 +223,75 @@ fn repeated_any_depth_segments_in_a_pnpm_pattern_do_not_backtrack_exponentially(
 
     assert!(roots.is_empty());
 }
+
+#[test]
+fn analyze_manifests_populates_scripts_inheritance_and_filters_non_dependency_manifests() {
+    let manifests = vec![
+        manifest("pnpm-workspace.yaml", "packages: [broken\n"),
+        manifest(
+            "package.json",
+            r#"{
+              "name": "root",
+              "workspaces": ["packages/*"],
+              "devDependencies": { "typescript": "5.0.0", "vitest": "2.0.0" },
+              "scripts": { "typecheck": "tsc --noEmit" }
+            }"#,
+        ),
+        manifest("tsconfig.json", r#"{"compilerOptions":{}}"#),
+        manifest(
+            "packages/app/package.json",
+            r#"{"name":"@mono/app","scripts":{"test":"vitest run"}}"#,
+        ),
+        manifest(
+            "node_modules/pkg/package.json",
+            r#"{"name":"pkg","dependencies":{"left-pad":"1.0.0"}}"#,
+        ),
+    ];
+
+    let analysis = super::analyze_manifests(&manifests);
+    assert_eq!(analysis.invalid_manifests.len(), 1);
+    assert_eq!(analysis.invalid_manifests[0].path, "pnpm-workspace.yaml");
+    assert_eq!(analysis.workspace_packages, vec!["packages/app"]);
+    assert_eq!(analysis.root_dependency_inheritance, vec!["packages/app"]);
+    let dep_paths: Vec<&str> = analysis
+        .dependency_manifests
+        .iter()
+        .map(|owner| owner.path.as_str())
+        .collect();
+    assert_eq!(dep_paths, vec!["package.json", "packages/app/package.json"]);
+    let used_names: Vec<&str> = analysis
+        .manifest_used_dependencies
+        .iter()
+        .map(|dep| dep.name.as_str())
+        .collect();
+    assert_eq!(used_names, vec!["typescript", "vitest"]);
+}
+
+#[test]
+fn analyze_manifests_reports_malformed_member_and_root_manifests_even_with_valid_pnpm_workspace() {
+    let analysis = super::analyze_manifests(&[
+        manifest("pnpm-workspace.yaml", "packages:\n  - packages/*\n"),
+        manifest("package.json", "{broken root"),
+        manifest(
+            "packages/good/package.json",
+            r#"{"name":"@mono/good","dependencies":{"zod":"^3.0.0"}}"#,
+        ),
+        manifest("packages/broken/package.json", "{broken member"),
+    ]);
+    assert_eq!(analysis.invalid_manifests.len(), 2);
+    assert_eq!(analysis.invalid_manifests[0].path, "package.json");
+    assert_eq!(
+        analysis.invalid_manifests[1].path,
+        "packages/broken/package.json"
+    );
+    assert_eq!(
+        analysis.workspace_packages,
+        ["packages/good", "packages/broken"]
+    );
+    assert_eq!(analysis.dependency_manifests.len(), 1);
+    assert_eq!(
+        analysis.dependency_manifests[0].path,
+        "packages/good/package.json"
+    );
+    assert_eq!(analysis.declared_dependencies[0].name, "zod");
+}

@@ -5,6 +5,7 @@ mod entry_points;
 mod frameworks;
 mod functions;
 mod nesting;
+mod package_scripts;
 mod resolution;
 mod rules;
 mod runtime_imports;
@@ -22,7 +23,6 @@ use oxc_parser::Parser;
 use oxc_parser::config::TokensParserConfig;
 use oxc_span::SourceType;
 
-use crate::dependencies::extract_declared;
 use crate::entry_points::entry_points as discover_entry_points;
 use crate::functions::{CodeLines, functions};
 use crate::resolution::{ProjectResolver, manifest_paths};
@@ -71,16 +71,20 @@ fn ts_entry_points(
     discover_entry_points(paths, manifests, &EXTENSIONS)
 }
 
-fn resolve_ts_batch(
+fn resolve_ts_imports(
     paths: &[codeint_model::RepoPath],
     manifests: &[codeint_model::Manifest],
     requests: &[codeint_model::language::ImportRequest],
-    profiles: &[String],
+    package_profiles: &[codeint_model::PackageFrameworkProfiles],
 ) -> Vec<codeint_model::language::Resolution> {
-    let resolver = ProjectResolver::new(paths, manifests.to_vec(), profiles);
+    let resolver = ProjectResolver::new(paths, manifests.to_vec());
     requests
         .iter()
-        .map(|request| resolver.resolve(request))
+        .map(|request| {
+            let active =
+                codeint_model::active_profiles_for_path(package_profiles, &request.importer);
+            resolver.resolve(request, active)
+        })
         .collect()
 }
 
@@ -92,9 +96,8 @@ codeint_model::impl_builtin_language_plugin!(
     flagged_lines(flagged_line_rules()),
     imports(
         manifest_paths,
-        workspaces::workspace_packages,
-        by_profile(resolve_ts_batch),
-        extract_declared,
+        workspaces::analyze_manifests,
+        resolve_ts_imports,
         ts_entry_points,
     ),
     frameworks(frameworks),
