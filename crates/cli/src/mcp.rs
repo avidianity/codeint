@@ -330,7 +330,7 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                     "coverage_reports": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "Optional LCOV or Cobertura XML Coverage report paths; when provided, replaces coverage_reports in codeint.json."
+                        "description": "Optional LCOV or Cobertura XML Coverage report paths; when provided, replaces coverage_reports in the configuration file."
                     },
                     "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." },
                     "ignore_baseline": { "type": "boolean", "description": "Ignore .codeint/baseline.json: show every Finding and evaluate Budgets on every Finding (default false)." },

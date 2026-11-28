@@ -118,7 +118,10 @@ fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<ActiveConfigura
             error,
             ..
         } => {
-            let file_name = kind.map_or("codeint.json", codeint_config::ConfigFileKind::file_name);
+            let file_name = kind.map_or(
+                "configuration file",
+                codeint_config::ConfigFileKind::file_name,
+            );
             let config_check = DoctorCheck::error("config", describe(&error))
                 .with_remedy(configuration_file_remedy(&error));
             let mut checks = vec![config_check];

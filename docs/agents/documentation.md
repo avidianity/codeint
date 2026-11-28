@@ -13,7 +13,7 @@ When you change behavior, update the document that owns it in the same change.
 | Universal agent constraint | `.rules` |
 | Task-specific agent instruction | `docs/agents/{task}.md` |
 | How to call a module now | That module's `HOW-TO.md` |
-| How a user runs codeint: commands, options, exit codes, report formats, `codeint.jsonc` / `codeint.json` keys | [docs/reference.md](../reference.md) |
+| How a user runs codeint: commands, options, exit codes, report formats, configuration keys | [docs/reference.md](../reference.md) |
 | User-facing walkthroughs, quick starts, LLM index, and contributor workflows | `README.md`, `docs/guide/`, `llms.txt`, `CONTRIBUTING.md` |
 | A decision and its reasons | An ADR in `docs/adr/` |
 | The reason behind code | Never a code comment; see [engineering.md](./engineering.md#mandatory-no-code-comments) |

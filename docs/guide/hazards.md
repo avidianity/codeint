@@ -24,7 +24,7 @@ See the complete 32-rule SQL list in [docs/reference.md#sql](../reference.md#sql
 
 ## Configuration
 
-Turn off named rules, enforce per-Source-set Budgets, and configure `codeint diff` Regression limits in `codeint.jsonc` or `codeint.json`:
+Turn off named rules, enforce per-Source-set Budgets, and configure `codeint diff` Regression limits in the configuration file:
 
 ```jsonc
 {

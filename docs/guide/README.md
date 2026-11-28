@@ -1,13 +1,13 @@
 # codeint Guide
 
 Welcome to the modular user guide for codeint.
-Each page below focuses on one topic and links to [docs/reference.md](../reference.md) for exact command flags, exit codes, and `codeint.jsonc` / `codeint.json` schema keys.
+Each page below focuses on one topic and links to [docs/reference.md](../reference.md) for exact command flags, exit codes, and configuration schema keys.
 
 ## Reading map
 
 1. [Philosophy and Architecture](./philosophy-and-architecture.md): why codeint measures Software entropy, how its independent Metrics (including Hazards) and structural checks work, and how the codebase is structured.
 2. [Getting Started](./getting-started.md): install codeint, initialize `codeint.jsonc`, and run `check`, `diff`, `trend`, `doctor`, `plugin test`, `config`, `report`, `guard`, `trace`, `impact`, `churn`, and `coupling`.
-3. [Configuration (`codeint.jsonc` / `codeint.json`)](./configuration.md): configure JSONC files, Budgets, Regression limits, Source-set globs, architectural boundaries, near-clone detection, entry points, dependency hygiene, Coverage reports, SQL Dialects, Hazards disabled rules, and multi-language folders.
+3. [Configuration](./configuration.md): configure JSON, JSONC, TOML, or YAML files, Budgets, Regression limits, Source-set globs, architectural boundaries, near-clone detection, entry points, dependency hygiene, Coverage reports, SQL Dialects, Hazards disabled rules, and multi-language folders.
 4. [Import boundaries](./import-boundaries.md): define architectural zones, `public_files` encapsulation, built-in `layered` and `hexagonal` presets, `allow_external` / `deny_external` third-party package globs, and pre-edit `codeint guard` checks.
 5. [Test gap](./test-gap.md): measure untested Production Function mass from LCOV and Cobertura XML Coverage reports, set up each test tool, and enforce a Test gap Budget.
 6. [Hazards](./hazards.md): measure Hazard lines next to Software entropy with strict non-leakage, disable named rules, and enforce Budgets and Regression limits.

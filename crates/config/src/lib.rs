@@ -7,10 +7,10 @@ mod calendar_day;
 mod churn;
 mod cli;
 mod cli_schema;
-mod codeint_json;
 mod codeowners;
 mod command;
 mod config_error;
+mod config_file;
 mod coupling;
 mod dependencies;
 mod dialects;
@@ -37,18 +37,6 @@ pub use cli::read_invocation;
 pub use cli_schema::{
     CliArgumentSchema, CliCommandSchema, CliFlagSchema, CliSchema, OutputFormatSchema, cli_schema,
 };
-pub use codeint_json::{
-    Budget, Budgets, Configuration, ConfigurationInspection, DEPENDENCY_METRIC_KEYS,
-    DetectedLanguage, DiscoveredConfigFile, DuplicationConfig, EntryPoints, HAZARDS_METRIC_KEY,
-    LanguageCoverage, Languages, MinSimilarity, OutputFormat, PluginDeclaration, PluginKind,
-    PluginLimits, PluginSource, RewrittenSchema, RewrittenSchemaForm, SchemaValueSpan,
-    SchemaVersionStatus, Sha256Digest, SourceSetOverrides, StarterBoundaries, StarterBoundaryZone,
-    StarterConfigurationError, TEST_GAP_METRIC_KEY, configuration_schema, discover_config_file,
-    inspect_configuration, is_broken_symlink, published_schema_address, read_configuration,
-    read_resolved_configuration, rewrite_schema_tag, schema_value_span,
-    write_adoption_starter_configuration, write_adoption_zero_budgets, write_starter_configuration,
-    write_starter_configuration_in_format,
-};
 pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use command::{
     AgentClient, AgentCommand, AgentFormat, BaselineCommand, BaselineFormat, Command, ConfigError,
@@ -61,6 +49,18 @@ pub use command::{
 };
 pub use config_error::{
     ConfigFileKind, ConfigSyntax, ConfigurationFileError, JsonType, JsoncError, KeyPath, KeySegment,
+};
+pub use config_file::{
+    Budget, Budgets, Configuration, ConfigurationInspection, DEPENDENCY_METRIC_KEYS,
+    DetectedLanguage, DiscoveredConfigFile, DuplicationConfig, EntryPoints, HAZARDS_METRIC_KEY,
+    LanguageCoverage, Languages, MinSimilarity, OutputFormat, PluginDeclaration, PluginKind,
+    PluginLimits, PluginSource, RewrittenSchema, RewrittenSchemaForm, SchemaValueSpan,
+    SchemaVersionStatus, Sha256Digest, SourceSetOverrides, StarterBoundaries, StarterBoundaryZone,
+    StarterConfigurationError, TEST_GAP_METRIC_KEY, configuration_schema, discover_config_file,
+    inspect_configuration, is_broken_symlink, published_schema_address, read_configuration,
+    read_resolved_configuration, rewrite_schema_tag, schema_value_span,
+    write_adoption_starter_configuration, write_adoption_zero_budgets, write_starter_configuration,
+    write_starter_configuration_in_format,
 };
 pub use coupling::{
     CouplingRatio, CouplingRatioError, CouplingSettings, DEFAULT_MAX_COMMIT_FILES,

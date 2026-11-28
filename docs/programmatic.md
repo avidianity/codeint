@@ -7,7 +7,7 @@ The JavaScript/TypeScript package (`codeint`) exposes `check`, `diff`, `trend`, 
 ## Failure semantics
 
 - `check` and `diff` return a structured result on both exit `0` (passed) and exit `1` (Budget or Regression failed).
-- Operational errors (exit `2`, such as an invalid `codeint.jsonc` or `codeint.json`, a missing folder, or a directory outside Git) throw `CodeintError` in JavaScript/TypeScript or return `Err(CodeintError)` in Rust.
+- Operational errors (exit `2`, such as an invalid configuration file, a missing folder, or a directory outside Git) throw `CodeintError` in JavaScript/TypeScript or return `Err(CodeintError)` in Rust.
 
 ## JavaScript and TypeScript (`codeint`)
 

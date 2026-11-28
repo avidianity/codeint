@@ -74,7 +74,7 @@ impl GuardReport {
                 denied_targets: Vec::new(),
                 allowed_importers: Vec::new(),
                 external_imports: None,
-                note: Some("No boundaries are configured in codeint.json.".to_owned()),
+                note: Some("No boundaries are configured in the configuration file.".to_owned()),
             };
         };
 
