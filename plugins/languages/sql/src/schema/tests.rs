@@ -303,3 +303,270 @@ fn drops_mysql_index_on_table_and_handles_multi_schema_lookup() {
     assert!(multi.get_table(None, "users").is_none());
     assert!(multi.get_table(None, "events").is_some());
 }
+
+#[test]
+fn artifact_codec_round_trips_every_variant_and_rejects_malformed_payloads() {
+    use std::collections::BTreeMap;
+
+    use codeint_model::{FileScopeArtifact, LanguagePlugin, LanguagePluginError, SourceSet};
+
+    use crate::schema::artifact::{
+        AlterOp, ClauseKind, ColumnAlterOp, ColumnRefTarget, ConstrainedRef, DdlOp, SchemaCheck,
+        ScopeDef, SqlFileArtifact, TableAlterOp, TableBindingDef,
+    };
+    use crate::schema::codec::{decode_artifact, encode_artifact};
+    use crate::schema::types::TableSchema;
+
+    let full = SqlFileArtifact {
+        is_down_migration: true,
+        ddl_ops: vec![
+            DdlOp::CreateTable {
+                if_not_exists: true,
+                table: TableSchema {
+                    schema: Some("app".to_owned()),
+                    name: "users".to_owned(),
+                    columns: BTreeMap::from([
+                        ("a".to_owned(), ColumnTypeClass::Text),
+                        ("b".to_owned(), ColumnTypeClass::Numeric),
+                        ("c".to_owned(), ColumnTypeClass::Boolean),
+                        ("d".to_owned(), ColumnTypeClass::Temporal),
+                        ("e".to_owned(), ColumnTypeClass::Binary),
+                        ("f".to_owned(), ColumnTypeClass::Other),
+                    ]),
+                    primary_key: vec!["b".to_owned()],
+                    indexes: vec![IndexSchema {
+                        name: Some("idx_a".to_owned()),
+                        columns: vec!["a".to_owned()],
+                    }],
+                },
+            },
+            DdlOp::CreateIndex {
+                table_schema: None,
+                table_name: "users".to_owned(),
+                index: IndexSchema {
+                    name: None,
+                    columns: vec!["c".to_owned(), "d".to_owned()],
+                },
+            },
+            DdlOp::AlterTable {
+                table_schema: Some("app".to_owned()),
+                table_name: "users".to_owned(),
+                ops: vec![
+                    AlterOp::Column(ColumnAlterOp::AddColumn {
+                        name: "g".to_owned(),
+                        ty: ColumnTypeClass::Text,
+                        is_pk: false,
+                        unique_index: Some(Some("uq_g".to_owned())),
+                    }),
+                    AlterOp::Column(ColumnAlterOp::DropColumn {
+                        name: "f".to_owned(),
+                    }),
+                    AlterOp::Column(ColumnAlterOp::RenameColumn {
+                        old: "a".to_owned(),
+                        new: "a2".to_owned(),
+                    }),
+                    AlterOp::Column(ColumnAlterOp::ChangeColumn {
+                        old: "c".to_owned(),
+                        new: "c2".to_owned(),
+                        ty: ColumnTypeClass::Numeric,
+                        is_pk: false,
+                        unique_index: Some(None),
+                    }),
+                    AlterOp::Column(ColumnAlterOp::ModifyColumn {
+                        name: "d".to_owned(),
+                        ty: ColumnTypeClass::Temporal,
+                        is_pk: true,
+                        unique_index: None,
+                    }),
+                    AlterOp::Column(ColumnAlterOp::SetColumnType {
+                        name: "e".to_owned(),
+                        ty: ColumnTypeClass::Binary,
+                    }),
+                    AlterOp::Table(TableAlterOp::SetPrimaryKey {
+                        columns: vec!["b".to_owned(), "d".to_owned()],
+                    }),
+                    AlterOp::Table(TableAlterOp::AddIndex {
+                        index: IndexSchema {
+                            name: Some("idx_e".to_owned()),
+                            columns: vec!["e".to_owned()],
+                        },
+                    }),
+                    AlterOp::Table(TableAlterOp::PromoteIndexToPk {
+                        index_name: "idx_e".to_owned(),
+                    }),
+                    AlterOp::Table(TableAlterOp::DropNamedIndex {
+                        name: "idx_e".to_owned(),
+                    }),
+                    AlterOp::Table(TableAlterOp::DropPrimaryKey),
+                    AlterOp::Table(TableAlterOp::RenameTable {
+                        new_schema: Some("core".to_owned()),
+                        new_name: "members".to_owned(),
+                    }),
+                ],
+            },
+            DdlOp::DropTable {
+                schema: Some("core".to_owned()),
+                name: "members".to_owned(),
+            },
+            DdlOp::DropIndexOnTable {
+                table_schema: None,
+                table_name: "users".to_owned(),
+                index_name: "idx_a".to_owned(),
+            },
+            DdlOp::DropIndexAcrossTables {
+                index_schema: Some("app".to_owned()),
+                index_name: "idx_global".to_owned(),
+            },
+        ],
+        scopes: vec![
+            ScopeDef {
+                depth: 0,
+                parent: None,
+                bindings: vec![TableBindingDef {
+                    schema: Some("app".to_owned()),
+                    table_name: Some("users".to_owned()),
+                    alias: Some("u".to_owned()),
+                    resolvable: true,
+                }],
+            },
+            ScopeDef {
+                depth: 1,
+                parent: Some(0),
+                bindings: vec![TableBindingDef {
+                    schema: None,
+                    table_name: None,
+                    alias: None,
+                    resolvable: false,
+                }],
+            },
+        ],
+        checks: vec![
+            SchemaCheck::TargetColumn {
+                table_schema: Some("app".to_owned()),
+                table_name: "users".to_owned(),
+                column: "missing".to_owned(),
+                line: 2,
+            },
+            SchemaCheck::UsingColumn {
+                left_scope: 0,
+                right_table: Some((None, "orders".to_owned())),
+                column: "user_id".to_owned(),
+                using_cols: vec!["user_id".to_owned()],
+                line: 3,
+            },
+            SchemaCheck::ColumnRef {
+                scope: 1,
+                target: ColumnRefTarget::Unqualified("a".to_owned()),
+                excluded: vec!["alias_x".to_owned()],
+                clause: ClauseKind::General,
+                constrained: vec![ConstrainedRef {
+                    target: ColumnRefTarget::Qualified2("u".to_owned(), "b".to_owned()),
+                    excluded: Vec::new(),
+                }],
+                line: 4,
+            },
+            SchemaCheck::ColumnRef {
+                scope: 0,
+                target: ColumnRefTarget::Qualified3(
+                    "app".to_owned(),
+                    "users".to_owned(),
+                    "c".to_owned(),
+                ),
+                excluded: Vec::new(),
+                clause: ClauseKind::Filter,
+                constrained: Vec::new(),
+                line: 5,
+            },
+            SchemaCheck::ColumnRef {
+                scope: 0,
+                target: ColumnRefTarget::Leading(vec![("u".to_owned(), 6), ("d".to_owned(), 6)]),
+                excluded: Vec::new(),
+                clause: ClauseKind::JoinOn,
+                constrained: Vec::new(),
+                line: 6,
+            },
+            SchemaCheck::ColumnRef {
+                scope: 0,
+                target: ColumnRefTarget::Qualified2("u".to_owned(), "e".to_owned()),
+                excluded: Vec::new(),
+                clause: ClauseKind::OrderBy,
+                constrained: Vec::new(),
+                line: 7,
+            },
+            SchemaCheck::TextNumber {
+                scope: 0,
+                target: ColumnRefTarget::Unqualified("a".to_owned()),
+                excluded: Vec::new(),
+                line: 8,
+            },
+        ],
+    };
+
+    let encoded = encode_artifact(&full);
+    assert_eq!(decode_artifact(&encoded), Some(full));
+
+    let mut bad_magic = encoded.clone();
+    bad_magic[0] = b'X';
+    assert_eq!(decode_artifact(&bad_magic), None);
+
+    assert_eq!(decode_artifact(&encoded[..encoded.len() - 1]), None);
+
+    let mut trailing = encoded.clone();
+    trailing.push(0);
+    assert_eq!(decode_artifact(&trailing), None);
+
+    let cyclic = SqlFileArtifact {
+        scopes: vec![ScopeDef {
+            depth: 0,
+            parent: Some(0),
+            bindings: Vec::new(),
+        }],
+        ..SqlFileArtifact::default()
+    };
+    assert_eq!(decode_artifact(&encode_artifact(&cyclic)), None);
+
+    let forward_parent = SqlFileArtifact {
+        scopes: vec![
+            ScopeDef {
+                depth: 0,
+                parent: Some(1),
+                bindings: Vec::new(),
+            },
+            ScopeDef {
+                depth: 1,
+                parent: None,
+                bindings: Vec::new(),
+            },
+        ],
+        ..SqlFileArtifact::default()
+    };
+    assert_eq!(decode_artifact(&encode_artifact(&forward_parent)), None);
+
+    let sql = Sql::new();
+    let valid_artifact = FileScopeArtifact {
+        path: "db/empty.sql".to_owned(),
+        source_set: SourceSet::Production,
+        artifact: encode_artifact(&SqlFileArtifact::default()),
+    };
+    let ok = sql
+        .analyze_scope("", None, vec![valid_artifact.clone()])
+        .expect("generic scope analysis succeeds");
+    assert_eq!(ok.summaries[0].fields[0].value, "generic SQL");
+
+    for bad_dialect in ["oracle", "generic"] {
+        let err = sql
+            .analyze_scope("", Some(bad_dialect), vec![valid_artifact.clone()])
+            .expect_err("unknown dialect must fail");
+        assert!(matches!(err, LanguagePluginError::Call { .. }), "{err}");
+    }
+
+    let corrupt = FileScopeArtifact {
+        path: "db/corrupt.sql".to_owned(),
+        source_set: SourceSet::Production,
+        artifact: b"not-a-sql-artifact".to_vec(),
+    };
+    let err = sql
+        .analyze_scope("", Some("postgresql"), vec![corrupt])
+        .expect_err("corrupted artifact must fail");
+    assert!(matches!(err, LanguagePluginError::Call { .. }), "{err}");
+}

@@ -498,6 +498,21 @@ pub enum LanguagePluginError {
     },
     #[error("Language plugin {plugin:?} returned an invalid scope summary: {reason}")]
     InvalidScopeSummary { plugin: String, reason: String },
+    #[error(
+        "Language plugin {plugin:?} returned a diagnostic on line {line} in {path}, which is outside the file's {line_count} lines"
+    )]
+    DiagnosticLineOutOfRange {
+        plugin: String,
+        path: RepoPath,
+        line: u32,
+        line_count: usize,
+    },
+    #[error("Language plugin {plugin:?} returned an invalid diagnostic in {path}: {reason}")]
+    InvalidDiagnostic {
+        plugin: String,
+        path: RepoPath,
+        reason: &'static str,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -589,19 +604,53 @@ pub fn validate_flagged_lines(
     validate_rule_lines(plugin_name, path, line_count, flagged_lines, listed_rules)
 }
 
+pub fn validate_file_diagnostics(
+    plugin_name: &str,
+    path: &RepoPath,
+    line_count: usize,
+    diagnostics: &[FileDiagnostic],
+) -> Result<(), LanguagePluginError> {
+    for diagnostic in diagnostics {
+        let line_number = usize::try_from(diagnostic.line).unwrap_or(usize::MAX);
+        if line_number < 1 || line_number > line_count {
+            return Err(LanguagePluginError::DiagnosticLineOutOfRange {
+                plugin: plugin_name.to_owned(),
+                path: path.clone(),
+                line: diagnostic.line,
+                line_count,
+            });
+        }
+        if diagnostic.kind.trim().is_empty() {
+            return Err(LanguagePluginError::InvalidDiagnostic {
+                plugin: plugin_name.to_owned(),
+                path: path.clone(),
+                reason: "diagnostic kind must not be empty",
+            });
+        }
+        if diagnostic.message.trim().is_empty() {
+            return Err(LanguagePluginError::InvalidDiagnostic {
+                plugin: plugin_name.to_owned(),
+                path: path.clone(),
+                reason: "diagnostic message must not be empty",
+            });
+        }
+    }
+    Ok(())
+}
+
 pub fn validate_scope_analysis(
     plugin_name: &str,
-    artifacts: &[FileScopeArtifact],
+    artifact_paths: &[&str],
     known_hazard_rules: &HashSet<String>,
     line_counts: Option<&BTreeMap<String, usize>>,
     analysis: ScopeAnalysis,
 ) -> Result<ScopeAnalysis, LanguagePluginError> {
-    let artifact_paths: HashSet<&str> = artifacts.iter().map(|item| item.path.as_str()).collect();
+    let artifact_path_set: HashSet<&str> = artifact_paths.iter().copied().collect();
     for entry in &analysis.extra_hazards {
         validate_scope_hazards(
             plugin_name,
             entry,
-            &artifact_paths,
+            &artifact_path_set,
             known_hazard_rules,
             line_counts,
         )?;
@@ -1467,13 +1516,15 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         dialect: Option<&str>,
         artifacts: Vec<FileScopeArtifact>,
     ) -> Result<ScopeAnalysis, LanguagePluginError> {
+        let artifact_paths: Vec<String> = artifacts.iter().map(|item| item.path.clone()).collect();
         let analysis = Plugin::analyze_scope(
             package_root.to_owned(),
             dialect.map(str::to_owned),
-            artifacts.clone(),
+            artifacts,
         );
+        let path_refs: Vec<&str> = artifact_paths.iter().map(String::as_str).collect();
         let listed: HashSet<String> = Plugin::hazard_rules().into_iter().collect();
-        validate_scope_analysis("", &artifacts, &listed, None, analysis)
+        validate_scope_analysis("", &path_refs, &listed, None, analysis)
     }
 }
 

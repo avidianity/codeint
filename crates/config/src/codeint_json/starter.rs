@@ -483,7 +483,7 @@ fn add_jsonc_hints(
         .iter()
         .filter(|language| !language.known_dialects.is_empty())
     {
-        let plugin_json = serde_json::to_string(&language.plugin).expect("strings serialize");
+        let plugin_json = serde_json::Value::String(language.plugin.clone()).to_string();
         let _ = writeln!(
             trailing_hints,
             "  // Optional: map {} folders to a Dialect with dialects.{} ({}).",

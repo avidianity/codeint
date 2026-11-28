@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use super::language::{
-    DeclaredDep, DepKind, FileHazards, FileModel, FileScopeArtifact, FrameworkProfileResult, Guest,
-    HazardLine, ImportRequest, LowerError, Manifest, ManifestAnalysis, PackageFrameworkProfiles,
+    DeclaredDep, DepKind, FileHazards, FileModel, FrameworkProfileResult, Guest, HazardLine,
+    ImportRequest, LowerError, Manifest, ManifestAnalysis, PackageFrameworkProfiles,
     ReferenceRange, Resolution, ScopeAnalysis, SourceSet,
 };
 use super::{
@@ -740,11 +740,7 @@ fn scope_with_hazard(path: &str, line: u32) -> ScopeAnalysis {
 
 #[test]
 fn validate_scope_analysis_rejects_unknown_path_and_out_of_bounds_line() {
-    let artifacts = vec![FileScopeArtifact {
-        path: "src/a.hst".to_owned(),
-        source_set: SourceSet::Production,
-        artifact: b"ok".to_vec(),
-    }];
+    let artifact_paths = ["src/a.hst"];
     let listed: HashSet<String> = ["cross-file-risk".to_owned()].into_iter().collect();
     let mut line_counts = BTreeMap::new();
     line_counts.insert("src/a.hst".to_owned(), 5);
@@ -752,7 +748,7 @@ fn validate_scope_analysis_rejects_unknown_path_and_out_of_bounds_line() {
     assert!(matches!(
         validate_scope_analysis(
             "probe",
-            &artifacts,
+            &artifact_paths,
             &listed,
             None,
             scope_with_hazard("not/in/artifacts.hst", 1),
@@ -764,7 +760,7 @@ fn validate_scope_analysis_rejects_unknown_path_and_out_of_bounds_line() {
     assert!(matches!(
         validate_scope_analysis(
             "probe",
-            &artifacts,
+            &artifact_paths,
             &listed,
             Some(&line_counts),
             scope_with_hazard("src/a.hst", 4_000_000_000),
@@ -773,5 +769,75 @@ fn validate_scope_analysis_rejects_unknown_path_and_out_of_bounds_line() {
             line: 4_000_000_000,
             ..
         })
+    ));
+}
+
+#[test]
+fn validate_file_diagnostics_rejects_invalid_lines_and_blank_fields() {
+    let path = RepoPath::new("src/a.sql").expect("valid path");
+    assert!(
+        crate::validate_file_diagnostics(
+            "sql",
+            &path,
+            3,
+            &[crate::FileDiagnostic {
+                line: 2,
+                kind: "rejected-statement".to_owned(),
+                message: "could not parse".to_owned(),
+            }],
+        )
+        .is_ok()
+    );
+    assert!(matches!(
+        crate::validate_file_diagnostics(
+            "sql",
+            &path,
+            3,
+            &[crate::FileDiagnostic {
+                line: 0,
+                kind: "note".to_owned(),
+                message: "bad".to_owned(),
+            }],
+        ),
+        Err(LanguagePluginError::DiagnosticLineOutOfRange { line: 0, .. })
+    ));
+    assert!(matches!(
+        crate::validate_file_diagnostics(
+            "sql",
+            &path,
+            3,
+            &[crate::FileDiagnostic {
+                line: 4,
+                kind: "note".to_owned(),
+                message: "bad".to_owned(),
+            }],
+        ),
+        Err(LanguagePluginError::DiagnosticLineOutOfRange { line: 4, .. })
+    ));
+    assert!(matches!(
+        crate::validate_file_diagnostics(
+            "sql",
+            &path,
+            3,
+            &[crate::FileDiagnostic {
+                line: 1,
+                kind: "   ".to_owned(),
+                message: "bad".to_owned(),
+            }],
+        ),
+        Err(LanguagePluginError::InvalidDiagnostic { .. })
+    ));
+    assert!(matches!(
+        crate::validate_file_diagnostics(
+            "sql",
+            &path,
+            3,
+            &[crate::FileDiagnostic {
+                line: 1,
+                kind: "note".to_owned(),
+                message: "   ".to_owned(),
+            }],
+        ),
+        Err(LanguagePluginError::InvalidDiagnostic { .. })
     ));
 }

@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_model::{
-    FileHazards, FileScopeArtifact, HazardLine, RepoPath, ScopeAnalysis, ScopeSummary, SourceSet,
-    SummaryField,
+    FileHazards, FileScopeArtifact, HazardLine, LanguagePluginError, RepoPath, ScopeAnalysis,
+    ScopeSummary, SourceSet, SummaryField,
 };
 
 use crate::SqlDialect;
@@ -38,7 +38,7 @@ impl ClauseKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum AlterOp {
+pub(crate) enum ColumnAlterOp {
     AddColumn {
         name: String,
         ty: ColumnTypeClass,
@@ -69,6 +69,10 @@ pub(crate) enum AlterOp {
         name: String,
         ty: ColumnTypeClass,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TableAlterOp {
     SetPrimaryKey {
         columns: Vec<String>,
     },
@@ -86,6 +90,12 @@ pub(crate) enum AlterOp {
         new_schema: Option<String>,
         new_name: String,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AlterOp {
+    Column(ColumnAlterOp),
+    Table(TableAlterOp),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -193,44 +203,54 @@ pub(crate) fn is_down_migration_path(path: &RepoPath) -> bool {
         || file_name.to_ascii_lowercase().ends_with(".down.sql")
 }
 
+fn resolve_scope_dialect(dialect: Option<&str>) -> Result<SqlDialect, LanguagePluginError> {
+    match dialect {
+        Some(name) => {
+            SqlDialect::from_selectable_name(name).ok_or_else(|| LanguagePluginError::Call {
+                plugin: "sql".to_owned(),
+                call: "analyze-scope",
+                reason: format!("unknown SQL dialect {name:?}"),
+            })
+        }
+        None => Ok(SqlDialect::Generic),
+    }
+}
+
+fn decode_scope_artifacts(
+    artifacts: Vec<FileScopeArtifact>,
+) -> Result<Vec<(FileScopeArtifact, SqlFileArtifact)>, LanguagePluginError> {
+    artifacts
+        .into_iter()
+        .map(|item| {
+            let parsed =
+                crate::schema::codec::decode_artifact(&item.artifact).ok_or_else(|| {
+                    LanguagePluginError::Call {
+                        plugin: "sql".to_owned(),
+                        call: "analyze-scope",
+                        reason: format!("invalid SQL scope artifact for {}", item.path),
+                    }
+                })?;
+            Ok((item, parsed))
+        })
+        .collect()
+}
+
 pub(crate) fn analyze_scope_artifacts(
     dialect: Option<&str>,
     mut artifacts: Vec<FileScopeArtifact>,
-) -> ScopeAnalysis {
-    let resolved_dialect = dialect
-        .and_then(SqlDialect::from_name)
-        .unwrap_or(SqlDialect::Generic);
+) -> Result<ScopeAnalysis, LanguagePluginError> {
+    let resolved_dialect = resolve_scope_dialect(dialect)?;
     artifacts.sort_by(|left, right| left.path.cmp(&right.path));
-
-    let decoded: Vec<(FileScopeArtifact, SqlFileArtifact)> = artifacts
-        .into_iter()
-        .map(|item| {
-            let parsed = crate::schema::codec::decode_artifact(&item.artifact).unwrap_or_default();
-            (item, parsed)
-        })
-        .collect();
+    let decoded = decode_scope_artifacts(artifacts)?;
 
     let mut schema = SqlSchema::default();
     for (item, parsed) in &decoded {
-        if item.source_set == SourceSet::Vendored || parsed.is_down_migration {
-            continue;
-        }
-        schema.apply_ddl_ops(&parsed.ddl_ops);
-    }
-
-    let mut extra_hazards = Vec::new();
-    if !schema.is_empty() {
-        for (item, parsed) in &decoded {
-            let hazard_lines = evaluate_artifact_checks(parsed, &schema);
-            if !hazard_lines.is_empty() {
-                extra_hazards.push(FileHazards {
-                    path: item.path.clone(),
-                    hazard_lines,
-                });
-            }
+        if item.source_set != SourceSet::Vendored && !parsed.is_down_migration {
+            schema.apply_ddl_ops(&parsed.ddl_ops);
         }
     }
 
+    let extra_hazards = collect_scope_hazards(&decoded, &schema);
     let summary = ScopeSummary {
         kind: "sql-schema".to_owned(),
         fields: vec![
@@ -245,10 +265,29 @@ pub(crate) fn analyze_scope_artifacts(
         ],
     };
 
-    ScopeAnalysis {
+    Ok(ScopeAnalysis {
         extra_hazards,
         summaries: vec![summary],
+    })
+}
+
+fn collect_scope_hazards(
+    decoded: &[(FileScopeArtifact, SqlFileArtifact)],
+    schema: &SqlSchema,
+) -> Vec<FileHazards> {
+    if schema.is_empty() {
+        return Vec::new();
     }
+    decoded
+        .iter()
+        .filter_map(|(item, parsed)| {
+            let hazard_lines = evaluate_artifact_checks(parsed, schema);
+            (!hazard_lines.is_empty()).then(|| FileHazards {
+                path: item.path.clone(),
+                hazard_lines,
+            })
+        })
+        .collect()
 }
 
 type BindingId = (u32, usize);

@@ -369,20 +369,46 @@ fn sql_dialects_monorepo_handles_all_four_dialects_generic_fallback_and_doctor()
 
 #[test]
 fn sql_dialects_errors_and_init_behavior() {
-    let unknown_repo = init_git_repo(&[
-        (
-            "codeint.json",
-            r#"{"dialects":{"sql":[{"dialect":"oracle","include":["db/**"]}]}}"#,
-        ),
-        ("db/query.sql", "SELECT 1;\n"),
-    ]);
+    let sql_repo =
+        |config: &str| init_git_repo(&[("codeint.json", config), ("db/query.sql", "SELECT 1;\n")]);
+    let unknown_repo =
+        sql_repo(r#"{"dialects":{"sql":[{"dialect":"oracle","include":["db/**"]}]}}"#);
     let (_, unknown_stderr) = run_codeint_text(unknown_repo.path(), &["check"], 2);
     assert!(
         unknown_stderr.contains("postgresql")
             && unknown_stderr.contains("mysql")
             && unknown_stderr.contains("sqlite")
-            && unknown_stderr.contains("duckdb"),
+            && unknown_stderr.contains("duckdb")
+            && !unknown_stderr.contains("generic"),
         "stderr: {unknown_stderr}"
+    );
+    let (doctor_stdout, _) = run_codeint_text(unknown_repo.path(), &["doctor"], 1);
+    assert!(
+        doctor_stdout.contains("[ERROR] config") && doctor_stdout.contains("oracle"),
+        "doctor stdout: {doctor_stdout}"
+    );
+    let (_, config_stderr) = run_codeint_text(unknown_repo.path(), &["config", "--resolved"], 2);
+    assert!(config_stderr.contains("oracle"), "stderr: {config_stderr}");
+
+    let generic_repo =
+        sql_repo(r#"{"dialects":{"sql":[{"dialect":"generic","include":["db/**"]}]}}"#);
+    let (_, generic_stderr) = run_codeint_text(generic_repo.path(), &["check"], 2);
+    assert!(
+        generic_stderr.contains("generic") && generic_stderr.contains("postgresql"),
+        "stderr: {generic_stderr}"
+    );
+
+    let unknown_lang_repo = sql_repo(r#"{"dialects":{"cobol":[]}}"#);
+    let (unknown_lang_doctor, _) = run_codeint_text(unknown_lang_repo.path(), &["doctor"], 1);
+    assert!(
+        unknown_lang_doctor.contains("[ERROR] config") && unknown_lang_doctor.contains("cobol"),
+        "doctor stdout: {unknown_lang_doctor}"
+    );
+    let (_, unknown_lang_config) =
+        run_codeint_text(unknown_lang_repo.path(), &["config", "--resolved"], 2);
+    assert!(
+        unknown_lang_config.contains("cobol"),
+        "stderr: {unknown_lang_config}"
     );
 
     let overlap_config = dialects_config(

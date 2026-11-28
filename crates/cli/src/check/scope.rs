@@ -120,13 +120,14 @@ fn analyze_language_scopes(
             .map_or_else(String::new, |root| root.as_str().to_owned());
         let (artifacts, line_counts, path_to_index) =
             collect_scope_group(&model.files, &indices, file_line_counts);
+        let artifact_paths: Vec<&str> = path_to_index.keys().map(String::as_str).collect();
         let raw_analysis = named
             .plugin
-            .analyze_scope(&package_root, dialect.as_deref(), artifacts.clone())
+            .analyze_scope(&package_root, dialect.as_deref(), artifacts)
             .map_err(|error| CheckError::language_plugin(config_file, error))?;
         let analysis = validate_scope_analysis(
             named.name,
-            &artifacts,
+            &artifact_paths,
             &known_hazard_rules,
             Some(&line_counts),
             raw_analysis,

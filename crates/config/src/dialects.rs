@@ -128,13 +128,11 @@ pub(crate) fn parse_dialects_map(
         if language.trim().is_empty() {
             return Err(ConfigurationFileError::EmptyDialectLanguage {
                 file: ConfigFileKind::Json,
-                key: dialects_key.child(KeySegment::Key(language)),
+                key: dialects_key,
             });
         }
         let rules = DialectRules::from_file(&language, entries)?;
-        if !rules.is_empty() {
-            parsed.insert(language, rules);
-        }
+        parsed.insert(language, rules);
     }
     Ok(parsed)
 }

@@ -63,7 +63,6 @@ fn the_starter_configuration_mentions_optional_dialects_only_when_detected_langu
             "mysql".to_owned(),
             "sqlite".to_owned(),
             "duckdb".to_owned(),
-            "generic".to_owned(),
         ],
     }];
 

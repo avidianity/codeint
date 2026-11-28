@@ -6,7 +6,7 @@ use codeint_config::{ConfigFileKind, LanguageCoverage};
 use codeint_git::{BlobId, Snapshot};
 use codeint_model::{
     CodeModel, LowerError, RepoPath, SkippedFile, SourceFile, Workspace, settle_source_set,
-    validate_hazard_lines,
+    validate_file_diagnostics, validate_hazard_lines,
 };
 use codeint_plugin_host::NamedLanguagePlugin;
 use codeint_report::FileDiagnosticEntry;
@@ -264,6 +264,7 @@ pub(super) fn collect_plugin_models(
                 right.message.as_str(),
             ))
     });
+    file_diagnostics.dedup();
     CollectedPluginModels {
         models,
         file_line_counts,
@@ -302,6 +303,8 @@ fn lower_bytes(
                 listed_hazard_rules,
             )
             .map_err(|error| CheckError::language_plugin(config_file, error))?;
+            validate_file_diagnostics(named.name, path, line_count, &file.diagnostics)
+                .map_err(|error| CheckError::language_plugin(config_file, error))?;
             for function in &mut file.functions {
                 function.coverage = None;
             }

@@ -246,27 +246,52 @@ fn dialects_rejects_legacy_sql_key_empty_fields_invalid_glob_and_validates_known
                 "mysql".to_owned(),
                 "sqlite".to_owned(),
                 "duckdb".to_owned(),
-                "generic".to_owned(),
             ],
         ),
         ("rust".to_owned(), Vec::new()),
     ]);
-    let unknown_err = assert_validate_dialects_err(
-        "codeint.jsonc",
-        ConfigFileKind::Jsonc,
-        &json!({ "dialects": { "sql": [{ "dialect": "oracle", "include": ["db/**"] }] } }),
-        &known,
-        |err| matches!(err, ConfigurationFileError::UnknownDialect { .. }),
-    );
-    assert!(unknown_err.to_string().contains("postgresql"));
+    let validation_cases: [(&str, ConfigFileKind, Value, &str, ErrorPredicate); 4] = [
+        (
+            "codeint.jsonc",
+            ConfigFileKind::Jsonc,
+            json!({ "dialects": { "sql": [{ "dialect": "oracle", "include": ["db/**"] }] } }),
+            "postgresql",
+            |err| matches!(err, ConfigurationFileError::UnknownDialect { .. }),
+        ),
+        (
+            "codeint.json",
+            ConfigFileKind::Json,
+            json!({ "dialects": { "rust": [{ "dialect": "2024", "include": ["src/**"] }] } }),
+            "defines no selectable Dialects",
+            |err| matches!(err, ConfigurationFileError::UnknownDialect { .. }),
+        ),
+        (
+            "codeint.json",
+            ConfigFileKind::Json,
+            json!({ "dialects": { "cobol": [{ "dialect": "ansi", "include": ["src/**"] }] } }),
+            "cobol",
+            |err| matches!(err, ConfigurationFileError::UnknownDialectLanguage { .. }),
+        ),
+        (
+            "codeint.json",
+            ConfigFileKind::Json,
+            json!({ "dialects": { "cobol": [] } }),
+            "cobol",
+            |err| matches!(err, ConfigurationFileError::UnknownDialectLanguage { .. }),
+        ),
+    ];
+    for (file_name, kind, payload, expected_text, check) in validation_cases {
+        let err = assert_validate_dialects_err(file_name, kind, &payload, &known, check);
+        assert!(err.to_string().contains(expected_text), "error: {err}");
+    }
 
-    assert_validate_dialects_err(
-        "codeint.json",
-        ConfigFileKind::Json,
-        &json!({ "dialects": { "cobol": [{ "dialect": "ansi", "include": ["src/**"] }] } }),
-        &known,
-        |err| matches!(err, ConfigurationFileError::UnknownDialectLanguage { .. }),
-    );
+    for empty_lang in ["", "   "] {
+        let payload = json!({ "dialects": { empty_lang: [] } });
+        assert_invalid_dialect_config(&payload, &["dialects must name"], |err| {
+            matches!(err, ConfigurationFileError::EmptyDialectLanguage { .. })
+                && !err.to_string().contains("dialects.")
+        });
+    }
 }
 
 #[test]

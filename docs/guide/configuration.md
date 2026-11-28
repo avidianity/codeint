@@ -69,8 +69,8 @@ If your config file pins an official schema tag newer than the running binary, c
     },
   },
   // SQL Dialect mappings (files covered by no entry use generic SQL)
-  "sql": {
-    "dialects": [
+  "dialects": {
+    "sql": [
       { "dialect": "postgresql", "include": ["db/postgres"] },
       { "dialect": "duckdb", "include": ["analytics"] },
     ],

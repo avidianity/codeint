@@ -1,10 +1,13 @@
 use std::path::Path;
 
 use codeint_config::{
-    ConfigOverrides, Configuration, ConfigurationFileError, PluginKind, read_resolved_configuration,
+    ConfigOverrides, Configuration, ConfigurationFileError, PluginKind,
+    read_resolved_configuration, validate_dialects,
 };
 use codeint_git::{GitError, Repository};
-use codeint_plugin_host::{built_in_language_framework_profiles, built_in_language_names};
+use codeint_plugin_host::{
+    built_in_language_dialects, built_in_language_framework_profiles, built_in_language_names,
+};
 use codeint_report::ConfigReport;
 
 #[derive(Debug, thiserror::Error)]
@@ -49,6 +52,13 @@ fn validate_resolved_configuration(
         configuration
             .framework_profiles
             .validate_known(configuration.config_file(), &known_profiles)?;
+        if !configuration.dialects.is_empty() {
+            validate_dialects(
+                configuration.config_file(),
+                &configuration.dialects,
+                &built_in_language_dialects(),
+            )?;
+        }
     }
     Ok(())
 }

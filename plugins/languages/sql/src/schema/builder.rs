@@ -7,7 +7,7 @@ use sqlparser::ast::{
 };
 
 use crate::ParsedSqlStatement;
-use crate::schema::artifact::{AlterOp, DdlOp};
+use crate::schema::artifact::{AlterOp, ColumnAlterOp, DdlOp, TableAlterOp};
 use crate::schema::types::{
     ColumnTypeClass, IndexSchema, SqlSchema, TableKey, TableSchema, normalize_ident,
     object_name_last_ident, split_object_name,
@@ -154,10 +154,10 @@ fn extract_alter_operation(operation: &AlterTableOperation, out: &mut Vec<AlterO
                 RenameTableNameKind::As(name) | RenameTableNameKind::To(name) => name,
             };
             if let Some((new_schema, new_name)) = split_object_name(target_name) {
-                out.push(AlterOp::RenameTable {
+                out.push(AlterOp::Table(TableAlterOp::RenameTable {
                     new_schema,
                     new_name,
-                });
+                }));
             }
         }
         AlterTableOperation::AddColumn { column_def, .. } => {
@@ -172,27 +172,27 @@ fn extract_alter_operation(operation: &AlterTableOperation, out: &mut Vec<AlterO
                 .map(|o| o.name.as_ref().map(normalize_ident))
                 .collect();
             let (is_pk, unique_index) = extract_column_flags(&opts, &cnames);
-            out.push(AlterOp::AddColumn {
+            out.push(AlterOp::Column(ColumnAlterOp::AddColumn {
                 name: normalize_ident(&column_def.name),
                 ty: classify_data_type(&column_def.data_type),
                 is_pk,
                 unique_index,
-            });
+            }));
         }
         AlterTableOperation::DropColumn { column_names, .. } => {
             for ident in column_names {
-                out.push(AlterOp::DropColumn {
+                out.push(AlterOp::Column(ColumnAlterOp::DropColumn {
                     name: normalize_ident(ident),
-                });
+                }));
             }
         }
         AlterTableOperation::RenameColumn {
             old_column_name,
             new_column_name,
-        } => out.push(AlterOp::RenameColumn {
+        } => out.push(AlterOp::Column(ColumnAlterOp::RenameColumn {
             old: normalize_ident(old_column_name),
             new: normalize_ident(new_column_name),
-        }),
+        })),
         AlterTableOperation::ChangeColumn {
             old_name,
             new_name,
@@ -201,13 +201,13 @@ fn extract_alter_operation(operation: &AlterTableOperation, out: &mut Vec<AlterO
             ..
         } => {
             let (is_pk, unique_index) = extract_column_flags(options, &[]);
-            out.push(AlterOp::ChangeColumn {
+            out.push(AlterOp::Column(ColumnAlterOp::ChangeColumn {
                 old: normalize_ident(old_name),
                 new: normalize_ident(new_name),
                 ty: classify_data_type(data_type),
                 is_pk,
                 unique_index,
-            });
+            }));
         }
         AlterTableOperation::ModifyColumn {
             col_name,
@@ -216,20 +216,20 @@ fn extract_alter_operation(operation: &AlterTableOperation, out: &mut Vec<AlterO
             ..
         } => {
             let (is_pk, unique_index) = extract_column_flags(options, &[]);
-            out.push(AlterOp::ModifyColumn {
+            out.push(AlterOp::Column(ColumnAlterOp::ModifyColumn {
                 name: normalize_ident(col_name),
                 ty: classify_data_type(data_type),
                 is_pk,
                 unique_index,
-            });
+            }));
         }
         AlterTableOperation::AlterColumn {
             column_name,
             op: AlterColumnOperation::SetDataType { data_type, .. },
-        } => out.push(AlterOp::SetColumnType {
+        } => out.push(AlterOp::Column(ColumnAlterOp::SetColumnType {
             name: normalize_ident(column_name),
             ty: classify_data_type(data_type),
-        }),
+        })),
         _ => extract_constraint_alter(operation, out),
     }
 }
@@ -240,10 +240,14 @@ fn extract_constraint_alter(operation: &AlterTableOperation, out: &mut Vec<Alter
             extract_table_constraint_alter(constraint, out);
         }
         AlterTableOperation::DropConstraint { name, .. }
-        | AlterTableOperation::DropIndex { name } => out.push(AlterOp::DropNamedIndex {
-            name: normalize_ident(name),
-        }),
-        AlterTableOperation::DropPrimaryKey { .. } => out.push(AlterOp::DropPrimaryKey),
+        | AlterTableOperation::DropIndex { name } => {
+            out.push(AlterOp::Table(TableAlterOp::DropNamedIndex {
+                name: normalize_ident(name),
+            }))
+        }
+        AlterTableOperation::DropPrimaryKey { .. } => {
+            out.push(AlterOp::Table(TableAlterOp::DropPrimaryKey))
+        }
         _ => {}
     }
 }
@@ -253,7 +257,7 @@ fn extract_table_constraint_alter(constraint: &TableConstraint, out: &mut Vec<Al
         TableConstraint::PrimaryKey(pk) => {
             let columns = extract_index_columns(&pk.columns);
             if !columns.is_empty() {
-                out.push(AlterOp::SetPrimaryKey { columns });
+                out.push(AlterOp::Table(TableAlterOp::SetPrimaryKey { columns }));
             }
         }
         TableConstraint::Unique(unique) => {
@@ -264,37 +268,37 @@ fn extract_table_constraint_alter(constraint: &TableConstraint, out: &mut Vec<Al
                     .as_ref()
                     .or(unique.index_name.as_ref())
                     .map(normalize_ident);
-                out.push(AlterOp::AddIndex {
+                out.push(AlterOp::Table(TableAlterOp::AddIndex {
                     index: IndexSchema { name, columns },
-                });
+                }));
             }
         }
         TableConstraint::Index(index) => {
             let columns = extract_index_columns(&index.columns);
             if !columns.is_empty() {
-                out.push(AlterOp::AddIndex {
+                out.push(AlterOp::Table(TableAlterOp::AddIndex {
                     index: IndexSchema {
                         name: index.name.as_ref().map(normalize_ident),
                         columns,
                     },
-                });
+                }));
             }
         }
         TableConstraint::FulltextOrSpatial(index) => {
             let columns = extract_index_columns(&index.columns);
             if !columns.is_empty() {
-                out.push(AlterOp::AddIndex {
+                out.push(AlterOp::Table(TableAlterOp::AddIndex {
                     index: IndexSchema {
                         name: index.opt_index_name.as_ref().map(normalize_ident),
                         columns,
                     },
-                });
+                }));
             }
         }
         TableConstraint::PrimaryKeyUsingIndex(using_idx) => {
-            out.push(AlterOp::PromoteIndexToPk {
+            out.push(AlterOp::Table(TableAlterOp::PromoteIndexToPk {
                 index_name: normalize_ident(&using_idx.index_name),
-            });
+            }));
         }
         _ => {}
     }
@@ -361,7 +365,16 @@ fn apply_ddl_op(schema: &mut SqlSchema, op: &DdlOp) {
             table_name,
             ops,
         } => apply_alter_table_op(schema, table_schema.as_deref(), table_name, ops),
-        other => apply_drop_ddl_op(schema, other),
+        DdlOp::DropTable { schema: s, name } => apply_drop_table_op(schema, s.as_deref(), name),
+        DdlOp::DropIndexOnTable {
+            table_schema,
+            table_name,
+            index_name,
+        } => apply_drop_index_on_table_op(schema, table_schema.as_deref(), table_name, index_name),
+        DdlOp::DropIndexAcrossTables {
+            index_schema,
+            index_name,
+        } => apply_drop_index_across_tables_op(schema, index_schema, index_name),
     }
 }
 
@@ -399,43 +412,42 @@ fn apply_alter_table_op(
     }
 }
 
-fn apply_drop_ddl_op(schema: &mut SqlSchema, op: &DdlOp) {
-    match op {
-        DdlOp::DropTable { schema: s, name } => {
-            if let Some(key) = schema.resolve_table_key(s.as_deref(), name) {
-                schema.tables.remove(&key);
-            }
+fn apply_drop_table_op(schema: &mut SqlSchema, table_schema: Option<&str>, name: &str) {
+    if let Some(key) = schema.resolve_table_key(table_schema, name) {
+        schema.tables.remove(&key);
+    }
+}
+
+fn apply_drop_index_on_table_op(
+    schema: &mut SqlSchema,
+    table_schema: Option<&str>,
+    table_name: &str,
+    index_name: &str,
+) {
+    if let Some(key) = schema.resolve_table_key(table_schema, table_name)
+        && let Some(table) = schema.tables.get_mut(&key)
+    {
+        remove_named_index(table, index_name);
+    }
+}
+
+fn apply_drop_index_across_tables_op(
+    schema: &mut SqlSchema,
+    index_schema: &Option<String>,
+    index_name: &str,
+) {
+    for table in schema.tables.values_mut() {
+        if index_schema.is_none() || table.schema == *index_schema {
+            remove_named_index(table, index_name);
         }
-        DdlOp::DropIndexOnTable {
-            table_schema,
-            table_name,
-            index_name,
-        } => {
-            if let Some(key) = schema.resolve_table_key(table_schema.as_deref(), table_name)
-                && let Some(table) = schema.tables.get_mut(&key)
-            {
-                remove_named_index(table, index_name);
-            }
-        }
-        DdlOp::DropIndexAcrossTables {
-            index_schema,
-            index_name,
-        } => {
-            for table in schema.tables.values_mut() {
-                if index_schema.is_none() || table.schema == *index_schema {
-                    remove_named_index(table, index_name);
-                }
-            }
-        }
-        _ => {}
     }
 }
 
 fn apply_extracted_alter(schema: &mut SqlSchema, key: TableKey, op: &AlterOp) -> TableKey {
-    if let AlterOp::RenameTable {
+    if let AlterOp::Table(TableAlterOp::RenameTable {
         new_schema,
         new_name,
-    } = op
+    }) = op
     {
         let Some(mut table) = schema.tables.remove(&key) else {
             return key;
@@ -450,7 +462,10 @@ fn apply_extracted_alter(schema: &mut SqlSchema, key: TableKey, op: &AlterOp) ->
     let Some(table) = schema.tables.get_mut(&key) else {
         return key;
     };
-    apply_table_alter_op(table, op);
+    match op {
+        AlterOp::Column(col_op) => apply_column_alter_op(table, col_op),
+        AlterOp::Table(table_op) => apply_table_alter_op(table, table_op),
+    }
     key
 }
 
@@ -476,23 +491,23 @@ fn apply_column_flags(
     }
 }
 
-fn apply_table_alter_op(table: &mut TableSchema, op: &AlterOp) {
+fn apply_column_alter_op(table: &mut TableSchema, op: &ColumnAlterOp) {
     match op {
-        AlterOp::AddColumn {
+        ColumnAlterOp::AddColumn {
             name,
             ty,
             is_pk,
             unique_index,
         }
-        | AlterOp::ModifyColumn {
+        | ColumnAlterOp::ModifyColumn {
             name,
             ty,
             is_pk,
             unique_index,
         } => apply_column_flags(table, name, *ty, *is_pk, unique_index),
-        AlterOp::DropColumn { name } => drop_column_from_table(table, name),
-        AlterOp::RenameColumn { old, new } => rename_column_in_table(table, old, new),
-        AlterOp::ChangeColumn {
+        ColumnAlterOp::DropColumn { name } => drop_column_from_table(table, name),
+        ColumnAlterOp::RenameColumn { old, new } => rename_column_in_table(table, old, new),
+        ColumnAlterOp::ChangeColumn {
             old,
             new,
             ty,
@@ -502,23 +517,22 @@ fn apply_table_alter_op(table: &mut TableSchema, op: &AlterOp) {
             rename_column_in_table(table, old, new);
             apply_column_flags(table, new, *ty, *is_pk, unique_index);
         }
-        AlterOp::SetColumnType { name, ty } => {
+        ColumnAlterOp::SetColumnType { name, ty } => {
             if table.columns.contains_key(name) {
                 table.columns.insert(name.clone(), *ty);
             }
         }
-        other => apply_constraint_alter_op(table, other),
     }
 }
 
-fn apply_constraint_alter_op(table: &mut TableSchema, op: &AlterOp) {
+fn apply_table_alter_op(table: &mut TableSchema, op: &TableAlterOp) {
     match op {
-        AlterOp::SetPrimaryKey { columns } => table.primary_key = columns.clone(),
-        AlterOp::AddIndex { index } => upsert_index(&mut table.indexes, index.clone()),
-        AlterOp::PromoteIndexToPk { index_name } => promote_index_to_pk(table, index_name),
-        AlterOp::DropNamedIndex { name } => remove_named_index(table, name),
-        AlterOp::DropPrimaryKey => table.primary_key.clear(),
-        _ => {}
+        TableAlterOp::SetPrimaryKey { columns } => table.primary_key = columns.clone(),
+        TableAlterOp::AddIndex { index } => upsert_index(&mut table.indexes, index.clone()),
+        TableAlterOp::PromoteIndexToPk { index_name } => promote_index_to_pk(table, index_name),
+        TableAlterOp::DropNamedIndex { name } => remove_named_index(table, name),
+        TableAlterOp::DropPrimaryKey => table.primary_key.clear(),
+        TableAlterOp::RenameTable { .. } => {}
     }
 }
 

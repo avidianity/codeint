@@ -241,3 +241,41 @@ fn saved_report_deserializes_legacy_sql_schemas_and_rejected_statements_into_gen
     assert!(markdown.contains("## Scope summaries"));
     assert!(markdown.contains("## File diagnostics"));
 }
+
+#[test]
+fn saved_report_rejects_malformed_or_non_array_legacy_sql_fields() {
+    let invalid_payloads = [
+        serde_json::json!({
+            "files": 1,
+            "source_lines": 1,
+            "source_sets": {},
+            "rejected_statements": "not-an-array"
+        }),
+        serde_json::json!({
+            "files": 1,
+            "source_lines": 1,
+            "source_sets": {},
+            "rejected_statements": [{ "path": "a.sql" }]
+        }),
+        serde_json::json!({
+            "files": 1,
+            "source_lines": 1,
+            "source_sets": {},
+            "sql_schemas": { "dialect": "postgresql" }
+        }),
+        serde_json::json!({
+            "files": 1,
+            "source_lines": 1,
+            "source_sets": {},
+            "sql_schemas": [{ "dialect": "postgresql" }]
+        }),
+    ];
+    for payload in invalid_payloads {
+        let err = SavedReport::from_json(&payload.to_string())
+            .expect_err("malformed legacy payload must be rejected");
+        assert!(
+            matches!(err, SavedReportError::InvalidPayload { kind: "check", .. }),
+            "unexpected error for {payload}: {err}"
+        );
+    }
+}

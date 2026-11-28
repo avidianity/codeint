@@ -113,3 +113,10 @@ pub fn built_in_language_framework_profiles() -> BTreeMap<String, Vec<String>> {
         })
         .collect()
 }
+
+pub fn built_in_language_dialects() -> BTreeMap<String, Vec<String>> {
+    BUILT_IN_LANGUAGE_PLUGINS
+        .iter()
+        .map(|named| (named.name.to_owned(), named.plugin.known_dialects()))
+        .collect()
+}

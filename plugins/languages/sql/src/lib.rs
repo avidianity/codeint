@@ -35,18 +35,14 @@ pub enum SqlDialect {
 }
 
 impl SqlDialect {
-    const ALL: [SqlDialect; 5] = [
-        SqlDialect::Generic,
-        SqlDialect::Postgresql,
-        SqlDialect::Mysql,
-        SqlDialect::Sqlite,
-        SqlDialect::Duckdb,
-    ];
-
-    pub(crate) fn from_name(name: &str) -> Option<SqlDialect> {
-        SqlDialect::ALL
-            .into_iter()
-            .find(|dialect| dialect.as_str() == name)
+    pub(crate) fn from_selectable_name(name: &str) -> Option<SqlDialect> {
+        match name {
+            "postgresql" => Some(SqlDialect::Postgresql),
+            "mysql" => Some(SqlDialect::Mysql),
+            "sqlite" => Some(SqlDialect::Sqlite),
+            "duckdb" => Some(SqlDialect::Duckdb),
+            _ => None,
+        }
     }
 
     const fn labels(self) -> (&'static str, &'static str) {
@@ -186,7 +182,6 @@ impl LanguagePlugin for Sql {
             "mysql".to_owned(),
             "sqlite".to_owned(),
             "duckdb".to_owned(),
-            "generic".to_owned(),
         ]
     }
 
@@ -197,11 +192,11 @@ impl LanguagePlugin for Sql {
         dialect: Option<&str>,
     ) -> Result<FileModel, LowerError> {
         let selected = match dialect {
-            Some(name) => {
-                SqlDialect::from_name(name).ok_or_else(|| LowerError::UnsupportedFile {
+            Some(name) => SqlDialect::from_selectable_name(name).ok_or_else(|| {
+                LowerError::UnsupportedFile {
                     message: format!("unknown SQL dialect {name:?}"),
-                })?
-            }
+                }
+            })?,
             None => self.dialect,
         };
         Sql::with_dialect(selected)
@@ -242,7 +237,7 @@ impl LanguagePlugin for Sql {
         dialect: Option<&str>,
         artifacts: Vec<FileScopeArtifact>,
     ) -> Result<ScopeAnalysis, LanguagePluginError> {
-        Ok(schema::analyze_scope_artifacts(dialect, artifacts))
+        schema::analyze_scope_artifacts(dialect, artifacts)
     }
 }
 

@@ -46,18 +46,41 @@ fn collect_flagged_lines(text: &str) -> Vec<FlaggedLine> {
         .collect()
 }
 
+const DIAG_MARKERS: [(&str, Option<u32>, &str, &str, usize); 6] = [
+    ("DIAG_NOTE", None, "note", "v05 diagnostic", 1),
+    ("DIAG_DUP", None, "note", "dup diagnostic", 2),
+    ("DIAG_LINE_ZERO", Some(0), "note", "zero line", 1),
+    (
+        "DIAG_LINE_HUGE",
+        Some(4_000_000_000),
+        "note",
+        "huge line",
+        1,
+    ),
+    ("DIAG_EMPTY_KIND", None, "   ", "blank kind", 1),
+    ("DIAG_EMPTY_MSG", None, "note", "   ", 1),
+];
+
 fn collect_diagnostics(text: &str) -> Vec<FileDiagnostic> {
     let mut diagnostics = Vec::new();
     for (index, line) in text.lines().enumerate() {
-        if line.contains("DIAG_NOTE") {
-            diagnostics.push(FileDiagnostic {
-                line: (index + 1) as u32,
-                kind: "note".to_string(),
-                message: "v05 diagnostic".to_string(),
-            });
-        }
+        push_line_diagnostics(line, (index + 1) as u32, &mut diagnostics);
     }
     diagnostics
+}
+
+fn push_line_diagnostics(line: &str, line_no: u32, out: &mut Vec<FileDiagnostic>) {
+    for &(marker, fixed_line, kind, message, repeat) in &DIAG_MARKERS {
+        if line.contains(marker) {
+            for _ in 0..repeat {
+                out.push(FileDiagnostic {
+                    line: fixed_line.unwrap_or(line_no),
+                    kind: kind.to_string(),
+                    message: message.to_string(),
+                });
+            }
+        }
+    }
 }
 
 fn build_scope_artifact(text: &str, dialect: Option<&str>) -> Vec<u8> {

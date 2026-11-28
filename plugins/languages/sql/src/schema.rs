@@ -8,7 +8,7 @@ mod scope;
 mod tests;
 mod types;
 
-use codeint_model::{FileScopeArtifact, RepoPath, ScopeAnalysis};
+use codeint_model::{FileScopeArtifact, LanguagePluginError, RepoPath, ScopeAnalysis};
 
 use crate::{ParsedSqlStatement, SqlDialect};
 
@@ -35,6 +35,6 @@ pub(crate) fn encode_file_artifact(
 pub(crate) fn analyze_scope_artifacts(
     dialect: Option<&str>,
     artifacts: Vec<FileScopeArtifact>,
-) -> ScopeAnalysis {
+) -> Result<ScopeAnalysis, LanguagePluginError> {
     artifact::analyze_scope_artifacts(dialect, artifacts)
 }

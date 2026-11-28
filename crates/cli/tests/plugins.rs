@@ -2330,17 +2330,46 @@ fn external_v05_wasm_plugin_supports_dialects_diagnostics_and_analyze_scope_end_
             .all(|s| s["language"] == "v05-lang" && s["kind"] == "v05-scope")
     );
 
-    let (bad_dialect_repo, _) = init_single_probe_repo(
-        "v05-lang",
-        None,
-        "v0_5_0_features_language_plugin.wasm",
+    let v05_repo = |extra: &str, path: &str, source: &str| {
+        let (repo, _) = init_single_probe_repo(
+            "v05-lang",
+            None,
+            "v0_5_0_features_language_plugin.wasm",
+            extra,
+        );
+        write_file(repo.path(), path, source);
+        repo
+    };
+    let bad_dialect_repo = v05_repo(
         r#""dialects": { "v05-lang": [{ "dialect": "gamma", "include": ["src/**"] }] }"#,
+        "src/a.v05",
+        "ok\n",
     );
-    write_file(bad_dialect_repo.path(), "src/a.v05", "ok\n");
     assert_check_exits_2(bad_dialect_repo.path(), &["gamma", "alpha, beta"]);
 
-    let (bad_line_repo, _) =
-        init_single_probe_repo("v05-lang", None, "v0_5_0_features_language_plugin.wasm", "");
-    write_file(bad_line_repo.path(), "src/bad.v05", "SCOPE_BAD_LINE\n");
-    assert_check_exits_2(bad_line_repo.path(), &["outside the file's", "4000000000"]);
+    let dup_diag_repo = v05_repo("", "src/dup.v05", "DIAG_DUP\n");
+    let dup_report = run_check_json_report(dup_diag_repo.path());
+    let dup_entries = dup_report["file_diagnostics"]
+        .as_array()
+        .expect("file_diagnostics array");
+    assert_eq!(dup_entries.len(), 1, "expected deduplication: {dup_report}");
+    assert_eq!(dup_entries[0]["message"], "dup diagnostic");
+
+    let invalid_v05_cases: [(&str, &[&str]); 5] = [
+        ("SCOPE_BAD_LINE\n", &["outside the file's", "4000000000"]),
+        (
+            "DIAG_LINE_ZERO\n",
+            &["diagnostic on line 0", "outside the file's"],
+        ),
+        ("DIAG_LINE_HUGE\n", &["4000000000", "outside the file's"]),
+        ("DIAG_EMPTY_KIND\n", &["diagnostic kind must not be empty"]),
+        (
+            "DIAG_EMPTY_MSG\n",
+            &["diagnostic message must not be empty"],
+        ),
+    ];
+    for (source, expected) in invalid_v05_cases {
+        let bad_repo = v05_repo("", "src/bad.v05", source);
+        assert_check_exits_2(bad_repo.path(), expected);
+    }
 }

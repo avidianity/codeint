@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use crate::schema::artifact::{
-    AlterOp, ClauseKind, ColumnRefTarget, ConstrainedRef, DdlOp, SchemaCheck, ScopeDef,
-    SqlFileArtifact, TableBindingDef,
+    AlterOp, ClauseKind, ColumnAlterOp, ColumnRefTarget, ConstrainedRef, DdlOp, SchemaCheck,
+    ScopeDef, SqlFileArtifact, TableAlterOp, TableBindingDef,
 };
 use crate::schema::types::{ColumnTypeClass, IndexSchema, TableSchema};
 
@@ -34,8 +34,11 @@ pub(crate) fn decode_artifact(bytes: &[u8]) -> Option<SqlFileArtifact> {
     }
     let is_down_migration = dec.bool()?;
     let ddl_ops = dec.vec(decode_ddl_op)?;
-    let scopes = dec.vec(decode_scope_def)?;
+    let scopes = decode_scopes(&mut dec)?;
     let checks = dec.vec(decode_schema_check)?;
+    if dec.pos != dec.input.len() {
+        return None;
+    }
     Some(SqlFileArtifact {
         is_down_migration,
         ddl_ops,
@@ -177,8 +180,15 @@ impl<'a> Decoder<'a> {
 }
 
 fn encode_col_type(enc: &mut Encoder, ty: &ColumnTypeClass) {
-    let tag = COL_TYPES.iter().position(|c| c == ty).unwrap_or(5);
-    enc.u8(u8::try_from(tag).unwrap_or(5));
+    let tag = match ty {
+        ColumnTypeClass::Text => 0,
+        ColumnTypeClass::Numeric => 1,
+        ColumnTypeClass::Boolean => 2,
+        ColumnTypeClass::Temporal => 3,
+        ColumnTypeClass::Binary => 4,
+        ColumnTypeClass::Other => 5,
+    };
+    enc.u8(tag);
 }
 
 fn decode_col_type(dec: &mut Decoder<'_>) -> Option<ColumnTypeClass> {
@@ -376,7 +386,14 @@ fn decode_drop_index_across_tables_op(dec: &mut Decoder<'_>) -> Option<DdlOp> {
 
 fn encode_alter_op(enc: &mut Encoder, op: &AlterOp) {
     match op {
-        AlterOp::AddColumn {
+        AlterOp::Column(col_op) => encode_column_alter_op(enc, col_op),
+        AlterOp::Table(table_op) => encode_table_alter_op(enc, table_op),
+    }
+}
+
+fn encode_column_alter_op(enc: &mut Encoder, op: &ColumnAlterOp) {
+    match op {
+        ColumnAlterOp::AddColumn {
             name,
             ty,
             is_pk,
@@ -386,16 +403,16 @@ fn encode_alter_op(enc: &mut Encoder, op: &AlterOp) {
             enc.str(name);
             encode_col_spec(enc, ty, *is_pk, unique_index);
         }
-        AlterOp::DropColumn { name } => {
+        ColumnAlterOp::DropColumn { name } => {
             enc.u8(1);
             enc.str(name);
         }
-        AlterOp::RenameColumn { old, new } => {
+        ColumnAlterOp::RenameColumn { old, new } => {
             enc.u8(2);
             enc.str(old);
             enc.str(new);
         }
-        AlterOp::ChangeColumn {
+        ColumnAlterOp::ChangeColumn {
             old,
             new,
             ty,
@@ -407,7 +424,7 @@ fn encode_alter_op(enc: &mut Encoder, op: &AlterOp) {
             enc.str(new);
             encode_col_spec(enc, ty, *is_pk, unique_index);
         }
-        AlterOp::ModifyColumn {
+        ColumnAlterOp::ModifyColumn {
             name,
             ty,
             is_pk,
@@ -417,35 +434,34 @@ fn encode_alter_op(enc: &mut Encoder, op: &AlterOp) {
             enc.str(name);
             encode_col_spec(enc, ty, *is_pk, unique_index);
         }
-        AlterOp::SetColumnType { name, ty } => {
+        ColumnAlterOp::SetColumnType { name, ty } => {
             enc.u8(5);
             enc.str(name);
             encode_col_type(enc, ty);
         }
-        other => encode_constraint_alter_op(enc, other),
     }
 }
 
-fn encode_constraint_alter_op(enc: &mut Encoder, op: &AlterOp) {
+fn encode_table_alter_op(enc: &mut Encoder, op: &TableAlterOp) {
     match op {
-        AlterOp::SetPrimaryKey { columns } => {
+        TableAlterOp::SetPrimaryKey { columns } => {
             enc.u8(6);
             enc.vec_str(columns);
         }
-        AlterOp::AddIndex { index } => {
+        TableAlterOp::AddIndex { index } => {
             enc.u8(7);
             encode_index(enc, index);
         }
-        AlterOp::PromoteIndexToPk { index_name } => {
+        TableAlterOp::PromoteIndexToPk { index_name } => {
             enc.u8(8);
             enc.str(index_name);
         }
-        AlterOp::DropNamedIndex { name } => {
+        TableAlterOp::DropNamedIndex { name } => {
             enc.u8(9);
             enc.str(name);
         }
-        AlterOp::DropPrimaryKey => enc.u8(10),
-        AlterOp::RenameTable {
+        TableAlterOp::DropPrimaryKey => enc.u8(10),
+        TableAlterOp::RenameTable {
             new_schema,
             new_name,
         } => {
@@ -453,71 +469,66 @@ fn encode_constraint_alter_op(enc: &mut Encoder, op: &AlterOp) {
             enc.opt_str(new_schema);
             enc.str(new_name);
         }
-        _ => {}
     }
 }
 
 fn decode_alter_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
-    dec.dispatch(&[
-        decode_add_column_op,
-        decode_drop_column_op,
-        decode_rename_column_op,
-        decode_change_column_op,
-        decode_modify_column_op,
-        decode_set_column_type_op,
-        decode_set_primary_key_op,
-        decode_add_index_op,
-        decode_promote_index_op,
-        decode_drop_named_index_op,
-        decode_drop_primary_key_op,
-        decode_rename_table_op,
-    ])
-}
-
-fn decode_add_column_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
-    decode_named_column_op(dec, false)
-}
-
-fn decode_modify_column_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
-    decode_named_column_op(dec, true)
-}
-
-fn decode_named_column_op(dec: &mut Decoder<'_>, is_modify: bool) -> Option<AlterOp> {
-    let name = dec.str()?;
-    let (ty, is_pk, unique_index) = decode_col_spec(dec)?;
-    if is_modify {
-        Some(AlterOp::ModifyColumn {
-            name,
-            ty,
-            is_pk,
-            unique_index,
-        })
-    } else {
-        Some(AlterOp::AddColumn {
-            name,
-            ty,
-            is_pk,
-            unique_index,
-        })
+    match dec.u8()? {
+        tag @ 0..=2 => decode_column_alter_basic(tag, dec).map(AlterOp::Column),
+        tag @ 3..=5 => decode_column_alter_typed(tag, dec).map(AlterOp::Column),
+        tag @ 6..=8 => decode_table_alter_add(tag, dec).map(AlterOp::Table),
+        tag @ 9..=11 => decode_table_alter_drop_or_rename(tag, dec).map(AlterOp::Table),
+        _ => None,
     }
 }
 
-fn decode_drop_column_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
-    Some(AlterOp::DropColumn { name: dec.str()? })
+fn decode_column_alter_basic(tag: u8, dec: &mut Decoder<'_>) -> Option<ColumnAlterOp> {
+    match tag {
+        0 => {
+            let name = dec.str()?;
+            let (ty, is_pk, unique_index) = decode_col_spec(dec)?;
+            Some(ColumnAlterOp::AddColumn {
+                name,
+                ty,
+                is_pk,
+                unique_index,
+            })
+        }
+        1 => Some(ColumnAlterOp::DropColumn { name: dec.str()? }),
+        2 => Some(ColumnAlterOp::RenameColumn {
+            old: dec.str()?,
+            new: dec.str()?,
+        }),
+        _ => None,
+    }
 }
 
-fn decode_rename_column_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
-    Some(AlterOp::RenameColumn {
-        old: dec.str()?,
-        new: dec.str()?,
-    })
+fn decode_column_alter_typed(tag: u8, dec: &mut Decoder<'_>) -> Option<ColumnAlterOp> {
+    match tag {
+        3 => decode_change_column_op(dec),
+        4 => {
+            let name = dec.str()?;
+            let (ty, is_pk, unique_index) = decode_col_spec(dec)?;
+            Some(ColumnAlterOp::ModifyColumn {
+                name,
+                ty,
+                is_pk,
+                unique_index,
+            })
+        }
+        5 => Some(ColumnAlterOp::SetColumnType {
+            name: dec.str()?,
+            ty: decode_col_type(dec)?,
+        }),
+        _ => None,
+    }
 }
 
-fn decode_change_column_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
+fn decode_change_column_op(dec: &mut Decoder<'_>) -> Option<ColumnAlterOp> {
     let old = dec.str()?;
     let new = dec.str()?;
     let (ty, is_pk, unique_index) = decode_col_spec(dec)?;
-    Some(AlterOp::ChangeColumn {
+    Some(ColumnAlterOp::ChangeColumn {
         old,
         new,
         ty,
@@ -526,44 +537,31 @@ fn decode_change_column_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
     })
 }
 
-fn decode_set_column_type_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
-    Some(AlterOp::SetColumnType {
-        name: dec.str()?,
-        ty: decode_col_type(dec)?,
-    })
+fn decode_table_alter_add(tag: u8, dec: &mut Decoder<'_>) -> Option<TableAlterOp> {
+    match tag {
+        6 => Some(TableAlterOp::SetPrimaryKey {
+            columns: dec.vec_str()?,
+        }),
+        7 => Some(TableAlterOp::AddIndex {
+            index: decode_index(dec)?,
+        }),
+        8 => Some(TableAlterOp::PromoteIndexToPk {
+            index_name: dec.str()?,
+        }),
+        _ => None,
+    }
 }
 
-fn decode_set_primary_key_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
-    Some(AlterOp::SetPrimaryKey {
-        columns: dec.vec_str()?,
-    })
-}
-
-fn decode_add_index_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
-    Some(AlterOp::AddIndex {
-        index: decode_index(dec)?,
-    })
-}
-
-fn decode_promote_index_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
-    Some(AlterOp::PromoteIndexToPk {
-        index_name: dec.str()?,
-    })
-}
-
-fn decode_drop_named_index_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
-    Some(AlterOp::DropNamedIndex { name: dec.str()? })
-}
-
-fn decode_drop_primary_key_op(_dec: &mut Decoder<'_>) -> Option<AlterOp> {
-    Some(AlterOp::DropPrimaryKey)
-}
-
-fn decode_rename_table_op(dec: &mut Decoder<'_>) -> Option<AlterOp> {
-    Some(AlterOp::RenameTable {
-        new_schema: dec.opt_str()?,
-        new_name: dec.str()?,
-    })
+fn decode_table_alter_drop_or_rename(tag: u8, dec: &mut Decoder<'_>) -> Option<TableAlterOp> {
+    match tag {
+        9 => Some(TableAlterOp::DropNamedIndex { name: dec.str()? }),
+        10 => Some(TableAlterOp::DropPrimaryKey),
+        11 => Some(TableAlterOp::RenameTable {
+            new_schema: dec.opt_str()?,
+            new_name: dec.str()?,
+        }),
+        _ => None,
+    }
 }
 
 fn encode_scope_def(enc: &mut Encoder, scope: &ScopeDef) {
@@ -577,10 +575,24 @@ fn encode_scope_def(enc: &mut Encoder, scope: &ScopeDef) {
     });
 }
 
-fn decode_scope_def(dec: &mut Decoder<'_>) -> Option<ScopeDef> {
+fn decode_scopes(dec: &mut Decoder<'_>) -> Option<Vec<ScopeDef>> {
+    let len = dec.u32()? as usize;
+    let mut out = Vec::with_capacity(len.min(1024));
+    for scope_idx in 0..len {
+        out.push(decode_scope_def(dec, scope_idx)?);
+    }
+    Some(out)
+}
+
+fn decode_scope_def(dec: &mut Decoder<'_>, scope_idx: usize) -> Option<ScopeDef> {
+    let depth = dec.u32()?;
+    let parent = dec.opt(Decoder::u32)?;
+    if parent.is_some_and(|p| (p as usize) >= scope_idx) {
+        return None;
+    }
     Some(ScopeDef {
-        depth: dec.u32()?,
-        parent: dec.opt(Decoder::u32)?,
+        depth,
+        parent,
         bindings: dec.vec(|d| {
             Some(TableBindingDef {
                 schema: d.opt_str()?,

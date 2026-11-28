@@ -48,7 +48,7 @@ impl SavedReport {
         if is_check_shape(object) {
             let mut normalized = value;
             if let Some(map) = normalized.as_object_mut() {
-                normalize_legacy_check_keys(map);
+                normalize_legacy_check_keys(map)?;
             }
             let mut report: Report = serde_json::from_value(normalized).map_err(|source| {
                 SavedReportError::InvalidPayload {
@@ -123,19 +123,20 @@ fn is_check_shape(object: &Map<String, Value>) -> bool {
         && object.contains_key("source_sets")
 }
 
-fn normalize_legacy_check_keys(object: &mut Map<String, Value>) {
+fn normalize_legacy_check_keys(object: &mut Map<String, Value>) -> Result<(), SavedReportError> {
     migrate_legacy_array(
         object,
         "file_diagnostics",
         "rejected_statements",
         convert_legacy_rejected_statement,
-    );
+    )?;
     migrate_legacy_array(
         object,
         "scope_summaries",
         "sql_schemas",
         convert_legacy_sql_schema,
-    );
+    )?;
+    Ok(())
 }
 
 fn migrate_legacy_array(
@@ -143,12 +144,33 @@ fn migrate_legacy_array(
     new_key: &str,
     old_key: &str,
     convert: fn(&Value) -> Option<Value>,
-) {
-    if !object.contains_key(new_key)
-        && let Some(Value::Array(items)) = object.remove(old_key)
-    {
-        let converted: Vec<Value> = items.iter().filter_map(convert).collect();
-        object.insert(new_key.to_owned(), Value::Array(converted));
+) -> Result<(), SavedReportError> {
+    if object.contains_key(new_key) {
+        return Ok(());
+    }
+    let Some(legacy_value) = object.remove(old_key) else {
+        return Ok(());
+    };
+    let Value::Array(items) = legacy_value else {
+        return Err(invalid_legacy_payload(format!(
+            "legacy field {old_key:?} must be an array"
+        )));
+    };
+    let mut converted = Vec::with_capacity(items.len());
+    for (index, item) in items.iter().enumerate() {
+        let entry = convert(item).ok_or_else(|| {
+            invalid_legacy_payload(format!("invalid entry at {old_key}[{index}]"))
+        })?;
+        converted.push(entry);
+    }
+    object.insert(new_key.to_owned(), Value::Array(converted));
+    Ok(())
+}
+
+fn invalid_legacy_payload(message: String) -> SavedReportError {
+    SavedReportError::InvalidPayload {
+        kind: "check",
+        source: <serde_json::Error as serde::de::Error>::custom(message),
     }
 }
 

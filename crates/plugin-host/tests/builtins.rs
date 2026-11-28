@@ -75,7 +75,7 @@ fn built_in_sql_plugin_exports_dialects_and_runs_scope_analysis_through_language
     let sql = built_in_language_plugin("sql").expect("built-in sql plugin");
     assert_eq!(
         sql.plugin.known_dialects(),
-        vec!["postgresql", "mysql", "sqlite", "duckdb", "generic"]
+        vec!["postgresql", "mysql", "sqlite", "duckdb"]
     );
     assert!(sql.plugin.has_scope_analysis());
 
