@@ -144,6 +144,39 @@ jobs:
       - run: cargo build --release --locked --bin codeint
       - run: cargo xtask perf-check
 
+  sdks:
+    name: sdks
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install lld
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lld
+      - uses: ./.github/actions/setup
+        with:
+          rust-cache-key: "ubuntu-rust-test"
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b
+      - name: Build codeint binary
+        run: cargo build --locked --bin codeint
+      - name: Fetch Dart dependencies
+        working-directory: sdks/dart
+        run: dart pub get
+      - name: Test SDKs without network access
+        run: |
+          sudo --preserve-env=PATH,HOME,PUB_CACHE unshare --net -- bash -c '
+            set -euo pipefail
+            ip link set lo up
+            setpriv --reuid="$SUDO_UID" --regid="$SUDO_GID" --init-groups env CODEINT_BIN="$PWD/target/debug/codeint" node --test npm/codeint/test/*.test.*
+            setpriv --reuid="$SUDO_UID" --regid="$SUDO_GID" --init-groups ./node_modules/.bin/tsc -p npm/codeint/tsconfig.json --noEmit
+            setpriv --reuid="$SUDO_UID" --regid="$SUDO_GID" --init-groups env CODEINT_BIN="$PWD/target/debug/codeint" bash -c "cd sdks/dart && dart analyze --fatal-infos && dart test"
+          '
+
   repository:
     name: repository
     needs: [changes]
@@ -224,7 +257,7 @@ jobs:
   budget:
     name: budget
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.docs_only != 'true' }}
-    needs: [changes, rust, windows, performance, repository, risk-tier]
+    needs: [changes, rust, windows, performance, sdks, repository, risk-tier]
     runs-on: ubuntu-24.04
     permissions:
       actions: read
