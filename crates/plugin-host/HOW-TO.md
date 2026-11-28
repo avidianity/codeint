@@ -61,18 +61,18 @@ let external = load_language_plugins(repository.root(), &configuration.plugins, 
 
 - `load_language_plugins` reads each local plugin file or fetches and caches each HTTPS plugin once, verifies its SHA-256 digest against the declared `sha256` before caching, compiling, or instantiating it, and returns `Vec<(String, WasmLanguagePlugin)>`.
 - Relative paths in `PluginSource::Path` resolve against `repository_root`; absolute paths are used as given.
-- `PluginSource::HttpsUrl` downloads through `curl` with `--proto =https --tlsv1.2 --proto-redir =https`, verifies the SHA-256 digest of the downloaded bytes before atomically renaming into `<cache_dir>/<sha256>.wasm`, and reuses a valid cached entry without network I/O.
+- `PluginSource::HttpsUrl` downloads through `curl` with `--proto =https --tlsv1.2 --proto-redir =https --max-filesize <max_download_bytes>` and a bounded streaming reader (50 MiB default via `PluginHostConfig::max_download_bytes`, overridden by `CODEINT_PLUGIN_MAX_DOWNLOAD_MB`), verifies the SHA-256 digest of the downloaded bytes before atomically renaming into `<cache_dir>/<sha256>.wasm`, and reuses a valid cached entry without network I/O.
 - Every `WasmLanguagePlugin` is instantiated with an empty `wasmtime::component::Linker` with zero host capabilities (no WASI, no filesystem, no network, no environment variables, no clocks).
   A component that imports any host interface fails to instantiate with `PluginHostError::Instantiate`.
 - Every `WasmLanguagePlugin` and `WasmMetricPlugin` validates its exported WIT interface version against `codeint:plugin@0.4.0` before instantiation; an incompatible version (such as `codeint:plugin@0.3.0` or `codeint:plugin@0.2.0`) fails with `PluginHostError::IncompatibleContractVersion`.
 - Every `WasmMetricPlugin` also validates its `version()` export at load time through `validate_metric_version`, rejecting `0` with `PluginHostError::InvalidMetricVersion`.
 - `verify_plugin_component` compiles component bytes and checks the exported WIT contract version and zero-capability sandbox requirements without instantiating or running untrusted guest code.
-- Every `WasmLanguagePlugin` and `WasmMetricPlugin` enforces `codeint_config::PluginLimits` (linear memory cap via `wasmtime::ResourceLimiter` and wall-clock time limit via `wasmtime` epoch interruption).
+- Every `WasmLanguagePlugin` and `WasmMetricPlugin` enforces `codeint_config::PluginLimits` (linear memory cap via `wasmtime::ResourceLimiter`, host lifted-size budget via `enforce_lifted_budget`, and wall-clock time limit via `wasmtime` epoch interruption).
   Use `load_language_plugins_with_limits` and `load_metric_plugins_with_limits` to pass configured limits from `codeint.json`.
 - All plugin loads share one process-wide `wasmtime::Engine`, a bounded compiled-component cache keyed by verified SHA-256 digest, and one reference-counted epoch-ticker thread that shuts down once all loaded plugins drop.
-  Every plugin instance still gets its own isolated `wasmtime::Store`, empty zero-capability `Linker`, `PluginLimits`, and `InstancePool`.
+  Every plugin call instantiates a fresh `wasmtime::Store` from pre-compiled `InstancePre` with an empty zero-capability `Linker` and `PluginLimits`, then drops the store immediately after the call so linear memory never stays pinned and guest state cannot leak across calls.
 - `validate_metric_key` enforces external Metric key syntax and rejects every reserved report key from `codeint_model::is_reserved_report_key` (`Metric::ALL` and `STRUCTURAL_REPORT_KEYS`), every `SourceSet::ALL` key (`production`, `test`, `generated`, `vendored`), and the trend and top-level configuration keys (`commit`, `committed_on`, `dependencies`).
-- `WasmLanguagePlugin` implements `codeint_model::LanguagePlugin: Sync` using an internal pool of pre-instantiated component instances, so callers can invoke `lower` concurrently across threads.
+- `WasmLanguagePlugin` implements `codeint_model::LanguagePlugin: Sync` by instantiating a fresh store from its pre-compiled `InstancePre` per call, so callers can invoke `lower` concurrently across threads without shared mutable guest state.
 
 ## Verify a single plugin or compute a digest
 
@@ -109,7 +109,7 @@ if !report.passed() {
 - It returns `Err(PluginHostError::Read)` only when the file cannot be read; every contract violation is a failed check, never an `Err`.
 - A check that depends on a failed load or an earlier fail is `Skipped`, and so is every import check of a Language plugin whose `has-imports` is false.
 - The report lists every check exactly once, in a fixed order.
-- `WasmLanguagePlugin::manifest_paths_checked` and `WasmLanguagePlugin::workspace_packages_checked` expose a trap or a limit hit as `Err(PluginHostError)`; `LanguagePlugin::manifest_paths` still turns a trap into an empty list, as `codeint check` expects.
+- `WasmLanguagePlugin::manifest_paths_checked` and `WasmLanguagePlugin::workspace_packages_checked` expose a trap or a limit hit as `Err(PluginHostError)`; `LanguagePlugin::manifest_paths` and `LanguagePlugin::reference_ranges` propagate traps and limit hits as `Err(LanguagePluginError)`.
 - `sources` adds Language plugin probe sources to the built-in ones; each file name carries the extension that the Plugin claims.
 - `run_conformance` leaves `end-to-end` as `Skipped` and attaches an `EndToEndProbe` in `report.end_to_end` when earlier checks pass; callers such as `codeint-cli` run `codeint check` on that probe and fill in the `end-to-end` entry.
 - `codeint plugin test` is the command-line front end; see [docs/reference.md](../../docs/reference.md#codeint-plugin).

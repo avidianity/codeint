@@ -9,9 +9,7 @@ use codeint_model::language::{
     DeclaredDep, FileModel, FlaggedLine, Guest, ImportRequest, LowerError, Manifest,
     ReferenceRange, Resolution, SourceSet, WorkspaceError,
 };
-use codeint_model::{
-    InvalidReferenceRange, LanguageFacts, LanguagePlugin, Package, ReferenceRanges, RepoPath,
-};
+use codeint_model::{LanguageFacts, LanguagePlugin, Package, ReferenceRanges, RepoPath};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -114,10 +112,7 @@ macro_rules! every_import_is_external {
             requests: Vec<ImportRequest>,
             _active_profiles: Vec<String>,
         ) -> Vec<Resolution> {
-            requests
-                .iter()
-                .map(|_| Resolution::External(String::new()))
-                .collect()
+            requests.iter().map(|_| Resolution::Builtin).collect()
         }
 
         fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
@@ -793,8 +788,11 @@ impl LanguagePlugin for ParallelProofPlugin {
         Ok(model)
     }
 
-    fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
-        Vec::new()
+    fn manifest_paths(
+        &self,
+        _repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, codeint_model::LanguagePluginError> {
+        Ok(Vec::new())
     }
 
     fn workspace_packages(
@@ -811,10 +809,7 @@ impl LanguagePlugin for ParallelProofPlugin {
         requests: Vec<ImportRequest>,
         _active_profiles: &[String],
     ) -> Result<Vec<Resolution>, codeint_model::LanguagePluginError> {
-        Ok(requests
-            .iter()
-            .map(|_| Resolution::External(String::new()))
-            .collect())
+        Ok(requests.iter().map(|_| Resolution::Builtin).collect())
     }
 
     fn declared_dependencies(
@@ -837,7 +832,7 @@ impl LanguagePlugin for ParallelProofPlugin {
         Ok(Vec::new())
     }
 
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+    fn reference_ranges(&self) -> Result<ReferenceRanges, codeint_model::LanguagePluginError> {
         Ok(ReferenceRanges::default())
     }
 
@@ -1655,10 +1650,7 @@ impl Guest for PickyManifests {
         _active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         assert_no_bad_manifest(&manifests);
-        requests
-            .iter()
-            .map(|_| Resolution::External(String::new()))
-            .collect()
+        requests.iter().map(|_| Resolution::Builtin).collect()
     }
 
     fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {

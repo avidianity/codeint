@@ -1,11 +1,19 @@
+use std::fs::File;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use codeint_config::{PluginDeclaration, PluginHostConfig};
 
 use crate::sha256::{format_hex, sha256};
 use crate::{PluginHostError, constant_time_equal};
+
+#[cfg(test)]
+mod tests;
+
+const CURL_FILESIZE_EXCEEDED_EXIT_CODE: i32 = 63;
+const DOWNLOAD_CHUNK_BYTES: usize = 64 * 1024;
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -99,7 +107,21 @@ fn download_to_file(
     host_config: &PluginHostConfig,
     temp_path: &Path,
 ) -> Result<(), PluginHostError> {
+    let max_bytes = host_config.max_download_bytes;
+    let mut child = build_curl_command(url, host_config)
+        .spawn()
+        .map_err(|source| PluginHostError::Download {
+            name: declaration.name.clone(),
+            url: url.to_owned(),
+            reason: format!("cannot invoke curl: {source}"),
+        })?;
+    stream_to_temp_file(&mut child, declaration, url, max_bytes, temp_path)?;
+    finish_curl_download(child, declaration, url, max_bytes, temp_path)
+}
+
+fn build_curl_command(url: &str, host_config: &PluginHostConfig) -> Command {
     let timeout = host_config.download_timeout_seconds.to_string();
+    let max_filesize = host_config.max_download_bytes.to_string();
     let mut command = Command::new("curl");
     command
         .args([
@@ -114,37 +136,156 @@ fn download_to_file(
             "--location",
             "--max-time",
             &timeout,
-            "--output",
+            "--max-filesize",
+            &max_filesize,
         ])
-        .arg(temp_path);
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     if let Some(ca_cert) = &host_config.ca_cert {
         command.arg("--cacert").arg(ca_cert);
     }
     command.arg("--").arg(url);
+    command
+}
 
-    let output = command.output().map_err(|source| {
+fn stream_to_temp_file(
+    child: &mut std::process::Child,
+    declaration: &PluginDeclaration,
+    url: &str,
+    max_bytes: u64,
+    temp_path: &Path,
+) -> Result<(), PluginHostError> {
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| PluginHostError::Download {
+            name: declaration.name.clone(),
+            url: url.to_owned(),
+            reason: "cannot capture curl stdout".to_owned(),
+        })?;
+    let mut temp_file = File::create(temp_path).map_err(|source| {
+        abort_download(child, temp_path);
+        PluginHostError::CacheWrite {
+            name: declaration.name.clone(),
+            path: temp_path.to_path_buf(),
+            source,
+        }
+    })?;
+
+    let copy_result = copy_bounded(&mut stdout, &mut temp_file, max_bytes);
+    drop(temp_file);
+    drop(stdout);
+
+    match copy_result {
+        Ok(BoundedCopy::Completed) => Ok(()),
+        Ok(BoundedCopy::Exceeded) => {
+            abort_download(child, temp_path);
+            Err(PluginHostError::DownloadTooLarge {
+                name: declaration.name.clone(),
+                url: url.to_owned(),
+                max_bytes,
+            })
+        }
+        Err(BoundedCopyError::Read(source)) => {
+            abort_download(child, temp_path);
+            Err(PluginHostError::Download {
+                name: declaration.name.clone(),
+                url: url.to_owned(),
+                reason: format!("cannot read curl stdout: {source}"),
+            })
+        }
+        Err(BoundedCopyError::Write(source)) => {
+            abort_download(child, temp_path);
+            Err(PluginHostError::CacheWrite {
+                name: declaration.name.clone(),
+                path: temp_path.to_path_buf(),
+                source,
+            })
+        }
+    }
+}
+
+fn finish_curl_download(
+    child: std::process::Child,
+    declaration: &PluginDeclaration,
+    url: &str,
+    max_bytes: u64,
+    temp_path: &Path,
+) -> Result<(), PluginHostError> {
+    let output = child.wait_with_output().map_err(|source| {
         let _ = std::fs::remove_file(temp_path);
         PluginHostError::Download {
             name: declaration.name.clone(),
             url: url.to_owned(),
-            reason: format!("cannot invoke curl: {source}"),
+            reason: format!("cannot wait for curl: {source}"),
         }
     })?;
-    if !output.status.success() {
-        let _ = std::fs::remove_file(temp_path);
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        let reason = if stderr.is_empty() {
-            format!("curl exited with {}", output.status)
-        } else {
-            stderr
-        };
-        return Err(PluginHostError::Download {
+    if output.status.success() {
+        return Ok(());
+    }
+    let _ = std::fs::remove_file(temp_path);
+    if output.status.code() == Some(CURL_FILESIZE_EXCEEDED_EXIT_CODE) {
+        return Err(PluginHostError::DownloadTooLarge {
             name: declaration.name.clone(),
             url: url.to_owned(),
-            reason,
+            max_bytes,
         });
     }
-    Ok(())
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    let reason = if stderr.is_empty() {
+        format!("curl exited with {}", output.status)
+    } else {
+        stderr
+    };
+    Err(PluginHostError::Download {
+        name: declaration.name.clone(),
+        url: url.to_owned(),
+        reason,
+    })
+}
+
+fn abort_download(child: &mut std::process::Child, temp_path: &Path) {
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_file(temp_path);
+}
+
+#[derive(Debug)]
+enum BoundedCopy {
+    Completed,
+    Exceeded,
+}
+
+#[derive(Debug)]
+enum BoundedCopyError {
+    Read(std::io::Error),
+    Write(std::io::Error),
+}
+
+fn copy_bounded(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    max_bytes: u64,
+) -> Result<BoundedCopy, BoundedCopyError> {
+    let mut buffer = [0u8; DOWNLOAD_CHUNK_BYTES];
+    let mut total: u64 = 0;
+    loop {
+        let read = match reader.read(&mut buffer) {
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(BoundedCopyError::Read(error)),
+        };
+        if read == 0 {
+            return Ok(BoundedCopy::Completed);
+        }
+        total = total.saturating_add(u64::try_from(read).unwrap_or(u64::MAX));
+        if total > max_bytes {
+            return Ok(BoundedCopy::Exceeded);
+        }
+        writer
+            .write_all(&buffer[..read])
+            .map_err(BoundedCopyError::Write)?;
+    }
 }
 
 fn promote_to_cache(

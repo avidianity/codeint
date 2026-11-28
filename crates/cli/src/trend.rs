@@ -4,7 +4,7 @@ use codeint_config::{CalendarDay, PluginHostConfig, TrendRange};
 use codeint_git::{CommitRange, ResultCache};
 use codeint_report::{TrendPoint, TrendReport};
 
-use crate::check::{CheckError, LoweringCache, WorkspaceContext};
+use crate::check::{CheckError, LoweringCache, WorkspaceContext, WorkspaceRef};
 use crate::commit_measurement::CommitMeasurer;
 
 pub(crate) fn trend(
@@ -14,15 +14,23 @@ pub(crate) fn trend(
     plugin_host: &PluginHostConfig,
 ) -> Result<TrendReport, CheckError> {
     let context = WorkspaceContext::load(folder, plugin_host)?;
+    trend_with_workspace(context.as_ref(), range, result_cache)
+}
+
+pub(crate) fn trend_with_workspace(
+    workspace: WorkspaceRef<'_>,
+    range: TrendRange,
+    result_cache: Option<&ResultCache>,
+) -> Result<TrendReport, CheckError> {
     let lowering_cache = LoweringCache::new();
     let measurer = CommitMeasurer::new(
-        &context.repository,
-        &context.configuration,
-        &context.plugins,
+        workspace.repository,
+        workspace.configuration,
+        workspace.plugins,
         result_cache,
         Some(&lowering_cache),
     );
-    let points = context
+    let points = workspace
         .repository
         .first_parent_history(commit_range(range))?
         .into_iter()
@@ -36,7 +44,7 @@ pub(crate) fn trend(
         .collect::<Result<Vec<_>, CheckError>>()?;
     Ok(TrendReport::of_with_test_gap_note(
         points,
-        !context.configuration.coverage_reports.is_empty(),
+        !workspace.configuration.coverage_reports.is_empty(),
     ))
 }
 

@@ -622,16 +622,19 @@ fn step_case_in_pattern(tok: &ShellToken, case_stack: &mut Vec<CaseTracker>) -> 
         case_stack.pop();
         return 0;
     }
-    let Some(CaseTracker::InPattern {
+    let Some(top) = case_stack.last_mut() else {
+        return 0;
+    };
+    let CaseTracker::InPattern {
         saw_wildcard,
         has_word,
-    }) = case_stack.last_mut()
+    } = top
     else {
         return 0;
     };
     if tok.is_op(")") {
         let is_branch = *has_word && !*saw_wildcard;
-        *case_stack.last_mut().unwrap() = CaseTracker::InBody;
+        *top = CaseTracker::InBody;
         return u32::from(is_branch);
     }
     if tok.kind == ShellTokenKind::Word {

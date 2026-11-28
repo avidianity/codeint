@@ -30,6 +30,13 @@ pub enum ResolveError {
         specifier: String,
     },
     #[error(
+        "the Language plugin resolved {specifier:?} in {importer} to an empty external package name"
+    )]
+    EmptyExternalPackage {
+        importer: RepoPath,
+        specifier: String,
+    },
+    #[error(
         "the Language plugin resolved {specifier:?} in {importer} to {target:?}, which is not a file of the repository"
     )]
     UnknownTarget {
@@ -52,7 +59,7 @@ pub fn choose_manifests(
     }
     let known_paths: HashSet<&str> = repository_paths.iter().map(RepoPath::as_str).collect();
     plugin
-        .manifest_paths(repository_paths)
+        .manifest_paths(repository_paths)?
         .into_iter()
         .map(|path| {
             if known_paths.contains(path.as_str()) {
@@ -116,6 +123,17 @@ pub fn resolve_runtime_imports(
         .collect()
 }
 
+pub fn is_valid_external_package_name(package: &str) -> bool {
+    !package.chars().any(char::is_control)
+        && package
+            .chars()
+            .any(|ch| !ch.is_whitespace() && !is_zero_width(ch))
+}
+
+fn is_zero_width(ch: char) -> bool {
+    matches!(ch, '\u{200B}'..='\u{200D}' | '\u{FEFF}')
+}
+
 fn validate_resolution(
     importer: &RepoPath,
     specifier: &str,
@@ -127,7 +145,16 @@ fn validate_resolution(
             validate_resolved_targets(importer, specifier, targets, known_paths)
                 .map(ImportResolution::Resolved)
         }
-        language::Resolution::External(package) => Ok(ImportResolution::External(package)),
+        language::Resolution::External(package) => {
+            if !is_valid_external_package_name(&package) {
+                Err(ResolveError::EmptyExternalPackage {
+                    importer: importer.clone(),
+                    specifier: specifier.to_owned(),
+                })
+            } else {
+                Ok(ImportResolution::External(package))
+            }
+        }
         language::Resolution::Builtin => Ok(ImportResolution::Builtin),
         language::Resolution::Unresolved(reason) => Ok(ImportResolution::Unresolved { reason }),
     }

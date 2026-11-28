@@ -48,6 +48,20 @@ fn the_packages_of_a_workspace_are_the_root_package_then_each_member_by_path() {
     );
 }
 
+fn production_file_model(text: &str) -> Result<FileModel, LowerError> {
+    let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
+    Ok(FileModel {
+        source_lines,
+        source_set: SourceSet::Production,
+        program_start: false,
+        runtime_imports: Vec::new(),
+        flagged_lines: Vec::new(),
+        hazard_lines: Vec::new(),
+        tokens: Vec::new(),
+        functions: Vec::new(),
+    })
+}
+
 struct MeasuredLanguage;
 
 impl Guest for MeasuredLanguage {
@@ -56,16 +70,7 @@ impl Guest for MeasuredLanguage {
     }
 
     fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        Ok(FileModel {
-            source_set: SourceSet::Production,
-            source_lines: u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?,
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
-            hazard_lines: Vec::new(),
-            runtime_imports: Vec::new(),
-            program_start: false,
-        })
+        production_file_model(&text)
     }
 
     fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {

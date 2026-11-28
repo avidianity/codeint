@@ -2,7 +2,9 @@ use std::cmp::Reverse;
 use std::collections::HashSet;
 
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
-use codeint_model::scan::{find_manifests, normalize_relative_path, resolve_relative_file};
+use codeint_model::scan::{
+    RelativeFileResolution, find_manifests, normalize_relative_path, resolve_relative_file,
+};
 use serde_json::Value;
 
 use crate::builtins::is_builtin_symbol;
@@ -233,8 +235,9 @@ impl PhpResolver {
             return vendor_res;
         }
         match resolve_relative_file(&self.files, importer, req_path, true) {
-            Resolution::External(pkg) if pkg.is_empty() => Resolution::Builtin,
-            other => other,
+            RelativeFileResolution::Resolved(path) => Resolution::Resolved(vec![path]),
+            RelativeFileResolution::Ignored => Resolution::Builtin,
+            RelativeFileResolution::Unresolved(reason) => Resolution::Unresolved(reason),
         }
     }
 }

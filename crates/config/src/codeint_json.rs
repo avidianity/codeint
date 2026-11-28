@@ -34,7 +34,9 @@ pub use discovery::{
     inspect_configuration, is_broken_symlink, read_configuration, read_resolved_configuration,
 };
 pub use schema::{Budget, OutputFormat, PluginKind, configuration_schema};
-pub use schema_directive::{SchemaValueSpan, rewrite_schema_tag, schema_value_span};
+pub use schema_directive::{
+    RewrittenSchema, RewrittenSchemaForm, SchemaValueSpan, rewrite_schema_tag, schema_value_span,
+};
 pub use starter::{
     DetectedLanguage, StarterBoundaries, StarterBoundaryZone, StarterConfigurationError,
     published_schema_address, write_adoption_starter_configuration, write_adoption_zero_budgets,

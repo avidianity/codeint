@@ -162,7 +162,7 @@ impl CodeintError {
         format!("{}\n{}", self.message, self.mcp_remedy)
     }
 
-    fn from_cli_error(error: CliError) -> CodeintError {
+    pub(crate) fn from_cli_error(error: CliError) -> CodeintError {
         CodeintError {
             message: describe(&error),
             remedy: remedy::remedy(&error).into_owned(),
@@ -334,7 +334,7 @@ pub fn coupling(folder: &Path, options: &CouplingOptions) -> Result<CouplingRepo
 }
 
 #[derive(Debug, thiserror::Error)]
-enum CliError {
+pub(crate) enum CliError {
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]

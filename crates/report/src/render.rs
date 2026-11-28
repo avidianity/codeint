@@ -411,7 +411,7 @@ pub(crate) fn render_text_report<T: Serialize>(
     }
 }
 
-pub(crate) fn render_toon<T: Serialize>(value: &T) -> Result<String, ReportError> {
+pub fn render_toon<T: Serialize>(value: &T) -> Result<String, ReportError> {
     toon_format::encode_default(value).map_err(ReportError::Toon)
 }
 

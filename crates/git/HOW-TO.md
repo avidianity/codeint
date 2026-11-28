@@ -79,7 +79,7 @@ for HistoryCommit { commit, committed_at_unix_seconds } in latest {
 
 - `first_parent_history` follows the first parent of each commit from HEAD, so a merge commit is listed and the commits of the branch it merged are not.
 - It returns the commits oldest first.
-- `CommitRange::Latest` keeps at most that many commits; `CommitRange::CommittedSince` keeps commits whose committer time is at or after the Unix time, and stops at the first older one.
+- `CommitRange::Latest` keeps at most that many commits; `CommitRange::CommittedSince` keeps commits whose committer time is at or after the Unix time, scanning up to 14 days earlier than the cutoff to tolerate out-of-order commit timestamps before stopping.
 - In a shallow clone it stops at the shallow boundary instead of failing on a missing parent.
 - It fails with `GitError::NoHistory` when HEAD names no commit yet, and with `GitError::History` when a commit object cannot be read.
 

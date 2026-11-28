@@ -607,7 +607,7 @@ source_sets:
     e3bc223e22791aa541f8104438ce1606515231ce,2026-11-16,3,0,0,0,0.0476,0
 ```
 
-codeint compares the committer date, the date that `git log --since` uses, and stops at the first main-line commit committed before that day.
+codeint compares the committer date, the date that `git log --since` uses, and scans up to 14 days earlier than that day before stopping so out-of-order commit timestamps do not truncate newer commits.
 In a shallow clone, the trend stops at the oldest commit the clone has.
 
 The report has one table per Source set, with one row per commit.
@@ -728,7 +728,7 @@ codeint trace src/sign.ts src/parse.ts --package packages/missing
 | `-h, --help` | Print the help of `codeint update` |
 
 `codeint update` downloads the matching platform archive and `SHA256SUMS` from GitHub Releases, verifies the SHA-256 digest before touching the binary, and atomically replaces a standalone `codeint` executable in place.
-When run inside a repository whose `codeint.json` uses the codeint `$schema` URL, `codeint update` also updates that `$schema` tag to match the installed release.
+When run inside a repository whose configuration file uses the codeint schema URL (`$schema` in JSON/JSONC, `#:schema` or top-level `$schema` in TOML, or `# yaml-language-server: $schema=` or top-level `$schema` in YAML), `codeint update` also updates that schema tag to match the installed release.
 If the running binary lives inside `node_modules`, `codeint update` refuses to overwrite it and exits `2` with the package-manager update command instead.
 
 ```sh exit=0
@@ -747,7 +747,9 @@ codeint 0.8.0 is already up to date (v0.8.0)
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
 It exposes eight read-only tools (`check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`) so coding agents can measure Software entropy and Hazards, inspect architectural boundaries, reverse-dependency blast radius, and import paths, rank high-churn eroded or duplicated files, detect co-change coupling, and fix Regressions before opening a pull request.
-The `check` MCP tool takes `path`, `package`, `coverage_reports`, `all`, and `ignore_baseline` (boolean, `false` by default; the same meaning as `codeint check --ignore-baseline`).
+Every MCP tool accepts an optional `format` argument (`"toon"`, the default, or `"json"`) and ignores the repository-configured `format` key so coding agents receive compact TOON output by default while callers that require strict JSON can pass `"format": "json"`.
+Invalid `format` values and `trace` calls with `max_paths` less than `1` are rejected during argument validation, and all eight tools return MCP-tailored error remedies that name MCP arguments instead of CLI flags.
+The `check` MCP tool takes `path`, `package`, `coverage_reports`, `all`, `ignore_baseline` (boolean, `false` by default; the same meaning as `codeint check --ignore-baseline`), and `format`.
 Its stale-Baseline error names `ignore_baseline: true` as the way to show every Finding.
 It uses `coverage_reports` from `codeint.json`, returning Test gap (or its absent form and reason), Test gap Findings ordered heaviest untested Function mass first, any Test gap Budget failure, and the missing-report error when `budgets.production.test_gap` is set with Test gap absent.
 When a measured language defines Hazard line rules (such as SQL), `check`, `diff`, and `trend` also return `hazards`, Hazard line Findings (path, line, and rule name only), `sql_schemas`, and `rejected_statements`.
@@ -1067,6 +1069,7 @@ Base-versus-head Finding classification, Regressions, per-file checks, new-file 
 | `-h, --help` | Print the help of `codeint churn` |
 
 `codeint churn` walks main-line Git history natively via `gix` to count per-file commit touches over the configured window, then ranks eroded and duplicated files independently per Metric without any blended score.
+When filtering by `--since`, codeint compares the committer date and scans up to 14 days earlier than the cutoff before stopping so out-of-order commit timestamps do not truncate newer commits.
 In a shallow clone, `codeint churn` stops at the shallow boundary and includes a structured warning in the report.
 
 ```sh exit=0
@@ -1093,6 +1096,7 @@ codeint churn --format markdown
 | `-h, --help` | Print the help of `codeint coupling` |
 
 `codeint coupling` walks main-line Git history natively via `gix` to find pairs of files that repeatedly change together in the same commits, excludes bulk commits above `--max-commit-files`, and flags whether each coupled pair has a direct runtime import edge.
+When filtering by `--since`, codeint compares the committer date and scans up to 14 days earlier than the cutoff before stopping so out-of-order commit timestamps do not truncate newer commits.
 By default it measures Production files only; pass `--include-tests` to include Test files as well.
 
 ```sh exit=0
@@ -1520,7 +1524,7 @@ Set `kind` to `"language"` (the default) for a Language plugin, or `"metric"` fo
 Set either `path` or `url` on each entry, never both.
 External Metric plugins appear alongside the built-in Metrics in `codeint check`, `codeint diff`, and `codeint trend`, and support `budgets` and `regression_limits` under their Metric key.
 Relative paths resolve from the root of the repository.
-Remote plugins require an `https://` URL (plain `http://` and other schemes are refused), are downloaded once into the `plugins` subfolder of the [result cache](#result-cache) keyed by `<sha256>.wasm`, and are reused from the cache on later runs without touching the network.
+Remote plugins require an `https://` URL (plain `http://` and other schemes are refused), are downloaded once into the `plugins` subfolder of the [result cache](#result-cache) keyed by `<sha256>.wasm` under a 50 MiB default download cap (override with `CODEINT_PLUGIN_MAX_DOWNLOAD_MB`, a positive integer in MiB up to `8796093022207`), and are reused from the cache on later runs without touching the network.
 codeint verifies the SHA-256 digest before caching, compiling, or instantiating the component, and grants the component no host capabilities (no file system, network, environment, or clock access).
 A missing `sha256`, an invalid digest, a missing file, a non-HTTPS URL, or a hash mismatch stops the run with exit code 2:
 

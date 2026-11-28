@@ -8,8 +8,8 @@ use codeint_model::language::{
     Manifest, Resolution,
 };
 use codeint_model::{
-    CodeModel, InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, Package,
-    ReferenceRanges, RepoPath, SourceFile, SourceSet, WorkspaceError,
+    CodeModel, LanguagePlugin, LanguagePluginError, LowerError, Package, ReferenceRanges, RepoPath,
+    SourceFile, SourceSet, WorkspaceError,
 };
 
 pub(crate) struct BuiltInSql;
@@ -23,7 +23,10 @@ impl LanguagePlugin for BuiltInSql {
         Sql::new().lower(path, text)
     }
 
-    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
+    fn manifest_paths(
+        &self,
+        repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, LanguagePluginError> {
         Sql::new().manifest_paths(repository_paths)
     }
 
@@ -59,7 +62,7 @@ impl LanguagePlugin for BuiltInSql {
         Sql::new().entry_points(repository_paths, manifests)
     }
 
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+    fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError> {
         Sql::new().reference_ranges()
     }
 

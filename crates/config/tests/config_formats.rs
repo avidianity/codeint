@@ -5,10 +5,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use codeint_config::{
     BoundaryPreset, ConfigFileKind, ConfigOverrides, ConfigurationFileError,
     ConfigurationInspection, DetectedLanguage, InitFormat, MeasuredBaselineMetric, OutputFormat,
-    SchemaVersionStatus, StarterBoundaries, StarterConfigurationError, discover_config_file,
-    inspect_configuration, published_schema_address, read_configuration,
-    read_resolved_configuration, rewrite_schema_tag, write_adoption_starter_configuration,
-    write_adoption_zero_budgets, write_starter_configuration_in_format,
+    RewrittenSchema, RewrittenSchemaForm, SchemaVersionStatus, StarterBoundaries,
+    StarterConfigurationError, discover_config_file, inspect_configuration,
+    published_schema_address, read_configuration, read_resolved_configuration, rewrite_schema_tag,
+    write_adoption_starter_configuration, write_adoption_zero_budgets,
+    write_starter_configuration_in_format,
 };
 use codeint_model::{Metric, RepoPath, SourceSet};
 
@@ -410,34 +411,62 @@ fn rewrite_schema_tag_updates_toml_and_yaml_directives_keys_and_skips_conflicts(
     let toml_cases = [
         (
             format!("#:schema {old}\n\nformat = \"text\"\n"),
-            Some(format!("#:schema {new}\n\nformat = \"text\"\n")),
+            Some((
+                format!("#:schema {new}\n\nformat = \"text\"\n"),
+                RewrittenSchemaForm::TomlDirective,
+            )),
+        ),
+        (
+            format!("\"$schema\" = \"{old}\"\nformat = \"text\"\n"),
+            Some((
+                format!("\"$schema\" = \"{new}\"\nformat = \"text\"\n"),
+                RewrittenSchemaForm::TomlKey,
+            )),
         ),
         (
             format!("#:schema {old}\n\"$schema\" = \"{old}\"\n"),
-            Some(format!("#:schema {new}\n\"$schema\" = \"{new}\"\n")),
+            Some((
+                format!("#:schema {new}\n\"$schema\" = \"{new}\"\n"),
+                RewrittenSchemaForm::TomlDirectiveAndKey,
+            )),
         ),
         (format!("#:schema {old}\n\"$schema\" = \"{alt}\"\n"), None),
     ];
     for (input, expected) in toml_cases {
         assert_eq!(
             rewrite_schema_tag(ConfigFileKind::Toml, &input, "v9.9.9"),
-            expected.map(|body| (body, new.clone()))
+            expected.map(|(text, form)| RewrittenSchema {
+                text,
+                url: new.clone(),
+                form,
+            })
         );
     }
     let yaml_cases = [
         (
             format!("# yaml-language-server: $schema={old}\nformat: text\n"),
             format!("# yaml-language-server: $schema={new}\nformat: text\n"),
+            RewrittenSchemaForm::YamlDirective,
         ),
         (
             format!("$schema: {old}\nformat: text\n"),
             format!("$schema: {new}\nformat: text\n"),
+            RewrittenSchemaForm::YamlKey,
+        ),
+        (
+            format!("# yaml-language-server: $schema={old}\n$schema: {old}\nformat: text\n"),
+            format!("# yaml-language-server: $schema={new}\n$schema: {new}\nformat: text\n"),
+            RewrittenSchemaForm::YamlDirectiveAndKey,
         ),
     ];
-    for (input, expected) in yaml_cases {
+    for (input, expected, form) in yaml_cases {
         assert_eq!(
             rewrite_schema_tag(ConfigFileKind::Yaml, &input, "v9.9.9"),
-            Some((expected, new.clone()))
+            Some(RewrittenSchema {
+                text: expected,
+                url: new.clone(),
+                form,
+            })
         );
     }
 }
@@ -623,15 +652,16 @@ fn schema_directive_edge_cases_preserve_integrity_on_trailing_comments_duplicate
     .to_string();
     assert!(dup_msg.contains("leading schema comment") && !dup_msg.contains("$schema key"));
 
-    let (rewritten_dup, _) = rewrite_schema_tag(
+    let rewritten_dup = rewrite_schema_tag(
         ConfigFileKind::Toml,
         &format!("#:schema {old}\n#:schema {old}\nformat = \"text\"\n"),
         "v9.9.9",
     )
     .expect("rewrite duplicate directives");
-    assert_eq!(rewritten_dup.matches(new.as_str()).count(), 2);
+    assert_eq!(rewritten_dup.text.matches(new.as_str()).count(), 2);
+    assert_eq!(rewritten_dup.form, RewrittenSchemaForm::TomlDirective);
 
-    let (rewritten_tab, _) = rewrite_schema_tag(
+    let rewritten_tab = rewrite_schema_tag(
         ConfigFileKind::Yaml,
         &format!(
             "# yaml-language-server: $schema={old} # pin\n$schema: {old}\t# pin\nformat: text\n"
@@ -639,7 +669,8 @@ fn schema_directive_edge_cases_preserve_integrity_on_trailing_comments_duplicate
         "v9.9.9",
     )
     .expect("rewrite tab comment");
-    assert_eq!(rewritten_tab.matches(new.as_str()).count(), 2);
+    assert_eq!(rewritten_tab.text.matches(new.as_str()).count(), 2);
+    assert_eq!(rewritten_tab.form, RewrittenSchemaForm::YamlDirectiveAndKey);
 
     for body in [
         format!("#:schema {old}\n\"$schema\" = \"\"\"{old}\"\"\"\nformat = \"text\"\n"),

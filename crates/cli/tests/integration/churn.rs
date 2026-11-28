@@ -194,6 +194,17 @@ fn churn_handles_shallow_clones_and_non_git_directories_gracefully() {
     assert_shallow_and_non_git(&origin, "churn", &[]);
 }
 
+fn erosion_commits_for_path(report: &serde_json::Value, path: &str) -> u64 {
+    report["source_sets"]["production"]["erosion"]["findings"]
+        .as_array()
+        .expect("erosion findings")
+        .iter()
+        .find(|row| row["path"] == path)
+        .expect("path present")["commits"]
+        .as_u64()
+        .expect("commits count")
+}
+
 #[test]
 fn churn_shallow_boundary_does_not_fabricate_touches_for_untouched_files() {
     let origin = HistoryFixture::init();
@@ -226,22 +237,69 @@ fn churn_shallow_boundary_does_not_fabricate_touches_for_untouched_files() {
     let depth_two = origin.shallow_clone_of("2").run_json("churn", &[]);
     assert_eq!(depth_two["shallow"], true);
     assert_eq!(depth_two["commits_analyzed"], 1);
-    let depth_two_findings = depth_two["source_sets"]["production"]["erosion"]["findings"]
-        .as_array()
-        .expect("depth 2 findings");
-    let commits_of = |path: &str| {
-        depth_two_findings
-            .iter()
-            .find(|row| row["path"] == path)
-            .expect("path present")["commits"]
-            .as_u64()
-            .expect("commits count")
-    };
-    assert_eq!(commits_of("src/hot_eroded.ts"), 1);
-    assert_eq!(commits_of("src/cold_eroded.ts"), 0);
+    assert_eq!(erosion_commits_for_path(&depth_two, "src/hot_eroded.ts"), 1);
+    assert_eq!(
+        erosion_commits_for_path(&depth_two, "src/cold_eroded.ts"),
+        0
+    );
 }
 
 #[test]
 fn churn_on_unborn_repository_gives_command_agnostic_remedy() {
     assert_unborn_repo_remedy("churn");
+}
+
+#[test]
+fn churn_since_and_days_tolerate_14_day_skew_and_stop_beyond() {
+    let repo = HistoryFixture::init();
+    repo.save_and_commit(
+        &[("src/beyond.ts", eroded_ts("beyond", 1))],
+        "unreachable newer",
+        "2026-05-12T12:00:00Z",
+    );
+    repo.save_and_commit(
+        &[("src/old_stop.ts", eroded_ts("oldStop", 1))],
+        "older than 14d",
+        "2026-04-25T23:59:59Z",
+    );
+    repo.save_and_commit(
+        &[("src/behind_skew.ts", eroded_ts("behindSkew", 1))],
+        "newer behind skew",
+        "2026-05-11T12:00:00Z",
+    );
+    repo.save_and_commit(
+        &[("src/excluded_skew.ts", eroded_ts("excludedSkew", 1))],
+        "1-day older skew",
+        "2026-05-09T12:00:00Z",
+    );
+    repo.save_and_commit(
+        &[("src/head.ts", eroded_ts("headFile", 1))],
+        "head",
+        "2026-05-15T12:00:00Z",
+    );
+
+    for args in [vec!["--since", "2026-05-10"], vec!["--since", "5d"]] {
+        let report = repo.run_json("churn", &args);
+        assert_eq!(report["commits_analyzed"], 2, "args={args:?}");
+        assert_eq!(
+            erosion_commits_for_path(&report, "src/behind_skew.ts"),
+            1,
+            "args={args:?}"
+        );
+        assert_eq!(
+            erosion_commits_for_path(&report, "src/head.ts"),
+            1,
+            "args={args:?}"
+        );
+        assert_eq!(
+            erosion_commits_for_path(&report, "src/excluded_skew.ts"),
+            0,
+            "args={args:?}"
+        );
+        assert_eq!(
+            erosion_commits_for_path(&report, "src/beyond.ts"),
+            0,
+            "args={args:?}"
+        );
+    }
 }
