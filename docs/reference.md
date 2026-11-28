@@ -752,7 +752,7 @@ Invalid `format` values and `trace` calls with `max_paths` less than `1` are rej
 The `check` MCP tool takes `path`, `package`, `coverage_reports`, `all`, `ignore_baseline` (boolean, `false` by default; the same meaning as `codeint check --ignore-baseline`), and `format`.
 Its stale-Baseline error names `ignore_baseline: true` as the way to show every Finding.
 It uses `coverage_reports` from `codeint.json`, returning Test gap (or its absent form and reason), Test gap Findings ordered heaviest untested Function mass first, any Test gap Budget failure, and the missing-report error when `budgets.production.test_gap` is set with Test gap absent.
-When a measured language defines Hazard line rules (such as SQL), `check`, `diff`, and `trend` also return `hazards`, Hazard line Findings (path, line, and rule name only), `scope_summaries`, and `file_diagnostics`.
+When a measured language defines Hazard line rules (such as SQL), `check`, `diff`, and `trend` also return `hazards`, `check` and `diff` return Hazard line Findings (path, line, and rule name only), and `check` returns `scope_summaries` and `file_diagnostics`.
 When standard input closes, the server exits with code 0:
 
 ```sh exit=0
@@ -2499,7 +2499,7 @@ Next come each Metric over its Budget and a table of the ratios of each workspac
 When files of two or more Language plugins were measured, a section per Language plugin follows, with that plugin's Metric table and workspace package table.
 For a language with no imports, the report omits the six import Metrics and prints the one-line reason.
 For Test gap, the report shows Production totals (repository, per language, and per Workspace package), lists Test gap Findings heaviest untested Function mass first under `Production Findings`, or prints the one-line absent reason when no Coverage report applies.
-When SQL files or Hazard line rules are measured, the report also includes `Hazards` rows and Findings tables (showing `Path`, `Line`, and `Rule`, never source text), `## SQL schemas` with per-scope table counts, and `## Rejected statements` before `## Files not measured`.
+When languages emit scope summaries, per-file diagnostics, or Hazard line rules (such as SQL), the report also includes `Hazards` rows and Findings tables (showing `Path`, `Line`, and `Rule`, never source text), `## Scope summaries` before the Source set Findings sections, and `## File diagnostics` before `## Files not measured`.
 Then it lists the Findings of each Source set, worst first, and last the files that codeint did not measure.
 It lists at most 20 Findings per Metric, so the comment stays short; `--all` lists every Finding.
 
