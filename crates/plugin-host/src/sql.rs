@@ -107,7 +107,7 @@ pub struct SqlSchemaScopeSummary {
     pub tables: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SqlParsedFile {
     dialect: SqlDialect,
     statements: Vec<ParsedSqlStatement>,

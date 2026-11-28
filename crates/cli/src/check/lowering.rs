@@ -1,20 +1,61 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::string::FromUtf8Error;
+use std::sync::RwLock;
 
 use codeint_config::{ConfigFileKind, LanguageCoverage, SqlDialect};
-use codeint_git::Snapshot;
+use codeint_git::{BlobId, Snapshot};
 use codeint_model::{
     CodeModel, LowerError, RepoPath, SkippedFile, SourceFile, Workspace, settle_source_set,
     validate_hazard_lines,
 };
 use codeint_plugin_host::{NamedLanguagePlugin, SqlParsedFile};
 use codeint_report::RejectedStatementEntry;
-use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
-};
+use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use super::errors::CheckError;
 use super::sql;
+
+#[derive(Clone, Copy)]
+pub(crate) struct VersionedLanguagePlugin<'a> {
+    pub(crate) named: NamedLanguagePlugin<'a>,
+    pub(crate) version: &'a str,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct LoweringCacheKey {
+    path: RepoPath,
+    blob_id: BlobId,
+    plugin_name: String,
+    plugin_version: String,
+    sql_dialect: Option<SqlDialect>,
+}
+
+#[derive(Default)]
+pub(crate) struct LoweringCache {
+    entries: RwLock<HashMap<LoweringCacheKey, LoweredOutcome>>,
+}
+
+impl LoweringCache {
+    pub(crate) fn new() -> LoweringCache {
+        LoweringCache::default()
+    }
+
+    fn get(&self, key: &LoweringCacheKey) -> Option<LoweredOutcome> {
+        let entries = self
+            .entries
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        entries.get(key).cloned()
+    }
+
+    fn insert(&self, key: LoweringCacheKey, value: LoweredOutcome) {
+        let mut entries = self
+            .entries
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        entries.insert(key, value);
+    }
+}
 
 pub(super) struct CollectedPluginModels {
     pub(super) models: Vec<CodeModel>,
@@ -23,12 +64,14 @@ pub(super) struct CollectedPluginModels {
     pub(super) rejected_statements: Vec<RejectedStatementEntry>,
 }
 
+#[derive(Clone)]
 pub(super) struct LoweredOutcome {
     file: LoweredFile,
     line_count: Option<(RepoPath, usize)>,
     sql: Option<sql::SqlLowerDetails>,
 }
 
+#[derive(Clone)]
 enum LoweredFile {
     Measured(SourceFile),
     DeclarationOnly(RepoPath),
@@ -110,12 +153,12 @@ fn first_two_plugin_names(
     (names[0].to_owned(), names[1].to_owned())
 }
 
-fn listed_hazard_rules_by_plugin(plugins: &[NamedLanguagePlugin<'_>]) -> Vec<HashSet<String>> {
+fn listed_hazard_rules_by_plugin(plugins: &[VersionedLanguagePlugin<'_>]) -> Vec<HashSet<String>> {
     plugins
         .iter()
-        .map(|named| {
-            if named.plugin.has_hazard_rules() {
-                named.plugin.hazard_rules().into_iter().collect()
+        .map(|entry| {
+            if entry.named.plugin.has_hazard_rules() {
+                entry.named.plugin.hazard_rules().into_iter().collect()
             } else {
                 HashSet::new()
             }
@@ -125,39 +168,50 @@ fn listed_hazard_rules_by_plugin(plugins: &[NamedLanguagePlugin<'_>]) -> Vec<Has
 
 pub(super) fn lower_covered_files(
     tree: &Snapshot,
-    plugins: &[NamedLanguagePlugin<'_>],
+    plugins: &[VersionedLanguagePlugin<'_>],
     covered_files: &[(&RepoPath, usize)],
     sql_dialects: &[Option<SqlDialect>],
     config_file: ConfigFileKind,
+    lowering_cache: Option<&LoweringCache>,
 ) -> Result<Vec<(usize, LoweredOutcome)>, CheckError> {
     let listed_hazard_rules = listed_hazard_rules_by_plugin(plugins);
-    let lower_file =
-        |bytes: Vec<u8>, path: &RepoPath, index: usize, dialect: Option<SqlDialect>| {
-            let lowered = lower_bytes(
-                bytes,
-                path,
-                &plugins[index],
-                dialect,
-                &listed_hazard_rules[index],
-                config_file,
-            )?;
-            Ok((index, lowered))
-        };
-    if let Some(reader) = tree.working_tree_reader() {
-        return covered_files
-            .par_iter()
-            .zip(sql_dialects.par_iter())
-            .map(|(&(path, index), &dialect)| lower_file(reader.read(path)?, path, index, dialect))
-            .collect();
-    }
-    let loaded = covered_files
-        .iter()
-        .zip(sql_dialects.iter())
-        .map(|(&(path, index), &dialect)| Ok((path, index, dialect, tree.read(path)?)))
-        .collect::<Result<Vec<_>, CheckError>>()?;
-    loaded
-        .into_par_iter()
-        .map(|(path, index, dialect, bytes)| lower_file(bytes, path, index, dialect))
+    let reader = tree.parallel_reader();
+    covered_files
+        .par_iter()
+        .zip(sql_dialects.par_iter())
+        .map_init(
+            || reader.thread_local(),
+            |local_reader, (&(path, index), &dialect)| {
+                let plugin = plugins[index];
+                let cache_key = lowering_cache.and_then(|_| {
+                    local_reader.blob_id(path).map(|blob_id| LoweringCacheKey {
+                        path: path.clone(),
+                        blob_id,
+                        plugin_name: plugin.named.name.to_owned(),
+                        plugin_version: plugin.version.to_owned(),
+                        sql_dialect: dialect,
+                    })
+                });
+                if let (Some(cache), Some(key)) = (lowering_cache, cache_key.as_ref())
+                    && let Some(cached) = cache.get(key)
+                {
+                    return Ok((index, cached));
+                }
+                let bytes = local_reader.read(path)?;
+                let lowered = lower_bytes(
+                    bytes,
+                    path,
+                    &plugin.named,
+                    dialect,
+                    &listed_hazard_rules[index],
+                    config_file,
+                )?;
+                if let (Some(cache), Some(key)) = (lowering_cache, cache_key) {
+                    cache.insert(key, lowered.clone());
+                }
+                Ok((index, lowered))
+            },
+        )
         .collect()
 }
 

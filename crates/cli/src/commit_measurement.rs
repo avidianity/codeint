@@ -9,9 +9,9 @@ use codeint_report::{CommitMeasurement, CommitMeasurementOptions};
 use serde::Serialize;
 
 use crate::check::{
-    CheckError, CoverageReportDigest, LoadedPlugins, MeasuredSnapshot, SelectedPackage,
+    CheckError, LoadedPlugins, LoweringCache, MeasuredSnapshot, SelectedPackage,
     compute_dependency_hygiene, compute_orphan_files, compute_orphan_files_for_subset,
-    filter_languages_to_package, hash_configured_coverage_reports, measure_snapshot,
+    external_language_plugin_versions, filter_languages_to_package, measure_snapshot_with_cache,
     select_workspace_package, workspace_of_languages,
 };
 use crate::describe;
@@ -27,8 +27,6 @@ struct MeasurementSettings<'configuration> {
     metric_versions: BTreeMap<String, u32>,
     language_plugins: Vec<PluginIdentity>,
     configuration: &'configuration Configuration,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    coverage_report_digests: Vec<CoverageReportDigest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     package: Option<&'configuration str>,
 }
@@ -69,6 +67,7 @@ pub(crate) struct CommitMeasurer<'run> {
     plugins: &'run LoadedPlugins,
     settings: MeasurementSettings<'run>,
     result_cache: Option<&'run ResultCache>,
+    lowering_cache: Option<&'run LoweringCache>,
 }
 
 impl<'run> CommitMeasurer<'run> {
@@ -77,8 +76,16 @@ impl<'run> CommitMeasurer<'run> {
         configuration: &'run Configuration,
         plugins: &'run LoadedPlugins,
         result_cache: Option<&'run ResultCache>,
+        lowering_cache: Option<&'run LoweringCache>,
     ) -> CommitMeasurer<'run> {
-        CommitMeasurer::for_package(repository, configuration, plugins, result_cache, None)
+        CommitMeasurer::for_package(
+            repository,
+            configuration,
+            plugins,
+            result_cache,
+            lowering_cache,
+            None,
+        )
     }
 
     pub(crate) fn for_package(
@@ -86,6 +93,7 @@ impl<'run> CommitMeasurer<'run> {
         configuration: &'run Configuration,
         plugins: &'run LoadedPlugins,
         result_cache: Option<&'run ResultCache>,
+        lowering_cache: Option<&'run LoweringCache>,
         package: Option<&'run str>,
     ) -> CommitMeasurer<'run> {
         let mut language_plugins: Vec<PluginIdentity> = built_in_language_names()
@@ -95,14 +103,17 @@ impl<'run> CommitMeasurer<'run> {
                 version: CODEINT_VERSION.to_owned(),
             })
             .collect();
-        for declared in &configuration.plugins {
+        let mut external_language_plugins: Vec<(&str, String)> =
+            external_language_plugin_versions(configuration)
+                .into_iter()
+                .collect();
+        external_language_plugins.sort_by(|left, right| left.0.cmp(right.0));
+        for (name, version) in external_language_plugins {
             language_plugins.push(PluginIdentity {
-                name: declared.name.clone(),
-                version: declared.sha256.to_hex(),
+                name: name.to_owned(),
+                version,
             });
         }
-        let coverage_report_digests =
-            hash_configured_coverage_reports(repository.root(), &configuration.coverage_reports);
         let metric_plugins = plugins.metric_plugins();
         let metric_versions = Metric::versions_with_plugins(&metric_plugins);
         CommitMeasurer {
@@ -116,10 +127,10 @@ impl<'run> CommitMeasurer<'run> {
                 metric_versions,
                 language_plugins,
                 configuration,
-                coverage_report_digests,
                 package,
             },
             result_cache,
+            lowering_cache,
         }
     }
 
@@ -162,6 +173,7 @@ impl<'run> CommitMeasurer<'run> {
             self.plugins,
             self.configuration,
             selected,
+            self.lowering_cache,
         )?;
         if let Some(cache) = self.result_cache
             && let Err(error) = cache.write(commit, &self.settings, &measurement)
@@ -180,9 +192,10 @@ pub(crate) fn measure_all_languages_for_package(
     plugins: &LoadedPlugins,
     configuration: &Configuration,
     package: Option<&str>,
+    lowering_cache: Option<&LoweringCache>,
 ) -> Result<(Option<SelectedPackage>, CommitMeasurement), CheckError> {
     let named = plugins.as_named();
-    let snapshot = measure_snapshot(tree, &named, configuration)?;
+    let snapshot = measure_snapshot_with_cache(tree, &named, configuration, lowering_cache)?;
     let selected = resolve_package(&snapshot, package)?;
     let measurement =
         measure_snapshot_to_commit(snapshot, plugins, configuration, selected.as_ref())?;
@@ -195,6 +208,7 @@ pub(crate) fn measure_all_languages_with_new_files(
     plugins: &LoadedPlugins,
     configuration: &Configuration,
     package: Option<&str>,
+    lowering_cache: Option<&LoweringCache>,
 ) -> Result<
     (
         Option<SelectedPackage>,
@@ -204,7 +218,7 @@ pub(crate) fn measure_all_languages_with_new_files(
     CheckError,
 > {
     let named = plugins.as_named();
-    let snapshot = measure_snapshot(tree, &named, configuration)?;
+    let snapshot = measure_snapshot_with_cache(tree, &named, configuration, lowering_cache)?;
     let selected = resolve_package(&snapshot, package)?;
     let new_files_measurement = measure_new_files_subset(
         &snapshot,
@@ -303,9 +317,10 @@ fn measure_all_languages_selected(
     plugins: &LoadedPlugins,
     configuration: &Configuration,
     selected: Option<&SelectedPackage>,
+    lowering_cache: Option<&LoweringCache>,
 ) -> Result<CommitMeasurement, CheckError> {
     let named = plugins.as_named();
-    let snapshot = measure_snapshot(tree, &named, configuration)?;
+    let snapshot = measure_snapshot_with_cache(tree, &named, configuration, lowering_cache)?;
     measure_snapshot_to_commit(snapshot, plugins, configuration, selected)
 }
 

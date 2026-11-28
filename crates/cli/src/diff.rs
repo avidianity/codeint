@@ -9,7 +9,7 @@ use codeint_report::{
 };
 
 use crate::check::{
-    CheckError, PreparedOwnership, SelectedPackage, WorkspaceContext, WorkspaceRef,
+    CheckError, LoweringCache, PreparedOwnership, SelectedPackage, WorkspaceContext, WorkspaceRef,
 };
 use crate::commit_measurement::{
     CommitMeasurer, SnapshotRef, measure_all_languages_for_package,
@@ -71,6 +71,7 @@ pub(crate) fn diff_with_workspace(
     } = sides(workspace.repository, &refs)?;
     let check_new_file_budgets = !workspace.configuration.new_file_budgets.is_empty();
     let check_per_file = workspace.configuration.regression_limits.per_file();
+    let lowering_cache = LoweringCache::new();
     let MeasuredHead {
         selected,
         measurement: head_measurement,
@@ -79,18 +80,22 @@ pub(crate) fn diff_with_workspace(
         base_snapshot,
     } = measure_head(
         workspace,
-        merge_base,
-        head_commit,
-        package,
-        result_cache,
-        check_new_file_budgets,
-        check_per_file,
+        MeasureHeadRequest {
+            merge_base,
+            head_commit,
+            package,
+            result_cache,
+            lowering_cache: &lowering_cache,
+            check_new_file_budgets,
+            check_per_file,
+        },
     )?;
     let base_measurer = CommitMeasurer::for_package(
         workspace.repository,
         workspace.configuration,
         workspace.plugins,
         result_cache,
+        Some(&lowering_cache),
         selected.as_ref().map(|pkg| pkg.as_str()),
     );
     let base_measurement = base_measurer.measure_selected_package_with_snapshot(
@@ -145,18 +150,38 @@ struct NewFilesHeadMeasurement {
     new_files: Option<CommitMeasurement>,
 }
 
-fn measure_head(
-    context: WorkspaceRef<'_>,
+struct MeasureHeadRequest<'a> {
     merge_base: CommitId,
     head_commit: Option<CommitId>,
-    package: Option<&str>,
-    result_cache: Option<&ResultCache>,
+    package: Option<&'a str>,
+    result_cache: Option<&'a ResultCache>,
+    lowering_cache: &'a LoweringCache,
     check_new_file_budgets: bool,
     check_per_file: bool,
+}
+
+fn measure_head(
+    context: WorkspaceRef<'_>,
+    request: MeasureHeadRequest<'_>,
 ) -> Result<MeasuredHead, CheckError> {
+    let MeasureHeadRequest {
+        merge_base,
+        head_commit,
+        package,
+        result_cache,
+        lowering_cache,
+        check_new_file_budgets,
+        check_per_file,
+    } = request;
     if !check_new_file_budgets && !check_per_file {
-        let (selected, measurement) =
-            measure_head_without_new_files(context, head_commit, None, package, result_cache)?;
+        let (selected, measurement) = measure_head_without_new_files(
+            context,
+            head_commit,
+            None,
+            package,
+            result_cache,
+            lowering_cache,
+        )?;
         return Ok(MeasuredHead {
             selected,
             measurement,
@@ -173,6 +198,7 @@ fn measure_head(
         &base_snapshot,
         &head_snapshot,
         package,
+        lowering_cache,
         check_new_file_budgets,
     )? {
         return Ok(MeasuredHead {
@@ -189,6 +215,7 @@ fn measure_head(
         Some(&head_snapshot),
         package,
         result_cache,
+        lowering_cache,
     )?;
     Ok(MeasuredHead {
         selected,
@@ -219,6 +246,7 @@ fn measure_head_if_new_files(
     base_snapshot: &Snapshot,
     head_snapshot: &Snapshot,
     package: Option<&str>,
+    lowering_cache: &LoweringCache,
     enabled: bool,
 ) -> Result<Option<NewFilesHeadMeasurement>, CheckError> {
     if !enabled {
@@ -234,6 +262,7 @@ fn measure_head_if_new_files(
         context.plugins,
         context.configuration,
         package,
+        Some(lowering_cache),
     )?;
     Ok(Some(NewFilesHeadMeasurement {
         selected,
@@ -268,6 +297,7 @@ fn measure_head_without_new_files(
     head_snapshot: Option<&Snapshot>,
     package: Option<&str>,
     result_cache: Option<&ResultCache>,
+    lowering_cache: &LoweringCache,
 ) -> Result<(Option<SelectedPackage>, CommitMeasurement), CheckError> {
     let Some(commit) = head_commit else {
         let tree = SnapshotRef::get_or_open(head_snapshot, || context.repository.working_tree())?;
@@ -276,6 +306,7 @@ fn measure_head_without_new_files(
             context.plugins,
             context.configuration,
             package,
+            Some(lowering_cache),
         );
     };
     if let Some(requested) = package {
@@ -285,6 +316,7 @@ fn measure_head_without_new_files(
             context.plugins,
             context.configuration,
             Some(requested),
+            Some(lowering_cache),
         )
     } else {
         let measurer = CommitMeasurer::new(
@@ -292,6 +324,7 @@ fn measure_head_without_new_files(
             context.configuration,
             context.plugins,
             result_cache,
+            Some(lowering_cache),
         );
         Ok((None, measurer.measure_with_snapshot(commit, head_snapshot)?))
     }

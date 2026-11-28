@@ -7,9 +7,7 @@ use codeint_metrics::{
     apply_coverage_reports, parse_coverage_report,
 };
 use codeint_model::RepoPath;
-use codeint_plugin_host::{sha256, sha256_hex};
 use codeint_report::MeasuredLanguage;
-use serde::Serialize;
 
 use super::errors::CheckError;
 
@@ -17,13 +15,6 @@ use super::errors::CheckError;
 pub(crate) struct ResolvedCoverageReportPath {
     pub(crate) display: String,
     pub(crate) full: PathBuf,
-}
-
-#[derive(Serialize)]
-pub(crate) struct CoverageReportDigest {
-    path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sha256: Option<String>,
 }
 
 pub(crate) fn select_coverage_report_paths(
@@ -100,25 +91,6 @@ pub(crate) fn apply_loaded_coverage_reports(
         language.model = model;
     }
     Ok(outcome?)
-}
-
-pub(crate) fn hash_configured_coverage_reports(
-    repository_root: &Path,
-    configured: &[String],
-) -> Vec<CoverageReportDigest> {
-    configured
-        .iter()
-        .map(|entry| {
-            let full = repository_root.join(entry);
-            let digest = read_bounded_coverage_file(repository_root, entry, &full)
-                .ok()
-                .map(|bytes| sha256_hex(&sha256(&bytes)));
-            CoverageReportDigest {
-                path: entry.clone(),
-                sha256: digest,
-            }
-        })
-        .collect()
 }
 
 fn read_bounded_coverage_file(

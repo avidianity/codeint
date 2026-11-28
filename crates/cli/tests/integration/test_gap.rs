@@ -714,7 +714,7 @@ fn diff_trend_and_result_cache_handle_coverage_reports_and_emit_one_line_note_on
         "coverage/lcov.info",
         "SF:src/app.ts\nDA:2,1\nend_of_record\n",
     );
-    run_trend_and_assert_cache(repo.path(), cache.path(), 2);
+    run_trend_and_assert_cache(repo.path(), cache.path(), 1);
 
     let (check_after, _) = check_json(repo.path(), &[], 0);
     assert_prod_gap_ratio(&check_after, 0.0);
@@ -732,7 +732,7 @@ fn diff_trend_and_result_cache_handle_coverage_reports_and_emit_one_line_note_on
             ),
         ],
     );
-    run_trend_and_assert_cache(repo.path(), cache.path(), 3);
+    run_trend_and_assert_cache(repo.path(), cache.path(), 2);
 }
 
 #[test]

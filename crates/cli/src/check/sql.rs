@@ -12,6 +12,7 @@ use codeint_report::{RejectedStatementEntry, SqlSchemaSummary};
 use super::errors::CheckError;
 use super::package_filter::SelectedPackage;
 
+#[derive(Clone)]
 pub(crate) struct SqlLowerDetails {
     pub(crate) parsed: SqlParsedFile,
     pub(crate) rejected_statements: Vec<RejectedStatementEntry>,

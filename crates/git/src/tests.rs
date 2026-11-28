@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 use codeint_model::RepoPath;
 
 use crate::history::SECONDS_PER_DAY;
-use crate::{ChurnRange, CommitId, CommitRange, Repository};
+use crate::{ChurnRange, CommitId, CommitRange, Repository, ResultCache};
 
 static NEXT_REPO_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -491,4 +491,279 @@ fn mode_change_falls_back_safely_without_false_positive_or_miss() {
         .changed_files_since("main")
         .expect("changed_files_since after edit");
     assert_eq!(changed.files, repo_paths(&["script.sh"]));
+}
+
+fn cache_json_files(folder: &Path) -> Vec<PathBuf> {
+    fs::read_dir(folder)
+        .expect("read cache folder")
+        .map(|entry| entry.expect("dir entry").path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .collect()
+}
+
+fn set_mtime(path: &Path, time: SystemTime) {
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .expect("open for mtime");
+    file.set_modified(time).expect("set_modified");
+}
+
+fn seed_cache_entry(cache_dir: &Path, name: &str, age_seconds: u64) -> PathBuf {
+    let path = cache_dir.join(name);
+    fs::write(&path, "{}").expect("write cache entry");
+    set_mtime(&path, SystemTime::now() - Duration::from_secs(age_seconds));
+    path
+}
+
+fn seed_filler_cache_entries(cache_dir: &Path, count: usize, age_seconds: u64) {
+    let modified = SystemTime::now() - Duration::from_secs(age_seconds);
+    for index in 0..count {
+        let filler = cache_dir.join(format!("filler-{index:05}.json"));
+        fs::write(&filler, "{}").expect("write filler");
+        set_mtime(&filler, modified);
+    }
+}
+
+#[test]
+fn result_cache_prunes_entries_untouched_for_more_than_thirty_days_and_refreshes_on_hit() {
+    let temp = TempRepo::new("result-cache-age-prune");
+    temp.write("a.txt", "one\n");
+    temp.commit_all("first");
+    temp.write("a.txt", "two\n");
+    temp.commit_all("second");
+    temp.write("a.txt", "three\n");
+    temp.commit_all("third");
+
+    let repo = Repository::discover(temp.path()).expect("discover");
+    let first = repo.resolve("HEAD~2").expect("first commit");
+    let second = repo.resolve("HEAD~1").expect("second commit");
+    let third = repo.resolve("HEAD").expect("third commit");
+
+    let cache_dir = temp.path().join(".cache");
+    let cache = ResultCache::in_folder(cache_dir.clone());
+    cache.write(first, &"settings", &1u32).expect("write first");
+    cache
+        .write(second, &"settings", &2u32)
+        .expect("write second");
+
+    let thirty_one_days = Duration::from_secs(31 * 24 * 60 * 60);
+    let stale_time = SystemTime::now() - thirty_one_days;
+    for path in cache_json_files(&cache_dir) {
+        set_mtime(&path, stale_time);
+    }
+
+    assert_eq!(cache.read::<u32>(second, &"settings"), Some(2));
+
+    cache.write(third, &"settings", &3u32).expect("write third");
+
+    assert_eq!(cache.read::<u32>(first, &"settings"), None);
+    assert_eq!(cache.read::<u32>(second, &"settings"), Some(2));
+    assert_eq!(cache.read::<u32>(third, &"settings"), Some(3));
+    assert_eq!(cache_json_files(&cache_dir).len(), 2);
+}
+
+#[test]
+fn result_cache_enforces_five_thousand_entry_cap_evicting_oldest_touched() {
+    let temp = TempRepo::new("result-cache-cap-prune");
+    temp.write("a.txt", "one\n");
+    temp.commit_all("first");
+    temp.write("a.txt", "two\n");
+    temp.commit_all("second");
+
+    let repo = Repository::discover(temp.path()).expect("discover");
+    let first = repo.resolve("HEAD~1").expect("first commit");
+    let second = repo.resolve("HEAD").expect("second commit");
+
+    let cache_dir = temp.path().join(".cache");
+    fs::create_dir_all(&cache_dir).expect("create cache dir");
+    let cache = ResultCache::in_folder(cache_dir.clone());
+
+    let oldest_path = seed_cache_entry(
+        &cache_dir,
+        "0000000000000000000000000000000000000000-oldest.json",
+        3600,
+    );
+
+    cache.write(first, &"settings", &1u32).expect("write first");
+    let first_path = cache_json_files(&cache_dir)
+        .into_iter()
+        .find(|path| path != &oldest_path)
+        .expect("first cache file");
+    set_mtime(&first_path, SystemTime::now() - Duration::from_secs(3500));
+
+    seed_filler_cache_entries(&cache_dir, 4_998, 1800);
+    assert_eq!(cache_json_files(&cache_dir).len(), 5_000);
+
+    assert_eq!(cache.read::<u32>(first, &"settings"), Some(1));
+
+    cache
+        .write(second, &"settings", &2u32)
+        .expect("write second");
+
+    assert_eq!(cache_json_files(&cache_dir).len(), 5_000);
+    assert!(!oldest_path.exists(), "oldest untouched entry was evicted");
+    assert_eq!(cache.read::<u32>(first, &"settings"), Some(1));
+    assert_eq!(cache.read::<u32>(second, &"settings"), Some(2));
+}
+
+#[test]
+fn result_cache_prune_ignores_json_subdirectories_and_symlinks() {
+    let temp = TempRepo::new("result-cache-ignore-non-files");
+    temp.write("a.txt", "one\n");
+    temp.commit_all("first");
+
+    let repo = Repository::discover(temp.path()).expect("discover");
+    let first = repo.resolve("HEAD").expect("first commit");
+
+    let cache_dir = temp.path().join(".cache");
+    fs::create_dir_all(&cache_dir).expect("create cache dir");
+    let cache = ResultCache::in_folder(cache_dir.clone());
+
+    let subdir = cache_dir.join("nested.json");
+    fs::create_dir(&subdir).expect("create json subdir");
+
+    #[cfg(unix)]
+    let symlink_path = {
+        let external_target = temp.path().join("external.json");
+        fs::write(&external_target, "{}").expect("write symlink target");
+        let thirty_one_days = Duration::from_secs(31 * 24 * 60 * 60);
+        set_mtime(&external_target, SystemTime::now() - thirty_one_days);
+        let link = cache_dir.join("linked.json");
+        std::os::unix::fs::symlink(&external_target, &link).expect("create json symlink");
+        link
+    };
+
+    let oldest_path = seed_cache_entry(
+        &cache_dir,
+        "0000000000000000000000000000000000000000-oldest.json",
+        3600,
+    );
+    seed_filler_cache_entries(&cache_dir, 4_998, 1800);
+
+    cache.write(first, &"settings", &1u32).expect("write first");
+
+    assert!(subdir.is_dir(), "json subdirectory should remain untouched");
+    #[cfg(unix)]
+    assert!(
+        fs::symlink_metadata(&symlink_path).is_ok(),
+        "json symlink should remain untouched"
+    );
+    assert!(
+        oldest_path.exists(),
+        "non-file json entries should not count toward the 5,000 entry cap"
+    );
+    assert_eq!(cache.read::<u32>(first, &"settings"), Some(1));
+}
+
+fn seeded_cache(label: &str) -> (TempRepo, PathBuf, ResultCache, crate::CommitId) {
+    let temp = TempRepo::seed(label, &[("a.txt", "one\n")], "first");
+    let repo = Repository::discover(temp.path()).expect("discover");
+    let head = repo.resolve("HEAD").expect("first commit");
+    let cache_dir = temp.path().join(".cache");
+    fs::create_dir_all(&cache_dir).expect("create cache dir");
+    let cache = ResultCache::in_folder(cache_dir.clone());
+    (temp, cache_dir, cache, head)
+}
+
+#[test]
+fn result_cache_prune_evicts_future_dated_entries_while_preserving_small_clock_skew() {
+    let (_temp, cache_dir, cache, first) = seeded_cache("result-cache-future-mtime");
+    let future_path = seed_cache_entry(&cache_dir, "future.json", 0);
+    set_mtime(
+        &future_path,
+        SystemTime::now() + Duration::from_secs(365 * 24 * 60 * 60),
+    );
+    let jitter_path = seed_cache_entry(&cache_dir, "jitter.json", 0);
+    set_mtime(&jitter_path, SystemTime::now() + Duration::from_secs(60));
+    seed_filler_cache_entries(&cache_dir, 4_999, 1800);
+
+    cache.write(first, &"settings", &1u32).expect("write first");
+
+    assert!(
+        !future_path.exists(),
+        "future-dated entry beyond clock skew tolerance must be evicted"
+    );
+    assert!(
+        jitter_path.exists(),
+        "entry within clock skew tolerance should remain"
+    );
+    assert_eq!(cache_json_files(&cache_dir).len(), 5_000);
+}
+
+#[test]
+fn result_cache_prune_removes_stale_temporary_files_and_keeps_fresh_ones() {
+    let (_temp, cache_dir, cache, first) = seeded_cache("result-cache-stale-temp");
+    let stale_temp = seed_cache_entry(&cache_dir, ".writing-99-1-0.tmp", 90 * 24 * 60 * 60);
+    let future_temp = seed_cache_entry(&cache_dir, ".writing-99-2-0.tmp", 0);
+    set_mtime(
+        &future_temp,
+        SystemTime::now() + Duration::from_secs(365 * 24 * 60 * 60),
+    );
+    let fresh_temp = seed_cache_entry(&cache_dir, ".writing-current.tmp", 0);
+
+    cache.write(first, &"settings", &1u32).expect("write first");
+
+    assert!(
+        !stale_temp.exists(),
+        "stale orphaned temporary file must be removed"
+    );
+    assert!(
+        !future_temp.exists(),
+        "future-dated temporary file must be removed"
+    );
+    assert!(
+        fresh_temp.exists(),
+        "fresh in-flight temporary file must remain untouched"
+    );
+}
+
+#[test]
+fn parallel_commit_reader_streams_blobs_identically_across_threads() {
+    let temp = TempRepo::new("parallel-commit-reader");
+    for index in 0..32usize {
+        temp.write(
+            &format!("dir_{}/file_{index:02}.txt", index % 4),
+            &format!("blob body {index}\nline two {index}\n"),
+        );
+    }
+    temp.commit_all("initial");
+
+    let repo = Repository::discover(temp.path()).expect("discover");
+    let head = repo.resolve("HEAD").expect("resolve HEAD");
+    let commit_snapshot = repo.commit(head).expect("commit snapshot");
+    let working_snapshot = repo.working_tree().expect("working tree");
+
+    for path in commit_snapshot.files() {
+        assert!(commit_snapshot.blob_id(path).is_some());
+        assert!(working_snapshot.blob_id(path).is_none());
+    }
+
+    let expected: Vec<(RepoPath, Vec<u8>)> = commit_snapshot
+        .files()
+        .iter()
+        .map(|path| (path.clone(), commit_snapshot.read(path).expect("read")))
+        .collect();
+
+    let reader = commit_snapshot.parallel_reader();
+    let files = commit_snapshot.files();
+    std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for _ in 0..4 {
+            handles.push(scope.spawn(move || {
+                let local = reader.thread_local();
+                files
+                    .iter()
+                    .map(|path| {
+                        assert!(local.blob_id(path).is_some());
+                        (path.clone(), local.read(path).expect("parallel read"))
+                    })
+                    .collect::<Vec<_>>()
+            }));
+        }
+        for handle in handles {
+            let actual = handle.join().expect("worker thread");
+            assert_eq!(actual, expected);
+        }
+    });
 }
