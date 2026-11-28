@@ -434,3 +434,25 @@ fn a_metric_version_change_invalidates_the_trend_commit_cache_and_recomputes() {
     assert_eq!(recomputed["source_sets"]["production"][0]["verbosity"], 0.0);
     assert_eq!(fs::read_dir(fresh_dir.path()).expect("dir").count(), 2);
 }
+
+#[test]
+fn trend_since_tolerates_out_of_order_skew_within_14_days_and_stops_beyond() {
+    let history = History::empty();
+    history.write("src/step1.ts", &branching_function(1));
+    history.commit_on("unreachable newer", "2026-05-12T12:00:00Z");
+    history.write("src/step2.ts", &branching_function(2));
+    history.commit_on("older than 14d", "2026-04-25T23:59:59Z");
+    history.write("src/step3.ts", &branching_function(3));
+    history.commit_on("newer behind skew", "2026-05-11T12:00:00Z");
+    history.write("src/step4.ts", &branching_function(4));
+    history.commit_on("1-day older skew", "2026-05-09T12:00:00Z");
+    history.write("src/step5.ts", &branching_function(5));
+    history.commit_on("head", "2026-05-15T12:00:00Z");
+
+    let commits = history.main_line_oldest_first();
+    let report = history.trend_json(&["--since", "2026-05-10"]);
+    assert_eq!(
+        production_commits(&report),
+        vec![commits[2].clone(), commits[4].clone()]
+    );
+}

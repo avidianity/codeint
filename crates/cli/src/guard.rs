@@ -1,6 +1,7 @@
+use std::borrow::Borrow;
 use std::path::{Component, Path, PathBuf};
 
-use codeint_config::{ConfigurationFileError, read_configuration};
+use codeint_config::{Configuration, ConfigurationFileError, read_configuration};
 use codeint_git::{GitError, Repository};
 use codeint_model::{InvalidRepoPath, RepoPath};
 use codeint_report::GuardReport;
@@ -24,6 +25,18 @@ pub(crate) enum GuardError {
 }
 
 pub(crate) fn guard(folder: &Path, target: &Path) -> Result<GuardReport, GuardError> {
+    guard_with_config(folder, target, read_configuration)
+}
+
+pub(crate) fn guard_with_config<C, F>(
+    folder: &Path,
+    target: &Path,
+    load_configuration: F,
+) -> Result<GuardReport, GuardError>
+where
+    C: Borrow<Configuration>,
+    F: FnOnce(&Path) -> Result<C, ConfigurationFileError>,
+{
     let absolute_target = normalize_lexically(&if target.is_absolute() {
         target.to_path_buf()
     } else {
@@ -49,11 +62,11 @@ pub(crate) fn guard(folder: &Path, target: &Path) -> Result<GuardReport, GuardEr
 
     let repo_path = to_repo_path(relative, target)?;
     let exists = resolved_target.exists();
-    let configuration = read_configuration(repository.root())?;
+    let configuration = load_configuration(repository.root())?;
     Ok(GuardReport::evaluate(
         &repo_path,
         exists,
-        configuration.boundaries.as_ref(),
+        configuration.borrow().boundaries.as_ref(),
     ))
 }
 

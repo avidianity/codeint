@@ -120,3 +120,13 @@ let sarif = saved.render(ReportRenderFormat::Sarif)?;
 - It rejects malformed JSON, non-object JSON, unsupported schema versions, and unrecognized payloads with `SavedReportError`.
 - `render` formats the saved report as `Toon`, `Json`, `Sarif`, `Markdown`, or `Text` without re-running analysis.
 - Call `with_show_all(true)` before `render(ReportRenderFormat::Text)` to match `codeint check --all --format text` and `codeint diff --all --format text` (listing every Finding, passing Workspace packages, and resolved diff Findings).
+
+## Render any serializable value as TOON with `render_toon`
+
+```rust
+use codeint_report::render_toon;
+
+let toon = render_toon(&payload)?;
+```
+
+- `render_toon` serializes any `serde::Serialize` value as TOON and returns `Result<String, ReportError>`.

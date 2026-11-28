@@ -29,6 +29,7 @@ mod init_adopt;
 mod install;
 mod invalid_manifest;
 mod mcp;
+mod mcp_cache;
 mod npm_packages;
 mod orphan_files;
 mod package_filter;
