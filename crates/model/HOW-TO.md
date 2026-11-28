@@ -215,6 +215,8 @@ impl LanguagePlugin for Plain {
 - `runtime_imports` lists the specifier of each import that runs when the file runs, in source order; leave out type-only imports.
 - `program_start` is `false` unless the source text marks the file as a program start, such as a Go `package main` file.
   Seven of the eight built-in Language plugins always set `program_start` to `false` (`go` sets it for `package main` files).
+- `is_tooling_file` is `false` unless the Language plugin classifies the file as a language-specific Tooling file, such as a config or build script.
+  The core combines `file.model.is_tooling_file` with universal repository tooling folders (`.github/`, `scripts/`, `docs/`, `examples/`, `tools/`, and `benches/` at the repository root or a package root) via `UniversalToolingPaths` and `CodeModel::is_tooling_file`.
 - `manifest_paths` receives every file path of the repository snapshot and returns the paths of the files that finding workspace packages and resolving imports need to read, such as each `package.json` and `tsconfig.json` file.
   Name only paths from `repository_paths`; which files matter is a rule of the Language plugin, never of the core.
   It is the one way a Language plugin asks the host for files, so the host reads each file once.

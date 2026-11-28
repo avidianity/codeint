@@ -293,6 +293,7 @@ struct CheckRequest<'a> {
 pub(crate) struct MeasuredSnapshot {
     pub(crate) languages: Vec<MeasuredLanguage>,
     pub(crate) entry_points_by_language: BTreeMap<String, Vec<RepoPath>>,
+    pub(crate) explicit_entry_points_by_language: BTreeMap<String, Vec<RepoPath>>,
     pub(crate) framework_profiles_by_language:
         BTreeMap<String, frameworks::ResolvedLanguageProfiles>,
     pub(crate) file_line_counts: BTreeMap<RepoPath, usize>,
@@ -336,11 +337,17 @@ fn compute_orphan_files_matching(
             .get(&language.plugin)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        if let Some(measured) =
-            OrphanFiles::measure_filtered(&language.model, entry_points, |path| {
-                include(language, path)
-            })
-        {
+        let explicit_entry_points = snapshot
+            .explicit_entry_points_by_language
+            .get(&language.plugin)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if let Some(measured) = OrphanFiles::measure_filtered_with_explicit_entry_points(
+            &language.model,
+            entry_points,
+            explicit_entry_points,
+            |path| include(language, path),
+        ) {
             by_language.insert(language.plugin.clone(), measured);
         }
     }
@@ -715,6 +722,7 @@ fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnaps
     } = inputs;
     let mut languages = Vec::with_capacity(plugins.len());
     let mut entry_points_by_language = BTreeMap::new();
+    let mut explicit_entry_points_by_language = BTreeMap::new();
     let mut framework_profiles_by_language = BTreeMap::new();
     for (((((named, model), manifests), declared_dependencies), members), profiles) in plugins
         .iter()
@@ -732,15 +740,17 @@ fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnaps
         } else {
             Vec::new()
         };
-        let combined_entries = if named.plugin.has_imports() {
-            combine_entry_points(
-                manifest_entries,
-                profiles.entry_points(),
-                &model.files,
-                configured_entry_points,
+        let (discovered_entries, explicit_entries) = if named.plugin.has_imports() {
+            (
+                combine_discovered_entry_points(
+                    manifest_entries,
+                    profiles.entry_points(),
+                    &model.files,
+                ),
+                collect_configured_entry_points(&model.files, configured_entry_points),
             )
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
         let measured = manifests::finalize_language_model(manifests::FinalizeLanguageInputs {
             named,
@@ -752,13 +762,15 @@ fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnaps
             repository_paths: tree.files(),
             config_file,
         })?;
-        entry_points_by_language.insert(named.name.to_owned(), combined_entries);
+        entry_points_by_language.insert(named.name.to_owned(), discovered_entries);
+        explicit_entry_points_by_language.insert(named.name.to_owned(), explicit_entries);
         framework_profiles_by_language.insert(named.name.to_owned(), profiles);
         languages.push(measured);
     }
     Ok(MeasuredSnapshot {
         languages,
         entry_points_by_language,
+        explicit_entry_points_by_language,
         framework_profiles_by_language,
         file_line_counts: BTreeMap::new(),
         rejected_statements: Vec::new(),
@@ -767,21 +779,33 @@ fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnaps
     })
 }
 
-fn combine_entry_points(
+fn combine_discovered_entry_points(
     manifest_entries: Vec<RepoPath>,
     framework_entries: Vec<RepoPath>,
     files: &[SourceFile],
-    configured: &EntryPoints,
 ) -> Vec<RepoPath> {
     let mut entries: BTreeSet<RepoPath> = manifest_entries
         .into_iter()
         .chain(framework_entries)
         .collect();
     for file in files {
-        let marked_production =
-            file.model.program_start && file.model.source_set == SourceSet::Production;
-        let configured_match = !configured.is_empty() && configured.matches(&file.path);
-        if marked_production || configured_match {
+        if file.model.program_start && file.model.source_set == SourceSet::Production {
+            entries.insert(file.path.clone());
+        }
+    }
+    entries.into_iter().collect()
+}
+
+fn collect_configured_entry_points(
+    files: &[SourceFile],
+    configured: &EntryPoints,
+) -> Vec<RepoPath> {
+    if configured.is_empty() {
+        return Vec::new();
+    }
+    let mut entries = BTreeSet::new();
+    for file in files {
+        if configured.matches(&file.path) {
             entries.insert(file.path.clone());
         }
     }

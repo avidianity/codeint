@@ -112,7 +112,7 @@ One of four groups a source file belongs to: Production, Test, Generated, or Ven
 _Avoid_: file kind, file category
 
 **Tooling file**:
-A Production source file that builds, tests, lints, or configures the repository rather than shipping as application or library runtime code.
+A Production source file that builds, tests, lints, or configures the repository rather than shipping as application or library runtime code, classified either by its Language plugin (`is-tooling-file`) or by a universal repository tooling folder (`.github/`, `scripts/`, `docs/`, `examples/`, `tools/`, `benches/`).
 _Avoid_: build script, config file, helper script, non-runtime file
 
 **Budget**:

@@ -11,6 +11,7 @@ pub mod scan;
 mod source_set;
 #[cfg(test)]
 mod tests;
+mod tooling;
 mod workspace;
 
 mod bindings {
@@ -43,6 +44,7 @@ pub use source_set::{
     has_generated_header_marker, has_generated_header_marker_with_extra, path_file_name,
     settle_source_set,
 };
+pub use tooling::UniversalToolingPaths;
 pub use workspace::{Package, SkippedManifest, Workspace, WorkspaceError};
 
 pub fn token_text_hash(text: &str) -> u64 {
@@ -261,6 +263,19 @@ impl CodeModel {
             }
         }
         source_sets
+    }
+
+    pub fn is_tooling_file(&self, file: &SourceFile) -> bool {
+        file.model.is_tooling_file
+            || UniversalToolingPaths::from_model(self).is_universal_tooling_path(&file.path)
+    }
+
+    pub fn is_tooling_path(&self, path: &RepoPath) -> bool {
+        self.files
+            .iter()
+            .find(|file| &file.path == path)
+            .is_some_and(|file| file.model.is_tooling_file)
+            || UniversalToolingPaths::from_model(self).is_universal_tooling_path(path)
     }
 }
 

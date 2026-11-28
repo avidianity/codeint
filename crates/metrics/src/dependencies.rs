@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_model::{
-    CodeModel, DeclaredDep, DepKind, ImportResolution, Metric, RepoPath, SourceSet, token_text_hash,
+    CodeModel, DeclaredDep, DepKind, ImportResolution, Metric, RepoPath, SourceSet,
+    UniversalToolingPaths, token_text_hash,
 };
 
 use crate::finding_id::{FindingContext, FindingId, FindingIds};
-use crate::tooling_paths::ToolingPaths;
 
 #[cfg(test)]
 mod tests;
@@ -349,11 +349,16 @@ fn collect_imports(
     js_workspace_members: &BTreeSet<String>,
     ignored: &BTreeSet<String>,
 ) -> BTreeMap<String, PackageImports> {
-    let tooling = ToolingPaths::from_model(model);
-    let source_sets: BTreeMap<&RepoPath, SourceSet> = model
+    let tooling = UniversalToolingPaths::from_model(model);
+    let file_roles: BTreeMap<&RepoPath, (SourceSet, bool)> = model
         .files
         .iter()
-        .map(|file| (&file.path, file.model.source_set))
+        .map(|file| {
+            (
+                &file.path,
+                (file.model.source_set, tooling.is_tooling_file(file)),
+            )
+        })
         .collect();
     let mut by_package: BTreeMap<String, PackageImports> = BTreeMap::new();
     for import in &model.runtime_imports {
@@ -363,7 +368,7 @@ fn collect_imports(
         if ignored.contains(package_name) {
             continue;
         }
-        let Some(&source_set) = source_sets.get(&import.importer) else {
+        let Some(&(source_set, is_tooling_file)) = file_roles.get(&import.importer) else {
             continue;
         };
         if source_set == SourceSet::Vendored {
@@ -375,9 +380,9 @@ fn collect_imports(
         record_package_import(
             by_package.entry(owner.to_owned()).or_default(),
             source_set,
+            is_tooling_file,
             package_name,
             &import.importer,
-            &tooling,
         );
         if is_hoisted_from_root(owner, package_name, declared, js_workspace_members) {
             by_package
@@ -412,9 +417,9 @@ fn record_manifest_used_dependencies(
 fn record_package_import(
     entry: &mut PackageImports,
     source_set: SourceSet,
+    is_tooling_file: bool,
     package_name: &str,
     importer: &RepoPath,
-    tooling: &ToolingPaths,
 ) {
     entry.used.insert(package_name.to_owned());
     if matches!(source_set, SourceSet::Production | SourceSet::Test) {
@@ -424,7 +429,7 @@ fn record_package_import(
             .or_default()
             .insert(importer.clone());
     }
-    if source_set == SourceSet::Production && !tooling.is_non_runtime_tooling_path(importer) {
+    if source_set == SourceSet::Production && !is_tooling_file {
         entry
             .production
             .entry(package_name.to_owned())

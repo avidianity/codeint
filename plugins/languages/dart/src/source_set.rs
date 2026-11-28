@@ -36,6 +36,21 @@ pub(crate) fn classify(path: &str, header_comments: &str) -> SourceSet {
     SourceSet::Production
 }
 
+pub(crate) fn is_tooling_file(path: &str) -> bool {
+    let Some((dir, _)) = path.rsplit_once('/') else {
+        return false;
+    };
+    for segment in dir.split('/') {
+        if segment.eq_ignore_ascii_case("lib") {
+            return false;
+        }
+        if segment.eq_ignore_ascii_case("tool") || segment.eq_ignore_ascii_case("example") {
+            return true;
+        }
+    }
+    false
+}
+
 fn is_generated(path: &str, header_comments: &str) -> bool {
     GENERATED_SUFFIXES
         .iter()
