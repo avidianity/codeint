@@ -1,5 +1,15 @@
 use crate::{CommitId, GitError, Repository};
 
+pub(crate) const SECONDS_PER_DAY: i64 = 86_400;
+pub(crate) const TIMESTAMP_SKEW_WINDOW_SECONDS: i64 = 14 * SECONDS_PER_DAY;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WalkDecision {
+    Include,
+    Skip,
+    Stop,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommitRange {
     Latest(usize),
@@ -13,11 +23,29 @@ pub struct HistoryCommit {
 }
 
 impl CommitRange {
-    fn admits(self, earlier_commits: usize, committed_at_unix_seconds: i64) -> bool {
+    pub(crate) fn decide(
+        self,
+        included_commits: usize,
+        committed_at_unix_seconds: i64,
+    ) -> WalkDecision {
         match self {
-            CommitRange::Latest(count) => earlier_commits < count,
+            CommitRange::Latest(count) => {
+                if included_commits < count {
+                    WalkDecision::Include
+                } else {
+                    WalkDecision::Stop
+                }
+            }
             CommitRange::CommittedSince { unix_seconds } => {
-                committed_at_unix_seconds >= unix_seconds
+                if committed_at_unix_seconds >= unix_seconds {
+                    WalkDecision::Include
+                } else if committed_at_unix_seconds
+                    >= unix_seconds.saturating_sub(TIMESTAMP_SKEW_WINDOW_SECONDS)
+                {
+                    WalkDecision::Skip
+                } else {
+                    WalkDecision::Stop
+                }
             }
         }
     }
@@ -37,13 +65,16 @@ impl Repository {
             let history_error = |source| GitError::History { commit, source };
             let found = self.repository.find_commit(id).map_err(history_error)?;
             let committed_at_unix_seconds = found.time().map_err(history_error)?.seconds;
-            if !range.admits(newest_first.len(), committed_at_unix_seconds) {
-                break;
+            match range.decide(newest_first.len(), committed_at_unix_seconds) {
+                WalkDecision::Stop => break,
+                WalkDecision::Include => {
+                    newest_first.push(HistoryCommit {
+                        commit,
+                        committed_at_unix_seconds,
+                    });
+                }
+                WalkDecision::Skip => {}
             }
-            newest_first.push(HistoryCommit {
-                commit,
-                committed_at_unix_seconds,
-            });
             let beyond_shallow_boundary = shallow_boundary
                 .as_ref()
                 .is_some_and(|boundary| boundary.contains(&id));

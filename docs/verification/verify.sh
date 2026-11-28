@@ -969,6 +969,7 @@ drive_mcp() {
 {"jsonrpc":"2.0","id":3,"method":"tools/list"}
 {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"check","arguments":{}}}
 {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"guard","arguments":{"file":"src/sign.ts"}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"guard","arguments":{"file":"src/sign.ts","format":"json"}}}
 EOF
   run_case_stdin "$FIXTURE_REPO" "$dir/session_golden" "$golden_in" "$BIN_PATH" mcp
 
@@ -992,6 +993,9 @@ EOF
 {"jsonrpc":"2.0","id":1,"method":"unknown/method"}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"no_such_tool","arguments":{}}}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"diff","arguments":{}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"check","arguments":{"format":"text"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"trace","arguments":{"from":"src/sign.ts","to":"src/sign.ts","max_paths":0}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"impact","arguments":{}}}
 not-json
 EOF
   run_case_stdin "$FIXTURE_REPO" "$dir/protocol_errors" "$err_in" "$BIN_PATH" mcp
@@ -1762,21 +1766,36 @@ if "agent" in features:
 if "mcp" in features:
     check("mcp.session_golden.exit", read_exit("mcp/session_golden") == 0, str(read_exit("mcp/session_golden")))
     mg = read_jsonl("mcp/session_golden.stdout")
-    check("mcp.session_golden.count", len(mg) == 5, str(len(mg)))
-    if len(mg) == 5:
+    check("mcp.session_golden.count", len(mg) == 6, str(len(mg)))
+    if len(mg) == 6:
         init_res = mg[0].get("result", {})
         ping_res = mg[1].get("result")
         tools_res = mg[2].get("result", {}).get("tools", [])
         tool_names = {t.get("name") for t in tools_res}
+        all_have_format = all(
+            t.get("inputSchema", {}).get("properties", {}).get("format", {}).get("enum") == ["toon", "json"]
+            and t.get("inputSchema", {}).get("properties", {}).get("format", {}).get("default") == "toon"
+            for t in tools_res
+        )
         check_res = mg[3].get("result", {})
         check_text = check_res.get("content", [{}])[0].get("text", "")
         guard_res = mg[4].get("result", {})
         guard_text = guard_res.get("content", [{}])[0].get("text", "")
+        guard_json_res = mg[5].get("result", {})
+        guard_json_text = guard_json_res.get("content", [{}])[0].get("text", "")
+        guard_json_obj = None
+        guard_json_err = None
+        try:
+            guard_json_obj = json.loads(guard_json_text)
+        except Exception as exc:
+            guard_json_err = str(exc)
         check("mcp.session_golden.initialize", init_res.get("serverInfo", {}).get("name") == "codeint" and "tools" in init_res.get("capabilities", {}), str(init_res))
         check("mcp.session_golden.ping", ping_res == {}, str(ping_res))
-        check("mcp.session_golden.tools_list", tool_names == {"check", "diff", "trend", "guard", "impact", "trace", "churn", "coupling"}, str(tool_names))
-        check("mcp.session_golden.check_call", check_res.get("isError") is not True and "source_sets" in check_text, check_text[:200])
-        check("mcp.session_golden.guard_call", guard_res.get("isError") is not True and "src/sign.ts" in guard_text, guard_text[:200])
+        check("mcp.session_golden.tools_list", tool_names == {"check", "diff", "trend", "guard", "impact", "trace", "churn", "coupling"} and all_have_format, str(tool_names))
+        check("mcp.session_golden.check_call", check_res.get("isError") is not True and not check_text.lstrip().startswith("{") and "source_sets" in check_text, check_text[:200])
+        check("mcp.session_golden.guard_call", guard_res.get("isError") is not True and not guard_text.lstrip().startswith("{") and "src/sign.ts" in guard_text, guard_text[:200])
+        guard_json_detail = f"json_err={guard_json_err}; text={guard_json_text[:200]}" if guard_json_err else guard_json_text[:200]
+        check("mcp.session_golden.guard_json_call", guard_json_res.get("isError") is not True and isinstance(guard_json_obj, dict) and guard_json_obj.get("path") == "src/sign.ts", guard_json_detail)
 
     check("mcp.check_ignore_baseline.exit", read_exit("mcp/check_ignore_baseline") == 0, str(read_exit("mcp/check_ignore_baseline")))
     mb = read_jsonl("mcp/check_ignore_baseline.stdout")
@@ -1791,9 +1810,27 @@ if "mcp" in features:
 
     check("mcp.protocol_errors.exit", read_exit("mcp/protocol_errors") == 0, str(read_exit("mcp/protocol_errors")))
     me = read_jsonl("mcp/protocol_errors.stdout")
-    check("mcp.protocol_errors.count", len(me) == 4, str(len(me)))
-    if len(me) == 4:
-        check("mcp.protocol_errors.codes", me[0].get("error", {}).get("code") == -32601 and me[1].get("error", {}).get("code") == -32602 and me[2].get("result", {}).get("isError") is True and me[3].get("error", {}).get("code") == -32700, str(me))
+    check("mcp.protocol_errors.count", len(me) == 7, str(len(me)))
+    if len(me) == 7:
+        bad_fmt_text = me[3].get("result", {}).get("content", [{}])[0].get("text", "")
+        bad_max_text = me[4].get("result", {}).get("content", [{}])[0].get("text", "")
+        impact_err_text = me[5].get("result", {}).get("content", [{}])[0].get("text", "")
+        check(
+            "mcp.protocol_errors.codes",
+            me[0].get("error", {}).get("code") == -32601
+            and me[1].get("error", {}).get("code") == -32602
+            and me[2].get("result", {}).get("isError") is True
+            and me[3].get("result", {}).get("isError") is True
+            and "format" in bad_fmt_text
+            and me[4].get("result", {}).get("isError") is True
+            and "max_paths" in bad_max_text
+            and "--max-paths" not in bad_max_text
+            and me[5].get("result", {}).get("isError") is True
+            and "changed" in impact_err_text
+            and "--changed" not in impact_err_text
+            and me[6].get("error", {}).get("code") == -32700,
+            str(me),
+        )
 
 if "update" in features:
     check("update.check_up_to_date.exit", read_exit("update/check_up_to_date") == 0, str(read_exit("update/check_up_to_date")))

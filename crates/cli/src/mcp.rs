@@ -3,19 +3,32 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use codeint_config::{
-    CalendarDay, ChurnFormat, ChurnSince, ChurnWindow, CouplingRatio, CouplingSettings,
-    FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat, TraceFormat,
-    TrendFormat, TrendRange,
+    CalendarDay, ChurnSince, ChurnWindow, CouplingRatio, CouplingSettings, FindingsShown,
+    PluginHostConfig, TrendRange,
 };
 use codeint_report::McpToolSchema;
+use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::{
-    CheckOptions, ChurnOptions, CouplingOptions, DiffOptions, ImpactOptions, TraceOptions,
-    TrendOptions, check, churn, coupling, diff, guard, impact, trace, trend,
+    CheckOptions, ChurnOptions, CodeintError, CouplingOptions, DiffOptions, ImpactOptions,
+    TraceOptions, TrendOptions, check, churn, coupling, diff, guard, impact, trace, trend,
 };
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum McpFormat {
+    Toon,
+    Json,
+}
+
+#[derive(Serialize)]
+struct OutcomeEnvelope<'a, R> {
+    passed: bool,
+    failures: &'a [String],
+    report: &'a R,
+}
 
 pub(crate) fn serve_stdio(
     default_folder: &Path,
@@ -125,6 +138,15 @@ fn handle_initialize(params: Option<&Value>) -> Value {
     })
 }
 
+fn format_property() -> Value {
+    json!({
+        "type": "string",
+        "enum": ["toon", "json"],
+        "default": "toon",
+        "description": "Output format: toon (default) or json."
+    })
+}
+
 pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
     vec![
         McpToolSchema {
@@ -141,7 +163,8 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                         "description": "Optional LCOV or Cobertura XML Coverage report paths; when provided, replaces coverage_reports in codeint.json."
                     },
                     "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." },
-                    "ignore_baseline": { "type": "boolean", "description": "Ignore .codeint/baseline.json: show every Finding and evaluate Budgets on every Finding (default false)." }
+                    "ignore_baseline": { "type": "boolean", "description": "Ignore .codeint/baseline.json: show every Finding and evaluate Budgets on every Finding (default false)." },
+                    "format": format_property()
                 }
             }),
         },
@@ -156,7 +179,8 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                     "head_ref": { "type": "string", "description": "Optional head Git ref instead of the working tree." },
                     "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
                     "package": { "type": "string", "description": "Optional Workspace package path to scope measurement and output." },
-                    "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
+                    "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." },
+                    "format": format_property()
                 }
             }),
         },
@@ -167,7 +191,8 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
-                    "since": { "type": "string", "description": "UTC date YYYY-MM-DD to start the trend from." }
+                    "since": { "type": "string", "description": "UTC date YYYY-MM-DD to start the trend from." },
+                    "format": format_property()
                 }
             }),
         },
@@ -179,7 +204,8 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                 "required": ["file"],
                 "properties": {
                     "file": { "type": "string", "description": "Repository-relative or absolute path to the existing or planned file." },
-                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." }
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "format": format_property()
                 }
             }),
         },
@@ -197,7 +223,8 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                     },
                     "changed": { "type": "string", "description": "Optional base Git ref; analyze files changed since its merge-base with HEAD." },
                     "depth": { "type": "integer", "minimum": 0, "description": "Optional maximum reverse-dependency hop distance to traverse." },
-                    "package": { "type": "string", "description": "Optional Workspace package path to scope reported dependents." }
+                    "package": { "type": "string", "description": "Optional Workspace package path to scope reported dependents." },
+                    "format": format_property()
                 }
             }),
         },
@@ -213,7 +240,8 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                     "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
                     "package": { "type": "string", "description": "Optional Workspace package path to scope the query." },
                     "all": { "type": "boolean", "description": "Return all shortest paths up to max_paths instead of a single shortest path." },
-                    "max_paths": { "type": "integer", "minimum": 1, "description": "Maximum number of shortest paths to return when all is true (default 10)." }
+                    "max_paths": { "type": "integer", "minimum": 1, "description": "Maximum number of shortest paths to return when all is true (default 10)." },
+                    "format": format_property()
                 }
             }),
         },
@@ -226,7 +254,8 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                     "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
                     "since": { "type": "string", "description": "Lookback window in days (such as 90d) or UTC date (YYYY-MM-DD); mutually exclusive with commits." },
                     "commits": { "type": "integer", "minimum": 1, "description": "Walk at most this many main-line commits from HEAD; mutually exclusive with since." },
-                    "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
+                    "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." },
+                    "format": format_property()
                 }
             }),
         },
@@ -243,7 +272,8 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                     "min_co_changes": { "type": "integer", "minimum": 1, "description": "Minimum co-changing commits required to report a pair (defaults to 3)." },
                     "min_ratio": { "type": "number", "minimum": 0, "maximum": 1, "description": "Minimum coupling ratio between 0 and 1 required to report a pair (defaults to 0.3)." },
                     "include_tests": { "type": "boolean", "description": "Include Test Source set files alongside Production files (defaults to false)." },
-                    "all": { "type": "boolean", "description": "Return all coupled pairs instead of the top 20." }
+                    "all": { "type": "boolean", "description": "Return all coupled pairs instead of the top 20." },
+                    "format": format_property()
                 }
             }),
         },
@@ -284,21 +314,27 @@ fn dispatch_tool(
     args: Option<&Value>,
     ctx: &ServerContext<'_>,
 ) -> Result<Value, (i64, String)> {
-    let result = match name {
-        "check" => call_check(args, ctx),
-        "diff" => call_diff(args, ctx),
-        "trend" => call_trend(args, ctx),
-        "guard" => call_guard(args, ctx),
-        "impact" => call_impact(args, ctx),
-        "trace" => call_trace(args, ctx),
-        "churn" => call_churn(args, ctx),
-        "coupling" => call_coupling(args, ctx),
-        other => return Err((-32602, format!("Unknown tool: {other}"))),
-    };
+    let handler: fn(Option<&Value>, &ServerContext<'_>, McpFormat) -> Result<Value, Value> =
+        match name {
+            "check" => call_check,
+            "diff" => call_diff,
+            "trend" => call_trend,
+            "guard" => call_guard,
+            "impact" => call_impact,
+            "trace" => call_trace,
+            "churn" => call_churn,
+            "coupling" => call_coupling,
+            other => return Err((-32602, format!("Unknown tool: {other}"))),
+        };
+    let result = parse_format(args).and_then(|format| handler(args, ctx, format));
     Ok(result.unwrap_or_else(|err| err))
 }
 
-fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+fn call_check(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let folder = resolve_folder(args, ctx.default_folder)?;
     let coverage_reports: Vec<PathBuf> = parse_string_array(args, "coverage_reports")?
         .into_iter()
@@ -316,16 +352,16 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Va
         plugin_host: ctx.plugin_host.clone(),
     };
     Ok(match check(&folder, &options) {
-        Ok(outcome) => render_outcome(
-            outcome.passed,
-            outcome.failures,
-            outcome.report.render(ReportFormat::Json),
-        ),
+        Ok(outcome) => render_outcome(outcome.passed, &outcome.failures, &outcome.report, format),
         Err(err) => tool_err(&err.mcp_text()),
     })
 }
 
-fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+fn call_diff(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let base_ref = required_str_arg(args, "base_ref")?;
     let folder = resolve_folder(args, ctx.default_folder)?;
     let options = DiffOptions {
@@ -340,47 +376,44 @@ fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Val
         plugin_host: ctx.plugin_host.clone(),
     };
     Ok(match diff(&folder, base_ref, &options) {
-        Ok(outcome) => render_outcome(
-            outcome.passed,
-            outcome.failures,
-            outcome.report.render(ReportFormat::Json),
-        ),
-        Err(err) => tool_err(&err.to_string()),
+        Ok(outcome) => render_outcome(outcome.passed, &outcome.failures, &outcome.report, format),
+        Err(err) => tool_err(&err.mcp_text()),
     })
 }
 
-fn render_outcome(
+fn render_outcome<R: Serialize>(
     passed: bool,
-    failures: Vec<String>,
-    rendered: Result<String, codeint_report::ReportError>,
+    failures: &[String],
+    report: &R,
+    format: McpFormat,
 ) -> Value {
-    match rendered {
-        Ok(text) => {
-            let report: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-            tool_ok(json!({
-                "passed": passed,
-                "failures": failures,
-                "report": report,
-            }))
-        }
-        Err(err) => tool_err(&err.to_string()),
-    }
+    let envelope = OutcomeEnvelope {
+        passed,
+        failures,
+        report,
+    };
+    render_mcp_value(&envelope, format)
 }
 
-fn render_json_tool<T, E: std::fmt::Display>(
-    result: Result<T, E>,
-    render: impl FnOnce(T) -> Result<String, codeint_report::ReportError>,
+fn render_mcp_tool<T: Serialize>(
+    result: Result<T, CodeintError>,
+    format: McpFormat,
 ) -> Result<Value, Value> {
     Ok(match result {
-        Ok(report) => match render(report) {
-            Ok(rendered) => {
-                let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
-                tool_ok(payload)
-            }
-            Err(err) => tool_err(&err.to_string()),
-        },
-        Err(err) => tool_err(&err.to_string()),
+        Ok(report) => render_mcp_value(&report, format),
+        Err(err) => tool_err(&err.mcp_text()),
     })
+}
+
+fn render_mcp_value<T: Serialize>(value: &T, format: McpFormat) -> Value {
+    let rendered = match format {
+        McpFormat::Toon => codeint_report::render_toon(value).map_err(|err| err.to_string()),
+        McpFormat::Json => serde_json::to_string(value).map_err(|err| err.to_string()),
+    };
+    match rendered {
+        Ok(text) => tool_ok_text(text),
+        Err(err) => tool_err(&err),
+    }
 }
 
 fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, Value> {
@@ -389,15 +422,21 @@ fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, 
         .ok_or_else(|| tool_err(&format!("Missing required argument: {name}")))
 }
 
-fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+fn call_guard(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let file = required_str_arg(args, "file")?;
     let folder = resolve_folder(args, ctx.default_folder)?;
-    render_json_tool(guard(&folder, Path::new(file)), |report| {
-        report.render(GuardFormat::Json)
-    })
+    render_mcp_tool(guard(&folder, Path::new(file)), format)
 }
 
-fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+fn call_trend(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let folder = resolve_folder(args, ctx.default_folder)?;
     let range = match args.and_then(|a| a.get("since")).and_then(Value::as_str) {
         Some(day_str) => match CalendarDay::from_str(day_str) {
@@ -411,18 +450,25 @@ fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Va
         result_cache: ctx.result_cache.clone(),
         plugin_host: ctx.plugin_host.clone(),
     };
-    render_json_tool(trend(&folder, &options), |report| {
-        report.render(TrendFormat::Json)
-    })
+    render_mcp_tool(trend(&folder, &options), format)
 }
 
-fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+fn call_impact(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let folder = resolve_folder(args, ctx.default_folder)?;
     let paths = parse_string_array(args, "paths")?;
     let changed = args
         .and_then(|a| a.get("changed"))
         .and_then(Value::as_str)
         .map(str::to_owned);
+    if paths.is_empty() && changed.is_none() {
+        return Err(tool_err(
+            "Provide at least one target file path in paths, or pass changed with a base Git ref to analyze changed files.",
+        ));
+    }
     let depth = match args.and_then(|a| a.get("depth")) {
         Some(value) => Some(parse_usize_arg(
             value,
@@ -437,22 +483,23 @@ fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, V
         package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
     };
-    render_json_tool(impact(&folder, &options), |report| {
-        report.render(ImpactFormat::Json)
-    })
+    render_mcp_tool(impact(&folder, &options), format)
 }
 
-fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+fn call_trace(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let from = required_str_arg(args, "from")?;
     let to = required_str_arg(args, "to")?;
+    let max_paths = parse_optional_arg(
+        args,
+        "max_paths",
+        TraceOptions::default().max_paths,
+        |value| parse_positive_usize(value, "max_paths"),
+    )?;
     let folder = resolve_folder(args, ctx.default_folder)?;
-    let max_paths = match args.and_then(|a| a.get("max_paths")) {
-        Some(value) => parse_usize_arg(
-            value,
-            "Invalid argument: max_paths must be a positive integer",
-        )?,
-        None => TraceOptions::default().max_paths,
-    };
     let options = TraceOptions {
         all: args
             .and_then(|a| a.get("all"))
@@ -462,32 +509,46 @@ fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Va
         package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
     };
-    render_json_tool(trace(&folder, from, to, &options), |report| {
-        report.render(TraceFormat::Json)
-    })
+    render_mcp_tool(trace(&folder, from, to, &options), format)
 }
 
-fn call_churn(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+fn call_churn(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let options = ChurnOptions {
         window: parse_churn_window(args)?,
         findings: parse_findings(args)?,
         plugin_host: ctx.plugin_host.clone(),
     };
     let folder = resolve_folder(args, ctx.default_folder)?;
-    render_json_tool(churn(&folder, &options), |report| {
-        report.render(ChurnFormat::Json)
-    })
+    render_mcp_tool(churn(&folder, &options), format)
 }
 
-fn call_coupling(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+fn call_coupling(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let options = CouplingOptions {
         settings: parse_coupling_settings(args)?,
         findings: parse_findings(args)?,
         plugin_host: ctx.plugin_host.clone(),
     };
     let folder = resolve_folder(args, ctx.default_folder)?;
-    render_json_tool(coupling(&folder, &options), |report| {
-        report.render(ChurnFormat::Json)
+    render_mcp_tool(coupling(&folder, &options), format)
+}
+
+fn parse_format(args: Option<&Value>) -> Result<McpFormat, Value> {
+    parse_optional_arg(args, "format", McpFormat::Toon, |value| {
+        match value.as_str() {
+            Some("toon") => Ok(McpFormat::Toon),
+            Some("json") => Ok(McpFormat::Json),
+            _ => Err(tool_err(
+                "Invalid format argument: expected \"toon\" or \"json\"",
+            )),
+        }
     })
 }
 
@@ -636,9 +697,9 @@ fn parse_findings(args: Option<&Value>) -> Result<FindingsShown, Value> {
     })
 }
 
-fn tool_ok(payload: Value) -> Value {
+fn tool_ok_text(text: String) -> Value {
     json!({
-        "content": [{ "type": "text", "text": payload.to_string() }],
+        "content": [{ "type": "text", "text": text }],
         "isError": false,
     })
 }

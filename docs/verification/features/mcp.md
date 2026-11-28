@@ -17,9 +17,9 @@ docs/verification/verify.sh doctor "$RUN_DIR"
 
 | Case | State | Expected exit | Expected visible result and authoritative effect |
 | ---- | ----- | ------------- | ------------------------------------------------ |
-| `session_golden` | Pipe `initialize`, `ping`, `tools/list`, `tools/call` (`check`), and `tools/call` (`guard`) over stdio, then close stdin | `0` | Returns five JSON-RPC 2.0 responses: `serverInfo.name == "codeint"`, empty `ping`, all 8 read-only tools, `check` content naming `source_sets`, and `guard` content naming `src/sign.ts` |
+| `session_golden` | Pipe `initialize`, `ping`, `tools/list`, `tools/call` (`check` default TOON), `tools/call` (`guard` default TOON), and `tools/call` (`guard` with `format: "json"`) over stdio, then close stdin | `0` | Returns six JSON-RPC 2.0 responses: `serverInfo.name == "codeint"`, empty `ping`, all 8 read-only tools advertising optional `format` (`"toon"` default, `"json"` option), `check` and `guard` default TOON content, and `guard` valid JSON content when `format: "json"` is passed |
 | `check_ignore_baseline` | Baselined repo copy with `budgets.production.erosion: 0`; call `check` with `ignore_baseline: false` and `ignore_baseline: true` | `0` | First call hides the baselined Finding with no Budget failure; second call ignores the Baseline and reports `over_budget` |
-| `protocol_errors` | Pipe unknown method, unknown tool, `diff` missing `base_ref`, and malformed JSON, then close stdin | `0` | Returns JSON-RPC errors `-32601` (unknown method), `-32602` (unknown tool), `isError: true` (missing `base_ref`), and `-32700` (parse error) |
+| `protocol_errors` | Pipe unknown method, unknown tool, `diff` missing `base_ref`, `check` with invalid `format`, `trace` with `max_paths: 0`, `impact` missing targets, and malformed JSON, then close stdin | `0` | Returns JSON-RPC errors `-32601` (unknown method), `-32602` (unknown tool), `isError: true` (missing `base_ref`, invalid `format`, `max_paths: 0`, and `impact` with MCP-tailored remedy naming `changed` rather than `--changed`), and `-32700` (parse error) |
 
 ## Drive and Assert
 

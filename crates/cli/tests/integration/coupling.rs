@@ -343,3 +343,58 @@ fn coupling_compares_exact_ratio_against_unrounded_min_ratio_and_handles_unborn_
 
     assert_unborn_repo_remedy("coupling");
 }
+
+#[test]
+fn coupling_since_and_days_tolerate_14_day_skew_and_stop_beyond() {
+    let repo = HistoryFixture::init();
+    repo.save_and_commit(
+        &[
+            ("src/beyond_a.ts", "export const ba = 1;\n".to_owned()),
+            ("src/beyond_b.ts", "export const bb = 1;\n".to_owned()),
+        ],
+        "unreachable newer",
+        "2026-05-12T12:00:00Z",
+    );
+    repo.save_and_commit(
+        &[("src/old_stop.ts", "export const old = 1;\n".to_owned())],
+        "older than 14d",
+        "2026-04-25T23:59:59Z",
+    );
+    repo.save_and_commit(
+        &[
+            ("src/skew_a.ts", "export const a = 1;\n".to_owned()),
+            ("src/skew_b.ts", "export const b = 1;\n".to_owned()),
+        ],
+        "newer behind skew",
+        "2026-05-11T12:00:00Z",
+    );
+    repo.save_and_commit(
+        &[
+            ("src/excluded_a.ts", "export const ea = 1;\n".to_owned()),
+            ("src/excluded_b.ts", "export const eb = 1;\n".to_owned()),
+        ],
+        "1-day older skew",
+        "2026-05-09T12:00:00Z",
+    );
+    repo.save_and_commit(
+        &[
+            ("src/skew_a.ts", "export const a = 2;\n".to_owned()),
+            ("src/skew_b.ts", "export const b = 2;\n".to_owned()),
+        ],
+        "head",
+        "2026-05-15T12:00:00Z",
+    );
+
+    for args in [
+        vec!["--since", "2026-05-10", "--min-co-changes", "1"],
+        vec!["--since", "5d", "--min-co-changes", "1"],
+    ] {
+        let report = repo.run_json("coupling", &args);
+        assert_eq!(report["commits_analyzed"], 2, "args={args:?}");
+        let pairs = report["pairs"].as_array().expect("pairs");
+        assert_eq!(pairs.len(), 1, "args={args:?}");
+        assert_eq!(pairs[0]["file_a"], "src/skew_a.ts");
+        assert_eq!(pairs[0]["file_b"], "src/skew_b.ts");
+        assert_eq!(pairs[0]["co_change_count"], 2);
+    }
+}
