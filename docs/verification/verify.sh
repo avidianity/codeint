@@ -422,6 +422,7 @@ drive_trend() {
   run_case "$FIXTURE_REPO" "$dir/history_toon" "$BIN_PATH" trend --format toon
   run_case "$FIXTURE_REPO" "$dir/history_text" "$BIN_PATH" trend --format text
   run_case "$FIXTURE_REPO" "$dir/since_json" "$BIN_PATH" trend --since 2026-11-05 --format json
+  run_case "$FIXTURE_REPO" "$dir/commits_json" "$BIN_PATH" trend --commits 2 --format json
   run_case "$FIXTURE_REPO" "$dir/history_md" "$BIN_PATH" trend --format markdown --output "$dir/trend.md"
 
   local work_trend_badfmt="$RUN_DIR/work-trend-badfmt"
@@ -431,6 +432,8 @@ drive_trend() {
   run_case "$work_trend_badfmt" "$dir/config_unsupported_format" "$BIN_PATH" trend
 
   run_case "$FIXTURE_REPO" "$dir/bad_since" "$BIN_PATH" trend --since 2026-02-30
+  run_case "$FIXTURE_REPO" "$dir/bad_commits_zero" "$BIN_PATH" trend --commits 0
+  run_case "$FIXTURE_REPO" "$dir/commits_since_conflict" "$BIN_PATH" trend --since 2026-11-05 --commits 2
   run_case "$EMPTY_REPO" "$dir/unborn_head" "$BIN_PATH" trend
 }
 
@@ -1307,10 +1310,17 @@ if "trend" in features:
     sj = read_json("trend/since_json.stdout")
     check("trend.since_json.commits", isinstance(sj, dict) and sj.get("commits") == 2, str(sj))
 
+    check("trend.commits_json.exit", read_exit("trend/commits_json") == 0, str(read_exit("trend/commits_json")))
+    cj = read_json("trend/commits_json.stdout")
+    crows = cj.get("source_sets", {}).get("production", []) if isinstance(cj, dict) else []
+    check("trend.commits_json.commits", isinstance(cj, dict) and cj.get("commits") == 2 and len(crows) == 2, str(cj))
+
     check("trend.history_md.exit", read_exit("trend/history_md") == 0, str(read_exit("trend/history_md")))
     check("trend.history_md.file", len(read_text("trend/trend.md") or "") > 0, "trend.md empty")
 
     check("trend.bad_since.exit", read_exit("trend/bad_since") == 2, str(read_exit("trend/bad_since")))
+    check("trend.bad_commits_zero.exit", read_exit("trend/bad_commits_zero") == 2, str(read_exit("trend/bad_commits_zero")))
+    check("trend.commits_since_conflict.exit", read_exit("trend/commits_since_conflict") == 2, str(read_exit("trend/commits_since_conflict")))
     check("trend.unborn_head.exit", read_exit("trend/unborn_head") == 2, str(read_exit("trend/unborn_head")))
 
 if "init" in features:

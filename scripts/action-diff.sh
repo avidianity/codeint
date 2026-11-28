@@ -18,9 +18,16 @@ EXIT_CODE=$?
 set -e
 echo "exit-code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
 echo "markdown-file=$MD_FILE" >> "$GITHUB_OUTPUT"
-if [ "$INPUT_UPLOAD_SARIF" = "true" ]; then
+if [ "$INPUT_UPLOAD_SARIF" = "true" ] && { [ "$EXIT_CODE" = "0" ] || [ "$EXIT_CODE" = "1" ]; }; then
   set +e
   codeint diff "$BASE" --format sarif --output "$WORKSPACE/$SARIF_FILE"
+  SARIF_EXIT_CODE=$?
   set -e
-  echo "sarif-file=$SARIF_FILE" >> "$GITHUB_OUTPUT"
+  echo "sarif-exit-code=$SARIF_EXIT_CODE" >> "$GITHUB_OUTPUT"
+  if [ "$SARIF_EXIT_CODE" = "0" ] || [ "$SARIF_EXIT_CODE" = "1" ]; then
+    echo "sarif-file=$SARIF_FILE" >> "$GITHUB_OUTPUT"
+  else
+    rm -f "$WORKSPACE/$SARIF_FILE"
+    printf 'codeint action: SARIF pass exited with unexpected code %s\n' "$SARIF_EXIT_CODE" >&2
+  fi
 fi

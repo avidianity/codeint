@@ -5,13 +5,20 @@ import { fileURLToPath } from "node:url";
 export const STICKY_MARKER = "<!-- codeint-pr-comment -->";
 const MAX_BODY_CHARS = 60000;
 
+export function parseExitCode(raw) {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  return /^\d+$/.test(value) ? Number(value) : null;
+}
+
 export function buildCommentBody(markdown, exitCode) {
   const status =
     exitCode === 0
       ? "Passed (no Budget or Regression failures)"
       : exitCode === 1
         ? "Failed (Budget or Regression exceeded)"
-        : `Error (exit code ${exitCode})`;
+        : typeof exitCode === "number" && Number.isInteger(exitCode) && exitCode >= 0
+          ? `Error (exit code ${exitCode})`
+          : "Error (missing or invalid exit code)";
   const trimmed = markdown.trim();
   const content =
     trimmed.length > MAX_BODY_CHARS
@@ -49,7 +56,7 @@ async function runFromEnv() {
   const repo = process.env.GITHUB_REPOSITORY;
   const prNumber = process.env.PR_NUMBER;
   const reportFile = process.env.REPORT_FILE;
-  const exitCode = Number(process.env.DIFF_EXIT_CODE ?? "0");
+  const exitCode = parseExitCode(process.env.DIFF_EXIT_CODE);
   if (!token || !repo || !prNumber || !reportFile || !fs.existsSync(reportFile)) {
     return;
   }

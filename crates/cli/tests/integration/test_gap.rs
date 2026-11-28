@@ -857,3 +857,209 @@ fn coverage_reports_outside_repository_and_mcp_cwd_isolation_are_enforced() {
     assert_eq!(prod_test_gap(&payload["report"])["ratio"], 1.0);
     assert!(payload["report"].get("coverage_unmatched_note").is_none());
 }
+
+fn nested_outer_inner_repo() -> TempDir {
+    let repo = init_git_repo(&[
+        (
+            "src/nested.ts",
+            concat!(
+                "export function outer(x: number): number {\n",
+                "  const base = x + 1;\n",
+                "  function inner(y: number): number {\n",
+                "    const doubled = y * 2;\n",
+                "    return doubled;\n",
+                "  }\n",
+                "  return base;\n",
+                "}\n",
+            ),
+        ),
+        (
+            "coverage/lcov.info",
+            "SF:src/nested.ts\nDA:2,1\nDA:4,0\nDA:5,0\nDA:7,1\nend_of_record\n",
+        ),
+    ]);
+    write_coverage_config(repo.path(), &["coverage/lcov.info"], None);
+    repo
+}
+
+fn assert_v1_state_mismatch(
+    repo: &Path,
+    state_rel_path: &str,
+    update_args: &[&str],
+    expected_substrings: &[&str],
+) {
+    let _ = run_stdout(repo, update_args, None, 0);
+    let state_path = repo.join(state_rel_path);
+    let mut doc: Value =
+        serde_json::from_str(&fs::read_to_string(&state_path).expect("read state"))
+            .expect("valid state json");
+    let test_gap_entry = &mut doc["source_sets"]["production"]["test_gap"];
+    assert_eq!(test_gap_entry["metric_version"], 2);
+    test_gap_entry["metric_version"] = json!(1);
+    fs::write(
+        &state_path,
+        format!("{}\n", serde_json::to_string_pretty(&doc).unwrap()),
+    )
+    .expect("write v1 state");
+    assert_exit_2_contains(repo, &["check"], expected_substrings);
+    fs::remove_file(&state_path).expect("remove state");
+}
+
+#[test]
+fn innermost_attribution_excludes_nested_functions_and_emits_metric_version_2() {
+    let repo = nested_outer_inner_repo();
+
+    let (report, _) = check_json(repo.path(), &[], 0);
+    let gap = prod_test_gap(&report);
+    assert_eq!(gap["metric_version"], 2);
+    assert_eq!(gap["measured_functions"], 2);
+    assert_eq!(gap["ratio"], 0.5);
+
+    let findings = gap["findings"].as_array().expect("findings array");
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0]["name"], "inner");
+    assert_eq!(findings[0]["line"], 3);
+    assert_eq!(findings[0]["untested_share"], 1.0);
+}
+
+#[test]
+fn innermost_attribution_handles_closures_deep_nesting_same_line_zero_own_lines_and_shell_scripts()
+{
+    let repo = init_git_repo(&[
+        (
+            "src/complex.ts",
+            concat!(
+                "export function wrapper(x: number): () => number {\n",
+                "  return () => {\n",
+                "    const y = x + 1;\n",
+                "    const deepest = () => {\n",
+                "      return y * 2;\n",
+                "    };\n",
+                "    return deepest();\n",
+                "  };\n",
+                "}\n",
+                "\n",
+                "export const pair = () => () => 1;\n",
+                "\n",
+                "export function containerOnly() {\n",
+                "  function child(v: number): number {\n",
+                "    return v + 1;\n",
+                "  }\n",
+                "}\n",
+            ),
+        ),
+        (
+            "src/omitted.ts",
+            "export function omittedFn(x: number): number {\n  return x;\n}\n",
+        ),
+        (
+            "scripts/run.sh",
+            concat!(
+                "#!/bin/sh\n",
+                "helper() {\n",
+                "  echo \"helper\"\n",
+                "}\n",
+                "echo \"top\"\n",
+            ),
+        ),
+        (
+            "coverage/unit.info",
+            concat!(
+                "SF:src/complex.ts\n",
+                "DA:2,1\n",
+                "DA:3,1\n",
+                "DA:5,0\n",
+                "DA:7,1\n",
+                "DA:11,0\n",
+                "DA:15,1\n",
+                "end_of_record\n",
+                "SF:scripts/run.sh\n",
+                "DA:3,0\n",
+                "DA:5,1\n",
+                "end_of_record\n",
+            ),
+        ),
+        (
+            "coverage/extra.xml",
+            "<coverage><packages><package><classes><class filename=\"src/complex.ts\"><lines><line number=\"3\" hits=\"1\"/></lines></class></classes></package></packages></coverage>\n",
+        ),
+    ]);
+    write_coverage_config(
+        repo.path(),
+        &["coverage/unit.info", "coverage/extra.xml"],
+        None,
+    );
+
+    let (report, _) = check_json(repo.path(), &[], 0);
+    let ts_gap =
+        &report["languages"]["typescript-javascript"]["source_sets"]["production"]["test_gap"];
+    assert_eq!(ts_gap["metric_version"], 2);
+    let ts_findings = ts_gap["findings"].as_array().expect("ts findings");
+    let ts_finding_lines: Vec<u64> = ts_findings
+        .iter()
+        .filter(|row| row["path"] == "src/complex.ts")
+        .map(|row| row["line"].as_u64().expect("line"))
+        .collect();
+    assert!(
+        !ts_finding_lines.contains(&1),
+        "wrapper should be fully tested, got findings: {ts_findings:?}"
+    );
+    assert!(
+        !ts_finding_lines.contains(&2),
+        "middle closure should be fully tested, got findings: {ts_findings:?}"
+    );
+    assert!(
+        ts_finding_lines.contains(&4),
+        "deepest closure should be untested, got findings: {ts_findings:?}"
+    );
+    assert_eq!(
+        ts_finding_lines.iter().filter(|&&line| line == 11).count(),
+        2,
+        "both identical-span same-line functions on line 11 should be untested: {ts_findings:?}"
+    );
+    assert!(
+        !ts_finding_lines.contains(&13),
+        "containerOnly has zero own listed lines and must be omitted: {ts_findings:?}"
+    );
+    assert!(
+        ts_findings
+            .iter()
+            .any(|row| row["path"] == "src/omitted.ts" && row["untested_share"] == 1.0),
+        "omitted file must stay fully untested: {ts_findings:?}"
+    );
+
+    let sh_gap = &report["languages"]["shell"]["source_sets"]["production"]["test_gap"];
+    assert_eq!(sh_gap["metric_version"], 2);
+    let sh_findings = sh_gap["findings"].as_array().expect("shell findings");
+    assert_eq!(sh_findings.len(), 1);
+    assert_eq!(sh_findings[0]["name"], "helper");
+    assert_eq!(sh_findings[0]["untested_share"], 1.0);
+}
+
+#[test]
+fn test_gap_metric_version_2_detects_v1_ratchet_and_baseline_mismatches() {
+    let repo = nested_outer_inner_repo();
+
+    assert_v1_state_mismatch(
+        repo.path(),
+        ".codeint/ratchet.json",
+        &["ratchet", "update"],
+        &[
+            "production.test_gap",
+            "Metric version 1",
+            "current Metric version 2",
+            "codeint ratchet update",
+        ],
+    );
+    assert_v1_state_mismatch(
+        repo.path(),
+        ".codeint/baseline.json",
+        &["baseline", "update"],
+        &[
+            "production.test_gap",
+            "baseline Metric version 1",
+            "current Metric version 2",
+            "codeint baseline update",
+        ],
+    );
+}

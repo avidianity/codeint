@@ -68,10 +68,11 @@ fn build_command(
         } => build_diff_command(current_folder, base_ref, head_ref, report),
         CommandArguments::Trend {
             since,
+            commits,
             output,
             format,
         } => Ok(report_target(current_folder, output.output)?.into_trend(
-            since,
+            resolve_trend_range(since, commits),
             format,
             result_cache_folder_of_this_process(current_folder),
         )),
@@ -354,6 +355,17 @@ fn agent_home_of_this_process(
         .ok_or(ConfigError::MissingAgentHome)
 }
 
+fn resolve_trend_range(
+    since: Option<CalendarDay>,
+    commits: Option<std::num::NonZeroUsize>,
+) -> TrendRange {
+    match (since, commits) {
+        (Some(day), None) => TrendRange::Since(day),
+        (None, Some(count)) => TrendRange::Latest(count.get()),
+        _ => TrendRange::default(),
+    }
+}
+
 fn resolve_churn_window(
     since: Option<ChurnSince>,
     commits: Option<std::num::NonZeroUsize>,
@@ -456,13 +468,13 @@ struct ReportTarget {
 impl ReportTarget {
     fn into_trend(
         self,
-        since: Option<CalendarDay>,
+        range: TrendRange,
         format: Option<TrendFormat>,
         result_cache: Option<PathBuf>,
     ) -> Command {
         Command::Trend {
             folder: self.folder,
-            range: since.map_or_else(TrendRange::default, TrendRange::Since),
+            range,
             destination: self.destination,
             format,
             result_cache,

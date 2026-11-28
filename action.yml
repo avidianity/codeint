@@ -15,7 +15,7 @@ inputs:
     required: false
     default: "."
   version:
-    description: Release tag to install (for example v0.4.0) or latest.
+    description: Release tag to install and verify (for example v0.9.0) or latest.
     required: false
     default: "latest"
   comment:
@@ -27,7 +27,7 @@ inputs:
     required: false
     default: "false"
   fail-on-regression:
-    description: Fail the workflow step when codeint diff exits 1 on a Budget or Regression failure.
+    description: Fail the workflow step when codeint diff exits 1 on a Budget or Regression failure (unexpected codeint or SARIF errors always fail).
     required: false
     default: "true"
   token:
@@ -53,15 +53,8 @@ runs:
       shell: bash
       env:
         INPUT_VERSION: ${{ inputs.version }}
-      run: |
-        set -euo pipefail
-        if [ "$INPUT_VERSION" = "latest" ]; then
-          URL="https://github.com/avidianity/codeint/releases/latest/download/install.sh"
-        else
-          URL="https://github.com/avidianity/codeint/releases/download/${INPUT_VERSION}/install.sh"
-        fi
-        curl -fsSL "$URL" | bash
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/scripts/action-install.sh"
 
     - name: Run codeint diff
       id: diff
@@ -96,12 +89,8 @@ runs:
       shell: bash
       env:
         DIFF_EXIT_CODE: ${{ steps.diff.outputs.exit-code }}
+        SARIF_EXIT_CODE: ${{ steps.diff.outputs.sarif-exit-code }}
+        INPUT_UPLOAD_SARIF: ${{ inputs.upload-sarif }}
         FAIL_ON_REGRESSION: ${{ inputs.fail-on-regression }}
-      run: |
-        set -euo pipefail
-        if [ "$DIFF_EXIT_CODE" = "2" ]; then
-          exit 2
-        fi
-        if [ "$DIFF_EXIT_CODE" = "1" ] && [ "$FAIL_ON_REGRESSION" = "true" ]; then
-          exit 1
-        fi
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/scripts/action-enforce-exit.sh"

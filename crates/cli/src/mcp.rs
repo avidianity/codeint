@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use codeint_config::{
-    CalendarDay, ChurnSince, ChurnWindow, CouplingRatio, CouplingSettings, FindingsShown,
-    PluginHostConfig, TrendRange,
+    ChurnSince, ChurnWindow, CouplingRatio, CouplingSettings, FindingsShown, PluginHostConfig,
+    TrendRange,
 };
 use codeint_git::{Repository, ResultCache};
 use codeint_report::McpToolSchema;
@@ -356,12 +356,13 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
         },
         McpToolSchema {
             name: "trend".to_owned(),
-            description: "Measure each main-line commit over time (latest 20 commits or since YYYY-MM-DD).".to_owned(),
+            description: "Measure each main-line commit over time (latest N commits, default 20, or since YYYY-MM-DD).".to_owned(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
-                    "since": { "type": "string", "description": "UTC date YYYY-MM-DD to start the trend from." },
+                    "since": { "type": "string", "description": "UTC date YYYY-MM-DD to start the trend from; mutually exclusive with commits." },
+                    "commits": { "type": "integer", "minimum": 1, "description": "Measure at most this many main-line commits from HEAD (default 20); mutually exclusive with since." },
                     "format": format_property()
                 }
             }),
@@ -631,19 +632,23 @@ fn call_trend(
     ctx: &mut ServerContext<'_>,
     format: McpFormat,
 ) -> Result<ToolCallResult, ToolCallResult> {
+    let range = parse_trend_range(args)?;
     let folder = resolve_folder(args, ctx.default_folder)?;
-    let range = match args.and_then(|a| a.get("since")).and_then(Value::as_str) {
-        Some(day_str) => match CalendarDay::from_str(day_str) {
-            Ok(day) => TrendRange::Since(day),
-            Err(err) => return Err(tool_err(&format!("Invalid since date {day_str:?}: {err}"))),
-        },
-        None => TrendOptions::default().range,
-    };
     let cache = ctx.result_cache.clone().map(ResultCache::in_folder);
     let result = ctx.with_check_workspace(&folder, |workspace| {
         trend::trend_with_workspace(workspace, range, cache.as_ref())
     });
     render_cli_tool(result, CliError::Check, format)
+}
+
+fn parse_trend_range(args: Option<&Value>) -> Result<TrendRange, ToolCallResult> {
+    resolve_window_arg(
+        args,
+        "since date",
+        TrendRange::Since,
+        TrendRange::Latest,
+        TrendOptions::default().range,
+    )
 }
 
 fn call_impact(
@@ -843,7 +848,13 @@ fn parse_ratio(value: &Value) -> Result<CouplingRatio, ToolCallResult> {
     CouplingRatio::new(ratio).map_err(|err| tool_err(&format!("Invalid min_ratio: {err}")))
 }
 
-fn parse_churn_window(args: Option<&Value>) -> Result<ChurnWindow, ToolCallResult> {
+enum WindowArg<'a> {
+    Since(&'a str),
+    Commits(usize),
+    Default,
+}
+
+fn parse_since_or_commits(args: Option<&Value>) -> Result<WindowArg<'_>, ToolCallResult> {
     let since_val = args.and_then(|a| a.get("since")).filter(|v| !v.is_null());
     let commits_val = args.and_then(|a| a.get("commits")).filter(|v| !v.is_null());
     if since_val.is_some() && commits_val.is_some() {
@@ -855,19 +866,42 @@ fn parse_churn_window(args: Option<&Value>) -> Result<ChurnWindow, ToolCallResul
         let text = value
             .as_str()
             .ok_or_else(|| tool_err("Argument since must be a string"))?;
-        return ChurnSince::from_str(text)
-            .map(ChurnWindow::from)
-            .map_err(|err| tool_err(&format!("Invalid since window {text:?}: {err}")));
+        return Ok(WindowArg::Since(text));
     }
     if let Some(value) = commits_val {
-        let count = value
-            .as_u64()
-            .and_then(|n| usize::try_from(n).ok())
-            .filter(|&n| n > 0)
-            .ok_or_else(|| tool_err("Argument commits must be a positive integer"))?;
-        return Ok(ChurnWindow::Commits(count));
+        return Ok(WindowArg::Commits(parse_positive_usize(value, "commits")?));
     }
-    Ok(ChurnWindow::default())
+    Ok(WindowArg::Default)
+}
+
+fn resolve_window_arg<T, S>(
+    args: Option<&Value>,
+    since_label: &str,
+    from_since: impl FnOnce(S) -> T,
+    from_commits: impl FnOnce(usize) -> T,
+    default: T,
+) -> Result<T, ToolCallResult>
+where
+    S: FromStr,
+    S::Err: std::fmt::Display,
+{
+    match parse_since_or_commits(args)? {
+        WindowArg::Since(text) => S::from_str(text)
+            .map(from_since)
+            .map_err(|err| tool_err(&format!("Invalid {since_label} {text:?}: {err}"))),
+        WindowArg::Commits(count) => Ok(from_commits(count)),
+        WindowArg::Default => Ok(default),
+    }
+}
+
+fn parse_churn_window(args: Option<&Value>) -> Result<ChurnWindow, ToolCallResult> {
+    resolve_window_arg(
+        args,
+        "since window",
+        |since: ChurnSince| ChurnWindow::from(since),
+        ChurnWindow::Commits,
+        ChurnWindow::default(),
+    )
 }
 
 fn parse_package(args: Option<&Value>) -> Option<String> {

@@ -296,6 +296,25 @@ fn mcp_churn_tool_reports_file_churn_and_handles_non_git_directory() {
     assert_tool_err_contains(&responses[1], "not inside a Git repository");
 }
 
+fn commit_all_at(repo: &std::path::Path, message: &str, when: &str) {
+    for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", message]] {
+        let status = Command::new("git")
+            .args(&args)
+            .current_dir(repo)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.com")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.com")
+            .env("GIT_AUTHOR_DATE", when)
+            .env("GIT_COMMITTER_DATE", when)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?} failed");
+    }
+}
+
 #[test]
 fn mcp_coupling_tool_reports_co_change_pairs_bulk_exclusion_and_errors() {
     let repo = init_sample_repo();
@@ -311,22 +330,7 @@ fn mcp_coupling_tool_reports_co_change_pairs_bulk_exclusion_and_errors() {
             format!("export const b = {step};\n"),
         )
         .unwrap();
-        for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", "pair"]] {
-            let status = Command::new("git")
-                .args(&args)
-                .current_dir(repo.path())
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .env("GIT_CONFIG_NOSYSTEM", "1")
-                .env("GIT_AUTHOR_NAME", "Test")
-                .env("GIT_AUTHOR_EMAIL", "test@example.com")
-                .env("GIT_COMMITTER_NAME", "Test")
-                .env("GIT_COMMITTER_EMAIL", "test@example.com")
-                .env("GIT_AUTHOR_DATE", when)
-                .env("GIT_COMMITTER_DATE", when)
-                .status()
-                .unwrap();
-            assert!(status.success(), "git {args:?} failed");
-        }
+        commit_all_at(repo.path(), "pair", when);
     };
     commit_pair(1, "2026-05-01T10:00:00Z");
     commit_pair(2, "2026-05-02T10:00:00Z");
@@ -758,4 +762,51 @@ fn mcp_git_remedies_cover_impact_no_merge_base_and_unborn_head() {
         !impact_text.contains("base_ref") && !impact_text.contains("head_ref"),
         "impact no-merge-base remedy must not name diff arguments: {impact_text}"
     );
+}
+
+#[test]
+fn mcp_trend_tool_supports_commits_and_rejects_invalid_or_conflicting_range() {
+    let repo = init_sample_repo();
+    for (step, when) in [(2, "2026-05-02T10:00:00Z"), (3, "2026-05-03T10:00:00Z")] {
+        std::fs::write(
+            repo.path().join("app.ts"),
+            format!("export function greet(x: number): number {{\n  return x + {step};\n}}\n"),
+        )
+        .unwrap();
+        commit_all_at(repo.path(), "step", when);
+    }
+
+    let responses = send_mcp_requests(
+        repo.path(),
+        &[
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+            mcp_tool_call(2, "trend", json!({"commits": 2})),
+            mcp_tool_call(3, "trend", json!({"commits": 5})),
+            mcp_tool_call(4, "trend", json!({"commits": 0})),
+            mcp_tool_call(5, "trend", json!({"commits": -1})),
+            mcp_tool_call(6, "trend", json!({"since": "2026-05-01", "commits": 2})),
+        ],
+    );
+    assert_eq!(responses.len(), 6);
+
+    let tools = responses[0]["result"]["tools"].as_array().unwrap();
+    let trend_tool = tools.iter().find(|t| t["name"] == "trend").unwrap();
+    assert_eq!(
+        trend_tool["inputSchema"]["properties"]["commits"]["type"],
+        "integer"
+    );
+    assert_eq!(
+        trend_tool["inputSchema"]["properties"]["commits"]["minimum"],
+        1
+    );
+
+    let two_commits = mcp_payload(&responses[1]);
+    assert_eq!(two_commits["commits"], 2);
+
+    let all_commits = mcp_payload(&responses[2]);
+    assert_eq!(all_commits["commits"], 3);
+
+    assert_tool_err_contains(&responses[3], "commits");
+    assert_tool_err_contains(&responses[4], "commits");
+    assert_tool_err_contains(&responses[5], "mutually exclusive");
 }

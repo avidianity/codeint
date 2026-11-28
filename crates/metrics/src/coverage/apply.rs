@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use codeint_model::language::Function;
 use codeint_model::{CodeModel, FileModel, FunctionCoverage, RepoPath};
 
 use super::{ParsedCoverageReport, PathMatcher, merge_line_hit};
@@ -141,12 +142,9 @@ fn apply_merged_coverage(
                 continue;
             };
             model_has_coverage = true;
-            for function in &mut file.model.functions {
-                function.coverage = Some(summarize_function_coverage(
-                    function.line,
-                    function.end_line,
-                    file_lines,
-                ));
+            let coverages = summarize_file_coverage(&file.model.functions, file_lines);
+            for (function, coverage) in file.model.functions.iter_mut().zip(coverages) {
+                function.coverage = Some(coverage);
             }
         }
         if model_has_coverage {
@@ -157,27 +155,101 @@ fn apply_merged_coverage(
     }
 }
 
-fn summarize_function_coverage(
-    start_line: u32,
-    end_line: u32,
+#[derive(Clone, Copy)]
+struct FunctionSpan {
+    start: u32,
+    end: u32,
+    index: usize,
+}
+
+fn summarize_file_coverage(
+    functions: &[Function],
     file_lines: &BTreeMap<u32, u64>,
-) -> FunctionCoverage {
-    if start_line > end_line {
-        return FunctionCoverage {
+) -> Vec<FunctionCoverage> {
+    let mut results = vec![
+        FunctionCoverage {
             listed_lines: 0,
             executed_lines: 0,
         };
+        functions.len()
+    ];
+    let spans = collect_valid_spans(functions);
+    if spans.is_empty() || file_lines.is_empty() {
+        return results;
     }
-    let mut listed_lines: u32 = 0;
-    let mut executed_lines: u32 = 0;
-    for (_, &hits) in file_lines.range(start_line..=end_line) {
-        listed_lines = listed_lines.saturating_add(1);
-        if hits > 0 {
-            executed_lines = executed_lines.saturating_add(1);
+
+    let mut active = Vec::new();
+    let mut next_span = 0;
+
+    for (&line, &hits) in file_lines {
+        advance_active_spans(&spans, &mut next_span, &mut active, line);
+        attribute_line_to_innermost(&active, hits, &mut results);
+    }
+
+    results
+}
+
+fn collect_valid_spans(functions: &[Function]) -> Vec<FunctionSpan> {
+    let mut spans: Vec<FunctionSpan> = functions
+        .iter()
+        .enumerate()
+        .filter(|(_, function)| function.line <= function.end_line)
+        .map(|(index, function)| FunctionSpan {
+            start: function.line,
+            end: function.end_line,
+            index,
+        })
+        .collect();
+    spans.sort_unstable_by(|left, right| {
+        left.start
+            .cmp(&right.start)
+            .then_with(|| right.end.cmp(&left.end))
+            .then_with(|| left.index.cmp(&right.index))
+    });
+    spans
+}
+
+fn advance_active_spans(
+    spans: &[FunctionSpan],
+    next_span: &mut usize,
+    active: &mut Vec<FunctionSpan>,
+    line: u32,
+) {
+    while let Some(&span) = spans.get(*next_span).filter(|span| span.start <= line) {
+        if span.end >= line {
+            active.push(span);
         }
+        *next_span += 1;
     }
-    FunctionCoverage {
-        listed_lines,
-        executed_lines,
+    active.retain(|span| span.end >= line);
+}
+
+fn attribute_line_to_innermost(
+    active: &[FunctionSpan],
+    hits: u64,
+    results: &mut [FunctionCoverage],
+) {
+    for &span in active {
+        if has_strictly_nested_child(active, span) {
+            continue;
+        }
+        record_line_hit(&mut results[span.index], hits);
     }
+}
+
+fn has_strictly_nested_child(active: &[FunctionSpan], outer: FunctionSpan) -> bool {
+    active
+        .iter()
+        .any(|&other| is_strictly_nested_in((other.start, other.end), (outer.start, outer.end)))
+}
+
+fn record_line_hit(coverage: &mut FunctionCoverage, hits: u64) {
+    coverage.listed_lines = coverage.listed_lines.saturating_add(1);
+    if hits > 0 {
+        coverage.executed_lines = coverage.executed_lines.saturating_add(1);
+    }
+}
+
+fn is_strictly_nested_in(inner: (u32, u32), outer: (u32, u32)) -> bool {
+    outer.0 <= inner.0 && inner.1 <= outer.1 && inner != outer
 }

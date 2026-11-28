@@ -138,7 +138,7 @@ fn every_metric_descriptor_has_expected_version_and_metadata() {
             Metric::TestGap,
             "test_gap",
             "Test gap",
-            1,
+            2,
             MetricKind::SoftwareEntropy,
             MetricScope::ProductionOnly,
             false,

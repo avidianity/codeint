@@ -560,6 +560,7 @@ With no failure, the report has no `over_budget` or `regressions` key, and codei
 | Option | Meaning |
 | ------ | ------- |
 | `--since <YYYY-MM-DD>` | Measure every main-line commit committed on or after this day, in UTC, instead of the latest 20 |
+| `--commits <COUNT>` | Measure at most this many latest main-line commits from HEAD instead of the latest 20 |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, or `markdown`; overrides `format` in the configuration file |
 | `-h, --help` | Print the help of `codeint trend` |
@@ -586,7 +587,14 @@ source_sets:
 ```
 
 The main line is the first-parent history of HEAD: a merge commit is a row, and the commits of the branch it merged are not.
-Without `--since`, codeint measures the latest 20 commits of the main line.
+Without `--since` or `--commits`, codeint measures the latest 20 commits of the main line.
+`--commits <COUNT>` measures at most `<COUNT>` latest main-line commits from HEAD (for counts below, equal to, or above 20):
+
+```sh exit=0
+codeint trend --commits 2
+```
+
+Passing `--commits 0` or combining `--since` and `--commits` stops the run with exit code 2.
 `--since {YYYY-MM-DD}` measures every main-line commit committed on or after the start of that day in UTC, with no limit on the count:
 
 ```sh exit=0
@@ -1744,13 +1752,15 @@ Name one or more Coverage reports in `coverage_reports` (paths relative to the r
 When `--coverage-report` is present on the command line, `coverage_reports` from the configuration file is not used for that run.
 See [docs/guide/test-gap.md](./guide/test-gap.md) for copy-paste setup commands for each supported test tool.
 
-Test gap computes from the Code model alone after codeint fills per-function coverage facts from the named reports:
+Test gap computes from the Code model alone after codeint fills per-function coverage facts from the named reports (Metric version `2`, [ADR 0039](./adr/0039-metric-v2-test-gap.md)):
 
-- For each Production function, `untested_share` is its listed lines with hit count `0` divided by all its listed lines.
+- Each listed line in a covered file is attributed only to the innermost enclosing function span across all languages, excluding lines inside strictly nested child functions or closures from enclosing parent functions.
+  Functions sharing identical start and end lines both retain those lines because line-based Coverage reports carry no column information.
+- For each Production function, `untested_share` is its owned listed lines with hit count `0` divided by all its owned listed lines.
   Lines that no report lists count on neither side.
 - Test gap is the sum over Production functions of `Function mass * untested_share`, divided by the total Function mass of those functions.
 - A function whose file appears in no named report, in a language that at least one named report covers, counts as fully untested (`untested_share = 1`).
-- A function whose file appears in a report, but of which the report lists no line, is left out of Test gap on both sides.
+- A function whose file appears in a report, but that owns no listed line after excluding strictly nested child spans, is left out of Test gap on both sides.
 - When several Coverage reports (or several Cobertura `<class>` entries for one file) list the same line, the line counts as executed when any of them has a hit count above `0`.
 - Test gap covers the Production Source set only (repository total, each covered language, and each Workspace package) and never appears for Test, Generated, or Vendored files.
 - Test gap has no Reference range, and no Language plugin publishes one.

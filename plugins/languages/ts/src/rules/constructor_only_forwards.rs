@@ -1,7 +1,6 @@
 use oxc_ast::ast::{
-    Argument, BindingPattern, CallExpression, Class, ClassElement, Expression, FormalParameter,
-    FormalParameterRest, FormalParameters, Function, MethodDefinition, MethodDefinitionKind,
-    Program, Statement, TSAccessibility,
+    Argument, BindingPattern, CallExpression, Class, ClassElement, Expression, FormalParameterRest,
+    FormalParameters, Function, MethodDefinition, MethodDefinitionKind, Program, Statement,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::Span;
@@ -53,11 +52,11 @@ fn constructors<'c, 'a>(class: &'c Class<'a>) -> Vec<&'c MethodDefinition<'a>> {
 }
 
 fn only_forwards_to_super(constructor: &MethodDefinition<'_>) -> bool {
-    matches!(
-        constructor.accessibility,
-        None | Some(TSAccessibility::Public)
-    ) && super_call(&constructor.value)
-        .is_some_and(|call| forwards_parameters_in_order(&constructor.value.params, call))
+    constructor.accessibility.is_none()
+        && constructor.decorators.is_empty()
+        && constructor.value.this_param.is_none()
+        && super_call(&constructor.value)
+            .is_some_and(|call| forwards_untyped_single_rest(&constructor.value.params, call))
 }
 
 fn super_call<'f, 'a>(function: &'f Function<'a>) -> Option<&'f CallExpression<'a>> {
@@ -75,38 +74,25 @@ fn super_call<'f, 'a>(function: &'f Function<'a>) -> Option<&'f CallExpression<'
         .then_some(&**call)
 }
 
-fn forwards_parameters_in_order(
+fn forwards_untyped_single_rest(
     parameters: &FormalParameters<'_>,
     call: &CallExpression<'_>,
 ) -> bool {
-    let rest = parameters.rest.as_deref();
-    let (plain_arguments, rest_argument) = match (rest, call.arguments.split_last()) {
-        (Some(_), Some((last, others))) => (others, Some(last)),
-        (Some(_), None) => return false,
-        (None, _) => (call.arguments.as_slice(), None),
+    if !parameters.items.is_empty() {
+        return false;
+    }
+    let Some(rest) = parameters.rest.as_deref() else {
+        return false;
     };
-    plain_arguments.len() == parameters.items.len()
-        && parameters
-            .items
-            .iter()
-            .zip(plain_arguments)
-            .all(|(parameter, argument)| forwards_plain(parameter, argument))
-        && rest
-            .zip(rest_argument)
-            .is_none_or(|(rest, argument)| forwards_rest(rest, argument))
+    let [argument] = call.arguments.as_slice() else {
+        return false;
+    };
+    forwards_untyped_rest(rest, argument)
 }
 
-fn forwards_plain(parameter: &FormalParameter<'_>, argument: &Argument<'_>) -> bool {
-    parameter.decorators.is_empty()
-        && !parameter.has_modifier()
-        && parameter.initializer.is_none()
-        && plain_name(&parameter.pattern).is_some_and(
-            |name| matches!(argument, Argument::Identifier(identifier) if identifier.name == name),
-        )
-}
-
-fn forwards_rest(rest: &FormalParameterRest<'_>, argument: &Argument<'_>) -> bool {
+fn forwards_untyped_rest(rest: &FormalParameterRest<'_>, argument: &Argument<'_>) -> bool {
     rest.decorators.is_empty()
+        && rest.type_annotation.is_none()
         && plain_name(&rest.rest.argument).is_some_and(|name| {
             matches!(
                 argument,

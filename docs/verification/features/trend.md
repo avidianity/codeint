@@ -1,6 +1,6 @@
 # Feature map: `codeint trend`
 
-Verifies multi-commit main-line history measurement, `--since` date filtering, report formats, result cache population, and operational errors.
+Verifies multi-commit main-line history measurement, `--commits` commit-count windows, `--since` date filtering, report formats, result cache population, and operational errors.
 See [codeint trend](../../reference.md#codeint-trend) for the command specification.
 
 ## Preconditions
@@ -22,8 +22,11 @@ docs/verification/verify.sh doctor "$RUN_DIR"
 | `history_text` | Multi-commit branch with `--format text` | `0` | Monochrome aligned commit table starts with `codeint trend`, lists 3 dates oldest first, and has no ANSI escapes |
 | `config_unsupported_format` | `codeint.json` sets `"format": "sarif"` | `2` | Standard error names `trend`, `sarif`, and supported formats (`toon`, `text`, `json`, `markdown`) |
 | `since_json` | `--since 2026-11-05 --format json` | `0` | Valid JSON with `commits == 2` |
+| `commits_json` | `--commits 2 --format json` | `0` | Valid JSON with `commits == 2` and two `production` rows oldest first |
 | `history_md` | `--format markdown --output` | `0` | Writes non-empty `trend.md` |
 | `bad_since` | Invalid calendar date `2026-02-30` | `2` | Standard error rejects the date |
+| `bad_commits_zero` | `--commits 0` | `2` | Standard error rejects zero commit count |
+| `commits_since_conflict` | `--since 2026-11-05 --commits 2` | `2` | Standard error rejects combining `--since` and `--commits` |
 | `unborn_head` | Empty repository with unborn `HEAD` | `2` | Standard error reports no commits on the branch |
 
 ## Drive and Assert

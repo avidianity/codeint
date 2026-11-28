@@ -211,8 +211,8 @@ class Base {
 }
 
 export class Child extends Base {
-  constructor(name: string) {
-    super(name);
+  constructor(...args) {
+    super(...args);
   }
 }
 

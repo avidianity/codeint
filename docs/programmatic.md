@@ -17,8 +17,8 @@ All three client SDKs share the same failure model:
   - TypeScript/JavaScript resolves to `GatedResult<TReport>` (`{ passed, exitCode, failures, report }`).
   - Rust returns `Ok(GatedOutcome<T>)` (`passed`, `failures`, `report`).
   - Dart resolves to `GatedOutcome<T>` (`passed`, `exitCode`, `failures`, `report`).
-- **Operational errors** (exit `2`, such as an invalid configuration file, a missing folder, an unknown Git ref, or a directory outside Git) fail loudly:
-  - TypeScript/JavaScript throws `CodeintError` with `message`, `exitCode`, `stderr`, and `cause`.
+- **Operational errors** (exit `2`, such as an invalid configuration file, a missing folder, an unknown Git ref, a directory outside Git, or a binary-resolution failure) fail loudly:
+  - TypeScript/JavaScript rejects asynchronously with `CodeintError` (`message`, `exitCode`, `stderr`, and `cause`), including when binary resolution fails on an unsupported platform, a missing optional platform package, or a missing binary file.
   - Rust returns `Err(CodeintError)` with `message()` and `remedy()`.
   - Dart throws `CodeintError` with `message`, `exitCode`, `stderr`, and `cause`.
 
@@ -31,7 +31,7 @@ See [docs/reference.md](./reference.md) for the exact semantics of each command 
 | ----------- | --------------- | -------------------- | ---------------------- | ----- | ----------- |
 | `check` | `check(options?)` | `check(folder, &CheckOptions)` | `check([CheckOptions])` | Yes | `path`, `all`, `package`, `owner`, `coverageReports` / `coverage_reports`, `ignoreBaseline` / `ignore_baseline` |
 | `diff` | `diff(baseRef, options?)` | `diff(folder, base_ref, &DiffOptions)` | `diff(baseRef, [DiffOptions])` | Yes | `headRef` / `head_ref`, `all`, `package`, `owner`, `resultCache` / `result_cache` |
-| `trend` | `trend(options?)` | `trend(folder, &TrendOptions)` | `trend([TrendOptions])` | No | `since`, `last` (Dart) / `range` (Rust), `resultCache` / `result_cache` |
+| `trend` | `trend(options?)` | `trend(folder, &TrendOptions)` | `trend([TrendOptions])` | No | `since`, `commits` (CLI, TypeScript) / `last` (Dart) / `range` (Rust), `resultCache` / `result_cache` |
 | `impact` | `impact(options)` | `impact(folder, &ImpactOptions)` | `impact([ImpactOptions])` | No | `paths`, `changed`, `depth`, `package` |
 | `trace` | `trace(from, to, options?)` | `trace(folder, from, to, &TraceOptions)` | `trace(from, to, [TraceOptions])` | No | `all`, `maxPaths` / `max_paths`, `package` |
 | `init` | `init(options?)` | `init(folder, &InitOptions)` | `init([InitOptions])` | No | `format` (`jsonc`, `json`, `toml`, `yaml`), `adopt` |
@@ -52,7 +52,9 @@ Subprocess SDKs also accept common execution options:
 
 - TypeScript/JavaScript accepts `cwd` and `binaryPath` on every options object, plus `output` on report-producing operations (`check`, `diff`, `trend`, `impact`, `trace`, `schema`, `report`, `churn`, `coupling`).
 - Dart configures `cwd`, `binaryPath`, `allowDownload`, `releaseBaseUrl`, `cacheDir`, and `environment` on `CodeintClient`.
+- When `report` receives a non-empty `output` path in TypeScript/JavaScript or Dart, relative paths resolve against `cwd`, the client reads back and returns the written report text instead of empty stdout, and reading failures throw `CodeintError` with the original cause.
 - Rust accepts `PluginHostConfig` on measurement options (`check`, `diff`, `trend`, `impact`, `trace`, `init`, `doctor`, `churn`, `coupling`, `ratchet_update`, `baseline_update`).
+- `trend` accepts either `since` or a positive commit count (`--commits <COUNT>` on the CLI, `trend({ commits: N })` in TypeScript, `TrendOptions(last: N)` in Dart, defaulting to 20; passing a non-positive count or combining `since` with a commit count fails with exit code 2 or `CodeintError`).
 
 ## Built-in Metrics, custom Metric plugins, and report JSON Schemas
 

@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { CodeintError } = require("./error.cjs");
 
 const PLATFORMS = {
   "darwin-arm64": { pkg: "@avidian/codeint-darwin-arm64", bin: "bin/codeint" },
@@ -23,34 +24,46 @@ function resolveOverridePath(overridePath) {
   return null;
 }
 
+function assertBinaryExists(binaryPath, message) {
+  try {
+    fs.accessSync(binaryPath);
+  } catch (error) {
+    throw new CodeintError(message, 2, "", { cause: error });
+  }
+}
+
 function resolveBinary(overridePath) {
   const overridden = resolveOverridePath(overridePath);
   if (overridden) {
+    assertBinaryExists(overridden, `native binary not found at ${overridden}.`);
     return overridden;
   }
   const platformKey = `${process.platform}-${process.arch}`;
   const target = PLATFORMS[platformKey];
   if (!target) {
     const supported = Object.keys(PLATFORMS).join(", ");
-    throw new Error(
-      `unsupported platform "${platformKey}". Supported platforms: ${supported}.`
+    throw new CodeintError(
+      `unsupported platform "${platformKey}". Supported platforms: ${supported}.`,
+      2,
+      ""
     );
   }
   let packageJsonPath;
   try {
     packageJsonPath = require.resolve(`${target.pkg}/package.json`);
   } catch (error) {
-    throw new Error(
+    throw new CodeintError(
       `missing platform package "${target.pkg}" for ${platformKey} (${error.message}). Reinstall codeint with optional dependencies enabled.`,
+      2,
+      "",
       { cause: error }
     );
   }
   const binaryPath = path.join(path.dirname(packageJsonPath), target.bin);
-  if (!fs.existsSync(binaryPath)) {
-    throw new Error(
-      `native binary not found at ${binaryPath} (package "${target.pkg}").`
-    );
-  }
+  assertBinaryExists(
+    binaryPath,
+    `native binary not found at ${binaryPath} (package "${target.pkg}").`
+  );
   return binaryPath;
 }
 

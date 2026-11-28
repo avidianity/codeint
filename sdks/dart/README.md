@@ -41,6 +41,9 @@ Future<void> main() async {
 }
 ```
 
+`client.trend(const TrendOptions(last: N))` forwards `--commits N` directly to the CLI and throws `CodeintError` for non-positive `last` or when combined with `since`.
+`client.report(input, const ReportOptions(output: path))` resolves relative output paths against `cwd`, reads back the written file, and returns the rendered report text (throwing `CodeintError` if reading fails).
+
 ## Binary resolution
 
 `ensureBinary()` resolves the native `codeint` binary in four deterministic steps:
