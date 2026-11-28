@@ -75,12 +75,34 @@ impl TempRepo {
             ("GIT_AUTHOR_DATE", committer_date),
             ("GIT_COMMITTER_DATE", committer_date),
         ];
-        git_with_env(&self.root, &["add", "-A"], &date_envs);
-        git_with_env(&self.root, &["commit", "-q", "-m", message], &date_envs);
+        TempRepo::git_with_env(&self.root, &["add", "-A"], &date_envs);
+        TempRepo::git_with_env(&self.root, &["commit", "-q", "-m", message], &date_envs);
         Repository::discover(self.path())
             .expect("open repo")
             .resolve("HEAD")
             .expect("resolve HEAD")
+    }
+    fn git_with_env(cwd: &Path, args: &[&str], extra_envs: &[(&str, &str)]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .envs([
+                ("GIT_CONFIG_GLOBAL", "/dev/null"),
+                ("GIT_CONFIG_NOSYSTEM", "1"),
+                ("GIT_AUTHOR_NAME", "Tester"),
+                ("GIT_AUTHOR_EMAIL", "tester@example.invalid"),
+                ("GIT_COMMITTER_NAME", "Tester"),
+                ("GIT_COMMITTER_EMAIL", "tester@example.invalid"),
+            ])
+            .envs(extra_envs.iter().copied())
+            .output()
+            .expect("spawn git");
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).expect("utf8 stdout")
     }
 }
 
@@ -91,30 +113,7 @@ impl Drop for TempRepo {
 }
 
 pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
-    git_with_env(cwd, args, &[])
-}
-
-fn git_with_env(cwd: &Path, args: &[&str], extra_envs: &[(&str, &str)]) -> String {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
-        .envs([
-            ("GIT_CONFIG_GLOBAL", "/dev/null"),
-            ("GIT_CONFIG_NOSYSTEM", "1"),
-            ("GIT_AUTHOR_NAME", "Tester"),
-            ("GIT_AUTHOR_EMAIL", "tester@example.invalid"),
-            ("GIT_COMMITTER_NAME", "Tester"),
-            ("GIT_COMMITTER_EMAIL", "tester@example.invalid"),
-        ])
-        .envs(extra_envs.iter().copied())
-        .output()
-        .expect("spawn git");
-    assert!(
-        output.status.success(),
-        "git {args:?} failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).expect("utf8 stdout")
+    TempRepo::git_with_env(cwd, args, &[])
 }
 
 fn repo_path(path: &str) -> RepoPath {
@@ -122,7 +121,7 @@ fn repo_path(path: &str) -> RepoPath {
 }
 
 fn repo_paths(raw: &[&str]) -> Vec<RepoPath> {
-    raw.iter().map(|item| repo_path(item)).collect()
+    raw.iter().copied().map(repo_path).collect()
 }
 
 fn first_parent_ids_since(temp: &TempRepo, unix_seconds: i64) -> Vec<CommitId> {
