@@ -1,6 +1,6 @@
 # codeint
 
-> codeint is a command-line tool, local MCP server, and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Cognitive complexity, Test gap, Duplication with Clone families and opt-in near-clones, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) and reports Hazards next to Software entropy across TypeScript/JavaScript (including React JSX/TSX, Vue, and Svelte), Rust, PHP, Dart, Python, Go, SQL (generic SQL plus PostgreSQL, MySQL/MariaDB, SQLite, and DuckDB Dialects), Shell (POSIX sh, Bash, and Zsh), and external WebAssembly Language and Metric plugins.
+> codeint is a command-line tool, local MCP server, and programmatic SDK (JavaScript/TypeScript, Rust, and Dart) that measures Software entropy (Erosion, Cognitive complexity, Test gap, Duplication with Clone families and opt-in near-clones, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) and reports Hazards next to Software entropy across TypeScript/JavaScript (including React JSX/TSX, Vue, and Svelte), Rust, PHP, Dart, Python, Go, SQL (generic SQL plus PostgreSQL, MySQL/MariaDB, SQLite, and DuckDB Dialects), Shell (POSIX sh, Bash, and Zsh), and external WebAssembly Language and Metric plugins.
 > CLI commands include `check`, `diff`, `ratchet`, `baseline`, `trend`, `impact`, `trace`, `guard`, `churn`, `coupling`, `report`, `config`, `schema`, `doctor`, `plugin`, `agent`, `mcp`, `init`, and `update`, configured via `codeint.{json,jsonc,toml,yaml,yml}` or `.codeint/config.{json,jsonc,toml,yaml,yml}`, with optional whole-repository ceilings in `.codeint/ratchet.json` and an optional Baseline of existing Findings in `.codeint/baseline.json` that `codeint check` hides (`--ignore-baseline` shows them).
 
 ## Guide
@@ -23,10 +23,11 @@
 ## Reference and APIs
 
 - [CLI and Configuration Reference](docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and schema key.
-- [Programmatic API](docs/programmatic.md): JavaScript/TypeScript SDK (`codeint` npm package) and Rust library API (`codeint-cli`).
+- [Programmatic API](docs/programmatic.md): Wave 1 client SDKs for JavaScript/TypeScript (`codeint` npm package), Rust (`codeint-cli`), and Dart (`codeint` pub.dev package and `dart run codeint`) across all 18 non-interactive operations.
 - [Plugins](docs/plugins.md): build external WebAssembly Language and Metric plugins against `codeint:plugin@0.5.0` using `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`, zero WASI imports), pin SHA-256 digests, declare in config, and test.
 - [Plugin SDK HOW-TO](crates/plugin-sdk/HOW-TO.md): call contract and Cargo features for `codeint-plugin-sdk`.
-- [JSON Schema](schema/codeint.schema.json): JSON Schema for `codeint` JSON, JSONC, TOML, and YAML configuration files.
+- [Configuration JSON Schema](schema/codeint.schema.json): JSON Schema for `codeint` JSON, JSONC, TOML, and YAML configuration files.
+- [Report JSON Schemas](schema/codeint-report.schema.json): JSON Schema for `codeint check` (`schema/codeint-report.schema.json`) and the 15 other JSON report commands (`schema/reports/*.schema.json`).
 - [Glossary](GLOSSARY.md): canonical domain terminology.
 - [Evaluation suite runner](eval/HOW-TO.md): measure the pinned public corpus in `eval/corpus.json` or stratified panels in `eval/panels.json` in scratch folders with native-parser recall oracles, 3-run timing, and peak memory.
 - [Evaluation report](docs/evaluation.md): published 927-repository Reference range panels, native-parser recall, speed and memory benchmarks, agent-reviewed false positive rates ([audit verdicts](docs/evaluation-audit.json)), and pinned before-after case studies ([machine-readable summary](docs/evaluation-summary.json)).
@@ -67,3 +68,4 @@
 - [ADR 0035: Stratified 100-repository Reference panels with round-robin star bands](docs/adr/0035-stratified-100-repository-reference-panels.md)
 - [ADR 0036: Plugin contract 0.5.0](docs/adr/0036-plugin-contract-0-5-0.md)
 - [ADR 0037: Metric version 2 for Duplication and Import boundaries](docs/adr/0037-metric-v2-duplication-and-boundaries.md)
+- [ADR 0038: Client SDK architecture, parity, and Dart client SDK](docs/adr/0038-programmatic-sdks.md)
