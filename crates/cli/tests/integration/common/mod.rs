@@ -266,3 +266,31 @@ fn doctor_languages_summary(dir: &Path) -> String {
         .unwrap_or_default()
         .to_owned()
 }
+
+pub(crate) fn host_target() -> &'static str {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => "aarch64-apple-darwin",
+        ("macos", "x86_64") => "x86_64-apple-darwin",
+        ("linux", "x86_64") => "x86_64-unknown-linux-musl",
+        ("linux", "aarch64") => "aarch64-unknown-linux-musl",
+        (os, arch) => panic!("unsupported test host {os}/{arch}"),
+    }
+}
+
+pub(crate) fn sha256_of(path: &Path) -> String {
+    let output = Command::new("sh")
+        .args([
+            "-c",
+            r#"if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{ print tolower($1) }'"#,
+            "_",
+        ])
+        .arg(path)
+        .output()
+        .expect("compute sha256");
+    assert!(
+        output.status.success(),
+        "sha256 command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
