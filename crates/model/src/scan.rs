@@ -1,6 +1,9 @@
 use std::collections::{BTreeSet, HashSet};
 
-use crate::language::{FlaggedLine, Function, LowerError, ReferenceRange, Resolution};
+use crate::language::{FlaggedLine, Function, LowerError, ReferenceRange};
+
+#[cfg(test)]
+mod tests;
 
 pub trait ScanToken {
     fn text(&self) -> &str;
@@ -282,32 +285,41 @@ pub fn find_arrow_expr_end<T: ScanToken>(tokens: &[T], start: usize) -> usize {
     tokens.len().saturating_sub(1)
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RelativeFileResolution {
+    Resolved(String),
+    Ignored,
+    Unresolved(String),
+}
+
 pub fn resolve_relative_file(
     files: &HashSet<String>,
     importer: &str,
     rel_uri: &str,
     ignore_vendor: bool,
-) -> Resolution {
+) -> RelativeFileResolution {
     if rel_uri.starts_with('/') {
-        return Resolution::Unresolved(format!(
+        return RelativeFileResolution::Unresolved(format!(
             "{rel_uri:?} is an absolute path, which depends on the machine"
         ));
     }
     let parent = importer.rsplit_once('/').map_or("", |(dir, _)| dir);
     let Some(joined) = normalize_relative_path(parent, rel_uri) else {
-        return Resolution::Unresolved(format!("{rel_uri:?} leads outside the repository"));
+        return RelativeFileResolution::Unresolved(format!(
+            "{rel_uri:?} leads outside the repository"
+        ));
     };
     if ignore_vendor && joined.split('/').any(|seg| seg == "vendor") {
-        return Resolution::External(String::new());
+        return RelativeFileResolution::Ignored;
     }
     if files.contains(&joined) {
         if joined == importer {
-            Resolution::External(String::new())
+            RelativeFileResolution::Ignored
         } else {
-            Resolution::Resolved(vec![joined])
+            RelativeFileResolution::Resolved(joined)
         }
     } else {
-        Resolution::Unresolved(format!("no file of the repository matches {rel_uri:?}"))
+        RelativeFileResolution::Unresolved(format!("no file of the repository matches {rel_uri:?}"))
     }
 }
 

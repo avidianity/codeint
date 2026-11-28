@@ -108,10 +108,7 @@ macro_rules! every_import_is_external {
             requests: Vec<ImportRequest>,
             _active_profiles: Vec<String>,
         ) -> Vec<Resolution> {
-            requests
-                .iter()
-                .map(|_| Resolution::External(String::new()))
-                .collect()
+            requests.iter().map(|_| Resolution::Builtin).collect()
         }
 
         fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
@@ -808,10 +805,7 @@ impl LanguagePlugin for ParallelProofPlugin {
         requests: Vec<ImportRequest>,
         _active_profiles: &[String],
     ) -> Result<Vec<Resolution>, codeint_model::LanguagePluginError> {
-        Ok(requests
-            .iter()
-            .map(|_| Resolution::External(String::new()))
-            .collect())
+        Ok(requests.iter().map(|_| Resolution::Builtin).collect())
     }
 
     fn declared_dependencies(
@@ -1652,10 +1646,7 @@ impl Guest for PickyManifests {
         _active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         assert_no_bad_manifest(&manifests);
-        requests
-            .iter()
-            .map(|_| Resolution::External(String::new()))
-            .collect()
+        requests.iter().map(|_| Resolution::Builtin).collect()
     }
 
     fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {

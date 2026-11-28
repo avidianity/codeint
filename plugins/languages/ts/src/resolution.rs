@@ -5,6 +5,7 @@ mod tests;
 
 use std::collections::HashMap;
 
+use codeint_model::is_valid_external_package_name;
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
 use oxc_resolver::{ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery};
 
@@ -257,7 +258,7 @@ impl ProjectResolver {
             return false;
         }
         let name = package_name(specifier);
-        if name.is_empty() || self.package_folders.contains_key(name) {
+        if !is_valid_external_package_name(name) || self.package_folders.contains_key(name) {
             return false;
         }
         if specifier.starts_with("npm:") || specifier.starts_with("jsr:") {
@@ -275,7 +276,7 @@ impl ProjectResolver {
 }
 
 fn precheck_specifier(importer: &str, specifier: &str) -> Option<Resolution> {
-    if specifier.is_empty() {
+    if !is_valid_external_package_name(specifier) {
         return Some(Resolution::Unresolved(
             "import specifier is empty".to_owned(),
         ));
@@ -377,7 +378,7 @@ fn package_name(specifier: &str) -> &str {
         .strip_prefix("npm:")
         .or_else(|| clean.strip_prefix("jsr:"))
         .map_or((clean, false), |rest| (rest, true));
-    if body.is_empty() {
+    if !is_valid_external_package_name(body) {
         return "";
     }
     let segments = if body.starts_with('@') { 2 } else { 1 };
@@ -386,7 +387,7 @@ fn package_name(specifier: &str) -> &str {
         .nth(segments - 1)
         .map_or(body.len(), |(index, _)| index);
     let candidate = &body[..end];
-    if has_registry_prefix {
+    let resolved = if has_registry_prefix {
         let stripped = strip_registry_version(candidate);
         if packages::is_package_name(stripped) {
             stripped
@@ -395,7 +396,18 @@ fn package_name(specifier: &str) -> &str {
         }
     } else {
         candidate
+    };
+    if !is_valid_external_package_name(resolved) || has_invalid_package_char(resolved) {
+        ""
+    } else {
+        resolved
     }
+}
+
+fn has_invalid_package_char(name: &str) -> bool {
+    name.chars().any(|ch| {
+        ch.is_whitespace() || ch.is_control() || matches!(ch, '\u{200B}'..='\u{200D}' | '\u{FEFF}')
+    })
 }
 
 fn package_subpath<'a>(specifier: &'a str, pkg: &str) -> &'a str {

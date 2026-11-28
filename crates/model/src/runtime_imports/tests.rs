@@ -203,12 +203,30 @@ fn a_plugin_that_answers_the_wrong_number_of_requests_is_an_error() {
     );
 }
 
+fn resolve_single_import(
+    specifier: &str,
+    resolution: Resolution,
+) -> Result<Vec<RuntimeImport>, ResolveError> {
+    let plugin = Answering::of(vec![resolution]);
+    let a = importer("a.ts", &[specifier]);
+    resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a], &[])
+}
+
+fn assert_rejects_external_package(package: &str) {
+    let result = resolve_single_import("mystery", Resolution::External(package.to_owned()));
+    assert!(
+        matches!(
+            &result,
+            Err(ResolveError::EmptyExternalPackage { importer, specifier })
+                if importer.as_str() == "a.ts" && specifier == "mystery"
+        ),
+        "invalid external package {package:?} must be rejected, got {result:?}"
+    );
+}
+
 #[test]
 fn a_plugin_that_resolves_to_an_empty_list_is_an_error() {
-    let plugin = Answering::of(vec![Resolution::Resolved(Vec::new())]);
-    let a = importer("a.ts", &["./empty"]);
-
-    let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a], &[]);
+    let result = resolve_single_import("./empty", Resolution::Resolved(Vec::new()));
 
     assert!(
         matches!(
@@ -312,4 +330,26 @@ fn resolve_runtime_imports_propagates_plugin_memory_limit_errors() {
         ),
         "unexpected error: {error:?}"
     );
+}
+
+#[test]
+fn a_plugin_that_resolves_to_an_empty_external_package_is_an_error() {
+    for empty_package in ["", "   "] {
+        assert_rejects_external_package(empty_package);
+    }
+}
+
+#[test]
+fn a_plugin_that_resolves_to_a_blank_invisible_or_control_external_package_is_an_error() {
+    for invalid_package in [
+        "",
+        "   ",
+        "\u{00a0}",
+        "\u{200B}",
+        "\u{FEFF}",
+        "\0",
+        "pkg\0name",
+    ] {
+        assert_rejects_external_package(invalid_package);
+    }
 }

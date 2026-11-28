@@ -164,13 +164,13 @@ fn unresolved_imports_are_listed_by_importer_in_source_order_and_others_are_not(
             },
             UnresolvedImport {
                 importer: path("b.ts"),
-                specifier: "./second".to_owned(),
-                reason: "no file matches ./second".to_owned(),
+                specifier: "./first".to_owned(),
+                reason: "no file matches ./first".to_owned(),
             },
             UnresolvedImport {
                 importer: path("b.ts"),
-                specifier: "./first".to_owned(),
-                reason: "no file matches ./first".to_owned(),
+                specifier: "./second".to_owned(),
+                reason: "no file matches ./second".to_owned(),
             },
         ]
     );
@@ -276,4 +276,45 @@ fn acyclic_multi_file_resolved_imports_form_no_import_cycle() {
     assert!(cycles.cycles().is_empty());
     assert_eq!(cycles.modules_in_import_cycles(), 0);
     assert_eq!(cycles.modules(), 7);
+}
+
+#[test]
+fn unresolved_imports_with_same_importer_sort_deterministically_regardless_of_input_order() {
+    let first = RuntimeImport {
+        importer: path("src/a.ts"),
+        specifier: "./alpha".to_owned(),
+        resolution: ImportResolution::Unresolved {
+            reason: "missing a".to_owned(),
+        },
+    };
+    let second = RuntimeImport {
+        importer: path("src/a.ts"),
+        specifier: "./alpha".to_owned(),
+        resolution: ImportResolution::Unresolved {
+            reason: "missing b".to_owned(),
+        },
+    };
+    let third = RuntimeImport {
+        importer: path("src/a.ts"),
+        specifier: "./beta".to_owned(),
+        resolution: ImportResolution::Unresolved {
+            reason: "missing c".to_owned(),
+        },
+    };
+
+    let model_a = CodeModel {
+        files: vec![module("src/a.ts")],
+        runtime_imports: vec![third.clone(), second.clone(), first.clone()],
+        ..CodeModel::default()
+    };
+    let model_b = CodeModel {
+        files: vec![module("src/a.ts")],
+        runtime_imports: vec![first, second, third],
+        ..CodeModel::default()
+    };
+
+    let cycles_a = ImportCycles::measure(&model_a);
+    let cycles_b = ImportCycles::measure(&model_b);
+
+    assert_eq!(cycles_a.unresolved_imports(), cycles_b.unresolved_imports());
 }

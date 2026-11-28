@@ -163,7 +163,7 @@ for import in import_cycles.unresolved_imports() {
 
 - `unresolved_imports` lists each `RuntimeImport` whose resolution is `Unresolved`, with the reason the Language plugin gave.
   External imports, such as bare imports of packages and built-in modules, are never unresolved.
-- The list is sorted by importer path, and keeps source order within one importer.
+- The list is sorted deterministically by importer path, specifier, and reason.
 - An unresolved import adds no edge and never changes the ratio; it only shows how complete the import graph is.
 - The report shows the count and the first unresolved imports under `import_cycles.unresolved_imports` of each Source set, with the same limit and `--all` option as Findings.
 
