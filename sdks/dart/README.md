@@ -10,7 +10,7 @@ Add `codeint` to your `pubspec.yaml`:
 
 ```yaml
 dev_dependencies:
-  codeint: ^0.8.0
+  codeint: ^0.9.0
 ```
 
 Pre-warm the verified native binary cache if desired:

@@ -55,7 +55,7 @@ codeint --version
 ```
 
 ```text stdout
-codeint 0.8.0
+codeint 0.9.0
 ```
 
 ```sh exit=0
@@ -89,7 +89,7 @@ It sets every key to its default, and lists under `languages` each top-level fol
 
 ```json file=codeint.jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.8.0/schema/codeint.schema.json",
+  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.9.0/schema/codeint.schema.json",
   "source_sets": {
     "production": [],
     "test": [],
@@ -189,7 +189,7 @@ jobs:
           fetch-depth: 0
       - uses: avidianity/codeint@main
         with:
-          version: v0.8.0
+          version: v0.9.0
 
 4. After you fix legacy code, run codeint ratchet update and codeint baseline update, and commit the result.
 5. To hold every new file to a strict bar, uncomment new_file_budgets in codeint.jsonc.
@@ -732,11 +732,11 @@ When run inside a repository whose configuration file uses the codeint schema UR
 If the running binary lives inside `node_modules`, `codeint update` refuses to overwrite it and exits `2` with the package-manager update command instead.
 
 ```sh exit=0
-codeint update --check --version v0.8.0
+codeint update --check --version v0.9.0
 ```
 
 ```text stdout
-codeint 0.8.0 is already up to date (v0.8.0)
+codeint 0.9.0 is already up to date (v0.9.0)
 ```
 
 ### `codeint mcp`
@@ -2335,7 +2335,7 @@ codeint check --format sarif
       "tool": {
         "driver": {
           "name": "codeint",
-          "version": "0.8.0",
+          "version": "0.9.0",
           "informationUri": "https://github.com/avidianity/codeint",
           "rules": [
             {
