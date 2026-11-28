@@ -669,37 +669,28 @@ function audit(age: number) {
         flagged: &[
             Flagged {
                 text: "export class Admin extends User {
-  constructor(name: string, role: string) {
-    super(name, role);
+  constructor(...args) {
+    super(...args);
   }
 }
 ",
                 lines: &[2, 3, 4],
             },
             Flagged {
-                text: "export class Empty extends Base {
-  constructor() { super(); }
+                text: "export class Proxy extends Base {
+  constructor(...args) { super(...args); }
   describe() {
-    return 'empty';
+    return 'proxy';
   }
 }
 ",
                 lines: &[2],
             },
             Flagged {
-                text: "export class Logger extends Sink {
-  public constructor(target: string, ...options: string[]) {
-    super(target, ...options);
-  }
-}
-",
-                lines: &[2, 3, 4],
-            },
-            Flagged {
                 text: "export const Child = class extends Parent {
-  constructor(value?: number) {
+  constructor(...args) {
     // the parent does the work
-    (super(value));
+    (super(...args));
   }
 };
 ",
@@ -722,6 +713,123 @@ function audit(age: number) {
             },
         ],
         passing: &[
+            "export class Empty extends Base {
+  constructor() { super(); }
+  describe() {
+    return 'empty';
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, role: string) {
+    super(name, role);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name, role) {
+    super(name, role);
+  }
+}
+",
+            "export const Child = class extends Parent {
+  constructor(value?: number) {
+    super(value);
+  }
+};
+",
+            "export class Logger extends Sink {
+  constructor(target, ...options) {
+    super(target, ...options);
+  }
+}
+",
+            "export class Logger extends Sink {
+  public constructor(...args) {
+    super(...args);
+  }
+}
+",
+            "export class Admin extends User {
+  private constructor(...args) {
+    super(...args);
+  }
+}
+",
+            "export class Admin extends User {
+  protected constructor(...args) {
+    super(...args);
+  }
+}
+",
+            "export class Logger extends Sink {
+  constructor(...args: string[]) {
+    super(...args);
+  }
+}
+",
+            "export class Logger extends Sink {
+  constructor(...args: unknown[]) {
+    super(...args);
+  }
+}
+",
+            "export class Admin extends User {
+  @Trace()
+  constructor(...args) {
+    super(...args);
+  }
+}
+",
+            "@Injectable()
+export class Admin extends User {
+  constructor(...args) {
+    super(...args);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(...args) {
+    'use strict';
+    super(...args);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(@Inject(ARGS) ...args) {
+    super(...args);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(...args) {
+    super(args);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(...args) {
+    super(...args);
+    this.audit();
+  }
+  audit() {
+    console.log('created');
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string);
+  constructor(...args) {
+    super(...args);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(...[first]) {
+    super(...[first]);
+  }
+}
+",
             "export class Admin extends User {
   constructor(private name: string, role: string) {
     super(name, role);
@@ -735,99 +843,7 @@ function audit(age: number) {
 }
 ",
             "export class Admin extends User {
-  constructor(name: string, role: string) {
-    super(role, name);
-  }
-}
-",
-            "export class Admin extends User {
-  constructor(name: string) {
-    super(name, 'admin');
-  }
-}
-",
-            "export class Admin extends User {
-  constructor(name: string, role: string) {
-    super(name);
-  }
-}
-",
-            "export class Admin extends User {
-  constructor(name: string) {
-    super(name.trim());
-  }
-}
-",
-            "export class Admin extends User {
   constructor(name = 'root') {
-    super(name);
-  }
-}
-",
-            "export class Admin extends User {
-  constructor({ name }: { name: string }) {
-    super(name);
-  }
-}
-",
-            "export class Admin extends User {
-  constructor(name: string) {
-    super(name);
-    this.audit();
-  }
-  audit() {
-    console.log('created');
-  }
-}
-",
-            "export class Admin extends User {
-  private constructor(name: string) {
-    super(name);
-  }
-}
-",
-            "export class Admin extends User {
-  protected constructor(name: string) {
-    super(name);
-  }
-}
-",
-            "export class Admin extends User {
-  constructor(name: string);
-  constructor(name: string, role?: string);
-  constructor(name: string) {
-    super(name);
-  }
-}
-",
-            "export class Admin extends User {
-  constructor(@Inject(NAME) name: string) {
-    super(name);
-  }
-}
-",
-            "@Injectable()
-export class Admin extends User {
-  constructor(name: string) {
-    super(name);
-  }
-}
-",
-            "export class Admin extends User {
-  constructor(name: string, roles: string[]) {
-    super(name, ...roles);
-  }
-}
-",
-            "export class Admin extends User {
-  constructor(name: string, ...roles: string[]) {
-    super(name, roles);
-  }
-}
-",
-            "export class Admin extends User {
-  constructor(name: string) {
-    'use strict';
     super(name);
   }
 }
