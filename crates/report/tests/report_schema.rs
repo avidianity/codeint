@@ -413,13 +413,13 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
     for metric in [
         "erosion",
         "cognitive_complexity",
-        "duplication",
         "import_cycles",
         "test_gap",
         "hazards",
     ] {
         assert_eq!(prod[metric]["metric_version"], 1, "{metric}");
     }
+    assert_eq!(prod["duplication"]["metric_version"], 2);
     assert_eq!(prod["verbosity"]["metric_version"], 2);
     assert!(prod["verbosity"].get("clone_lines").is_none());
     assert_eq!(prod["custom_depth"]["metric_version"], 3);

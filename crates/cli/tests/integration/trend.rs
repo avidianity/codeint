@@ -291,7 +291,7 @@ fn trend_prints_toon_by_default_with_one_table_per_source_set() {
     assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
     let columns = "{commit,committed_on,files,erosion,cognitive_complexity,duplication,verbosity,import_cycles}";
     let expected = format!(
-        "commits: 3\nmetric_versions:\n  cognitive_complexity: 1\n  duplication: 1\n  erosion: 1\n  import_cycles: 1\n  verbosity: 2\nsource_sets:\n  production[3]{columns}:\n    {first},2026-03-01,1,0,0,0,0,0\n    {second},2026-03-01,2,0,0,0,0,0\n    {third},2026-03-02,2,0,0,0,0,0\n  test[3]{columns}:\n    {first},2026-03-01,0,0,0,0,0,0\n    {second},2026-03-01,0,0,0,0,0,0\n    {third},2026-03-02,1,0,0,0,0,0\n"
+        "commits: 3\nmetric_versions:\n  cognitive_complexity: 1\n  duplication: 2\n  erosion: 1\n  import_cycles: 1\n  verbosity: 2\nsource_sets:\n  production[3]{columns}:\n    {first},2026-03-01,1,0,0,0,0,0\n    {second},2026-03-01,2,0,0,0,0,0\n    {third},2026-03-02,2,0,0,0,0,0\n  test[3]{columns}:\n    {first},2026-03-01,0,0,0,0,0,0\n    {second},2026-03-01,0,0,0,0,0,0\n    {third},2026-03-02,1,0,0,0,0,0\n"
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
 }

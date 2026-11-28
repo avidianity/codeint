@@ -78,7 +78,7 @@ fn every_metric_descriptor_has_expected_version_and_metadata() {
             Metric::Duplication,
             "duplication",
             "Duplication",
-            1,
+            2,
             MetricKind::SoftwareEntropy,
             MetricScope::AllSourceSets,
             true,
@@ -114,7 +114,7 @@ fn every_metric_descriptor_has_expected_version_and_metadata() {
             Metric::Boundaries,
             "boundaries",
             "Import boundaries",
-            1,
+            2,
             MetricKind::SoftwareEntropy,
             MetricScope::AllSourceSets,
             true,
@@ -344,4 +344,10 @@ fn metric_version_helpers_return_sorted_positive_versions_for_built_ins_and_plug
     let mut sorted_keys = keys.clone();
     sorted_keys.sort();
     assert_eq!(keys, sorted_keys);
+}
+
+#[test]
+fn duplication_and_boundaries_declare_metric_version_2() {
+    assert_eq!(Metric::Duplication.version(), 2);
+    assert_eq!(Metric::Boundaries.version(), 2);
 }

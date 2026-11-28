@@ -114,7 +114,11 @@ fn react_profile_detects_app_conventions_excludes_peer_only_libraries_and_sets_a
     assert!(app.generated_paths.is_empty());
     assert_panel_range(&app, "50 React repositories");
     assert!(app.reference_ranges.iter().all(|range| {
-        let expected = if range.metric == "verbosity" { 2 } else { 1 };
+        let expected = if matches!(range.metric.as_str(), "verbosity" | "duplication") {
+            2
+        } else {
+            1
+        };
         range.metric_version == expected
     }));
     assert_eq!(app.reference_range_note, None);

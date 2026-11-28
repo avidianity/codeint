@@ -132,3 +132,117 @@ fn parallel_measured_report_is_byte_identical_across_repeated_runs() {
         assert_eq!(build_json(), expected);
     }
 }
+
+fn token_stream_file(path: &str, lines: u32, tokens_per_line: usize) -> SourceFile {
+    let mut tokens = Vec::new();
+    for line in 1..=lines {
+        for col in 0..tokens_per_line {
+            let kind = match col % 3 {
+                0 => codeint_model::TokenKind::Identifier,
+                1 => codeint_model::TokenKind::Literal,
+                _ => codeint_model::TokenKind::Other,
+            };
+            let text_hash = codeint_model::token_text_hash(&format!("op_{line}_{col}"));
+            tokens.push(codeint_model::Token {
+                line,
+                kind,
+                text_hash,
+            });
+        }
+    }
+    SourceFile {
+        path: RepoPath::new(path).expect("valid path"),
+        model: FileModel {
+            source_set: SourceSet::Production,
+            source_lines: lines,
+            functions: Vec::new(),
+            tokens,
+            flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
+            runtime_imports: Vec::new(),
+            program_start: false,
+        },
+    }
+}
+
+fn summarize_polyglot_json(rust_model: &CodeModel, py_model: &CodeModel) -> serde_json::Value {
+    let report = Report::summarize(
+        vec![
+            MeasuredLanguage::new("rust", rust_model.clone(), ReferenceRanges::default(), true),
+            MeasuredLanguage::new("python", py_model.clone(), ReferenceRanges::default(), true),
+        ],
+        Vec::new(),
+        FindingsShown::default(),
+        &Budgets::default(),
+    );
+    serde_json::from_str(&report.render(ReportFormat::Json).expect("json")).expect("parse")
+}
+
+fn measure_polyglot_commit(rust_model: CodeModel, py_model: CodeModel) -> CommitMeasurement {
+    CommitMeasurement::of_languages_with_options(
+        vec![rust_model, py_model],
+        &[],
+        None,
+        &codeint_config::DependenciesConfig::default(),
+        DuplicationConfig::default(),
+        None,
+        None,
+    )
+    .expect("commit measurement")
+}
+
+#[test]
+fn polyglot_duplication_isolates_languages_and_aggregates_per_language_totals() {
+    let mut rust_model = CodeModel::default();
+    rust_model
+        .files
+        .push(token_stream_file("src/only_rust.rs", 20, 5));
+
+    let mut py_model = CodeModel::default();
+    py_model
+        .files
+        .push(token_stream_file("src/same_as_rust.py", 20, 5));
+
+    let isolated_json = summarize_polyglot_json(&rust_model, &py_model);
+    let isolated_dup = &isolated_json["source_sets"]["production"]["duplication"];
+    assert_eq!(
+        isolated_dup["clone_lines"], 0,
+        "identical normalized tokens across distinct Language plugins must not match: {isolated_dup}"
+    );
+    assert_eq!(
+        isolated_dup["clone_groups"]
+            .as_array()
+            .expect("array")
+            .len(),
+        0
+    );
+
+    let isolated_prod =
+        &measure_polyglot_commit(rust_model.clone(), py_model.clone()).into_source_sets()[0].1;
+    assert_eq!(
+        isolated_prod.duplication.numerator, 0.0,
+        "CommitMeasurement must not match cross-language clones"
+    );
+
+    rust_model
+        .files
+        .push(token_stream_file("src/rust_copy.rs", 20, 5));
+    let agg_json = summarize_polyglot_json(&rust_model, &py_model);
+    let agg_dup = &agg_json["source_sets"]["production"]["duplication"];
+    assert_eq!(agg_dup["metric_version"], 2);
+    assert_eq!(agg_dup["clone_lines"], 40);
+    assert_eq!(agg_dup["clone_groups"].as_array().expect("array").len(), 1);
+    assert_eq!(agg_json["source_sets"]["production"]["source_lines"], 60);
+    assert_eq!(
+        agg_json["languages"]["rust"]["source_sets"]["production"]["duplication"]["clone_lines"],
+        40
+    );
+    assert_eq!(
+        agg_json["languages"]["python"]["source_sets"]["production"]["duplication"]["clone_lines"],
+        0
+    );
+
+    let agg_prod = &measure_polyglot_commit(rust_model, py_model).into_source_sets()[0].1;
+    assert_eq!(agg_prod.duplication.numerator, 40.0);
+    assert_eq!(agg_prod.duplication.findings_worst_first.len(), 1);
+}

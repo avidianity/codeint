@@ -268,7 +268,7 @@ source_sets:
       findings: []
     duplication:
       ratio: 0
-      metric_version: 1
+      metric_version: 2
       reference_range:
         low: 0.018
         high: 0.252
@@ -388,7 +388,7 @@ source_sets:
     duplication:
       base_ratio: 0
       head_ratio: 0
-      metric_version: 1
+      metric_version: 2
       new: []
       resolved: []
       unchanged: 0
@@ -489,7 +489,7 @@ source_sets:
     duplication:
       base_ratio: 0
       head_ratio: 0
-      metric_version: 1
+      metric_version: 2
       new: []
       resolved: []
       unchanged: 0
@@ -574,7 +574,7 @@ codeint trend
 commits: 3
 metric_versions:
   cognitive_complexity: 1
-  duplication: 1
+  duplication: 2
   erosion: 1
   import_cycles: 1
   verbosity: 2
@@ -597,7 +597,7 @@ codeint trend --since 2026-11-05
 commits: 2
 metric_versions:
   cognitive_complexity: 1
-  duplication: 1
+  duplication: 2
   erosion: 1
   import_cycles: 1
   verbosity: 2
@@ -1582,6 +1582,7 @@ Internal and external directives are independent and may be combined on the same
 `allow_external` and `deny_external` match third-party package names with globs (such as `prisma` or `@aws-sdk/*`) while always permitting standard-library built-ins, so `allow_external: []` allows pure standard-library code.
 When no rule sets `allow_external` or `deny_external`, `resolved_imports` counts resolved internal imports only; when at least one external-package rule exists, checked external imports are included in `resolved_imports`.
 By default, `boundaries` evaluates the `production` Source set only; set `source_sets` to evaluate additional Source sets, and set `strict_zones` to `true` to report files matching no zone.
+When `strict_zones` is `false`, the `boundaries` ratio divides Findings by `resolved_imports`; when `strict_zones` is `true`, the denominator is `resolved_imports + evaluated_files` so both import Findings and unzoned-file Findings sit in `[0, 1]` without clamping ([ADR 0037](./adr/0037-metric-v2-duplication-and-boundaries.md)).
 In `codeint diff`, each boundary Finding carries a stable content-based identifier so pre-existing Findings are classified as unchanged while any newly introduced boundary Finding fails by default (`new_findings: "any_new_finding"`).
 See [docs/guide/import-boundaries.md](./guide/import-boundaries.md) for walkthroughs and examples.
 
@@ -1680,8 +1681,9 @@ codeint check
 
 ### Duplication
 
-By default, Duplication reports exact normalized Clone groups so calibrated Reference ranges stay unchanged.
-Set `duplication.near_clones` to `true` to also detect near-duplicate blocks that differ by small insertions, deletions, or edits using shingle Jaccard similarity at or above `duplication.min_similarity` (`0.85` by default, in `(0, 1]`).
+By default, Duplication reports exact normalized Clone groups within each Language plugin and aggregates per-language measurements into the repository total so calibrated Reference ranges stay unchanged and unrelated languages never cross-match ([ADR 0037](./adr/0037-metric-v2-duplication-and-boundaries.md)).
+TypeScript, JavaScript, Vue, and Svelte share one Language plugin, so clones across those files still match.
+Set `duplication.near_clones` to `true` to also detect near-duplicate blocks that differ by small insertions, deletions, or edits using shingle Jaccard similarity at or above `duplication.min_similarity` (`0.85` by default, in `(0, 1]`), with anchor-checked clustering and similarity-ordered LSH bucket capping.
 Near-clone mode honors the same `import-or-export`, minimum token, and minimum distinct token rules as exact Clone groups, clusters overlapping exact and near-clone fragments across three or more locations into Clone families, and leaves Verbosity unaffected because Verbosity counts Flagged lines only ([ADR 0024](./adr/0024-verbosity-decoupling.md)).
 
 ```json codeint.json
@@ -2163,7 +2165,7 @@ codeint check --format json
       },
       "duplication": {
         "ratio": 0.0,
-        "metric_version": 1,
+        "metric_version": 2,
         "reference_range": {
           "low": 0.018,
           "high": 0.252,

@@ -155,12 +155,7 @@ impl Duplication {
             compact_line_sets(&mut total_lines_by_file);
             clone_groups.extend(near.groups);
             cluster_inputs.extend(near.cluster_inputs);
-            clone_groups.sort_by(|left, right| {
-                right
-                    .tokens
-                    .cmp(&left.tokens)
-                    .then_with(|| left.fragments.cmp(&right.fragments))
-            });
+            sort_clone_groups(&mut clone_groups);
         }
         let clone_families = build_clone_families(model, &cluster_inputs);
         Duplication {
@@ -171,6 +166,30 @@ impl Duplication {
                 .iter()
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
+            clone_groups,
+            clone_families,
+        }
+    }
+
+    pub fn merge(parts: impl IntoIterator<Item = Duplication>) -> Duplication {
+        let mut clone_lines = CloneLines::default();
+        let mut exact_clone_lines = CloneLines::default();
+        let mut source_lines = 0u64;
+        let mut clone_groups = Vec::new();
+        let mut clone_families = Vec::new();
+        for part in parts {
+            clone_lines.extend_from(part.clone_lines);
+            exact_clone_lines.extend_from(part.exact_clone_lines);
+            source_lines += part.source_lines;
+            clone_groups.extend(part.clone_groups);
+            clone_families.extend(part.clone_families);
+        }
+        sort_clone_groups(&mut clone_groups);
+        sort_clone_families(&mut clone_families);
+        Duplication {
+            clone_lines,
+            exact_clone_lines,
+            source_lines,
             clone_groups,
             clone_families,
         }
@@ -222,6 +241,41 @@ impl CloneLines {
             .get(path)
             .is_some_and(|lines| lines.binary_search(&line).is_ok())
     }
+
+    fn extend_from(&mut self, other: CloneLines) {
+        for (path, lines) in other.0 {
+            match self.0.entry(path) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(lines);
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let existing = entry.get_mut();
+                    existing.extend(lines);
+                    existing.sort_unstable();
+                    existing.dedup();
+                }
+            }
+        }
+    }
+}
+
+fn sort_clone_groups(groups: &mut [CloneGroup]) {
+    groups.sort_by(|left, right| {
+        right
+            .tokens
+            .cmp(&left.tokens)
+            .then_with(|| left.fragments.cmp(&right.fragments))
+    });
+}
+
+fn sort_clone_families(families: &mut [CloneFamily]) {
+    families.sort_by(|left, right| {
+        right
+            .duplicated_lines
+            .cmp(&left.duplicated_lines)
+            .then_with(|| right.fragments.len().cmp(&left.fragments.len()))
+            .then_with(|| left.fragments.cmp(&right.fragments))
+    });
 }
 
 fn extend_lines_from_tokens(target: &mut Vec<u32>, covered: &[Token]) {
@@ -411,13 +465,7 @@ fn build_clone_families(model: &CodeModel, groups: &[GroupClusterInput]) -> Vec<
             }
         })
         .collect();
-    families.sort_by(|left, right| {
-        right
-            .duplicated_lines
-            .cmp(&left.duplicated_lines)
-            .then_with(|| right.fragments.len().cmp(&left.fragments.len()))
-            .then_with(|| left.fragments.cmp(&right.fragments))
-    });
+    sort_clone_families(&mut families);
     families
 }
 

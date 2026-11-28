@@ -138,18 +138,23 @@ pub(crate) struct Measured {
     pub(crate) hazards: Option<Hazards>,
 }
 
+pub(crate) fn near_clone_config(duplication_config: DuplicationConfig) -> Option<NearCloneConfig> {
+    duplication_config.near_clones.then(|| {
+        NearCloneConfig::new(duplication_config.min_similarity.ratio())
+            .expect("validated min_similarity is in (0, 1]")
+    })
+}
+
 impl Measured {
     pub(crate) fn new(
         models: SectionModels<'_>,
         boundaries: Option<&BoundariesConfig>,
         duplication_config: DuplicationConfig,
         disabled_hazard_rules: &BTreeSet<String>,
+        precomputed_duplication: Option<Duplication>,
     ) -> Measured {
         let model = models.model;
-        let near_clones = duplication_config.near_clones.then(|| {
-            NearCloneConfig::new(duplication_config.min_similarity.ratio())
-                .expect("validated min_similarity is in (0, 1]")
-        });
+        let near_clones = near_clone_config(duplication_config);
         let (
             duplication,
             (
@@ -157,13 +162,14 @@ impl Measured {
                 ((verbosity, import_cycles), (boundaries, (test_gap, hazards))),
             ),
         ) = rayon::join(
-            || {
-                Duplication::measure_with_near_clones(
+            || match precomputed_duplication {
+                Some(duplication) => duplication,
+                None => Duplication::measure_with_near_clones(
                     model,
                     MinimumCloneTokens::DEFAULT,
                     MinimumDistinctTokens::DEFAULT,
                     near_clones,
-                )
+                ),
             },
             || {
                 rayon::join(
@@ -394,8 +400,10 @@ impl SourceSetSections {
         hazards_source_sets: Option<&SourceSets>,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
-    ) -> Result<SourceSetSections, MetricPluginError> {
+        mut precomputed_duplication: Option<BTreeMap<SourceSet, Duplication>>,
+    ) -> Result<(SourceSetSections, BTreeMap<SourceSet, Duplication>), MetricPluginError> {
         let mut sections = SourceSetSections::default();
+        let mut measured_duplication = BTreeMap::new();
         for (source_set, model) in source_sets.iter() {
             if !model.files.is_empty() {
                 let import_model = select_non_empty(import_source_sets, source_set);
@@ -410,7 +418,10 @@ impl SourceSetSections {
                         .filter(|_| import_model.is_some() && source_set == SourceSet::Production),
                     ..options
                 };
-                *sections.slot(source_set) = Some(SourceSetSection::new(
+                let precomputed = precomputed_duplication
+                    .as_mut()
+                    .and_then(|map| map.remove(&source_set));
+                let (section, duplication) = SourceSetSection::new(
                     source_set,
                     SectionModels {
                         model,
@@ -420,10 +431,13 @@ impl SourceSetSections {
                     },
                     ranges,
                     source_set_options,
-                )?);
+                    precomputed,
+                )?;
+                *sections.slot(source_set) = Some(section);
+                measured_duplication.insert(source_set, duplication);
             }
         }
-        Ok(sections)
+        Ok((sections, measured_duplication))
     }
 }
 
@@ -453,7 +467,8 @@ impl SourceSetSection {
         models: SectionModels<'_>,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
-    ) -> Result<SourceSetSection, MetricPluginError> {
+        precomputed_duplication: Option<Duplication>,
+    ) -> Result<(SourceSetSection, Duplication), MetricPluginError> {
         let model = models.model;
         let view = options.findings_view(Some(source_set));
         let effective_import_model = models.import_model.filter(|_| options.has_imports);
@@ -472,6 +487,7 @@ impl SourceSetSection {
             boundaries_config,
             options.duplication,
             options.disabled_hazard_rules,
+            precomputed_duplication,
         );
         let boundaries = measured
             .boundaries
@@ -505,7 +521,7 @@ impl SourceSetSection {
                 },
             );
         }
-        Ok(SourceSetSection {
+        let section = SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
             erosion: MetricSection {
@@ -592,7 +608,8 @@ impl SourceSetSection {
                 &measured,
                 options.framework_profiles_by_package,
             ),
-        })
+        };
+        Ok((section, measured.duplication))
     }
 }
 
@@ -713,7 +730,8 @@ impl MeasuredSection {
         hygiene: &DependencyHygiene,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
-    ) -> Result<MeasuredSection, MetricPluginError> {
+        precomputed_duplication: Option<BTreeMap<SourceSet, Duplication>>,
+    ) -> Result<(MeasuredSection, BTreeMap<SourceSet, Duplication>), MetricPluginError> {
         let files = models.model.files.len();
         let lines = source_lines(&models.model);
         let view = options.findings_view(None);
@@ -749,13 +767,14 @@ impl MeasuredSection {
         } else {
             None
         };
-        let source_sets = SourceSetSections::new(
+        let (source_sets, measured_duplication) = SourceSetSections::new(
             &source_sets,
             import_source_sets,
             separate_coverage_source_sets.as_ref(),
             hazards_source_sets,
             ranges,
             section_options,
+            precomputed_duplication,
         )?;
         let test_gap_note = source_sets
             .production()
@@ -769,15 +788,18 @@ impl MeasuredSection {
                     TEST_GAP_NO_REPO_COVERAGE_NOTE.to_owned()
                 }
             });
-        Ok(MeasuredSection {
-            files,
-            source_lines: lines,
-            framework_profiles: sorted_unique_profiles(options.framework_profiles),
-            reference_range_note: options.reference_range_note.map(str::to_owned),
-            import_metrics_note,
-            source_sets,
-            test_gap_note,
-            dependencies,
-        })
+        Ok((
+            MeasuredSection {
+                files,
+                source_lines: lines,
+                framework_profiles: sorted_unique_profiles(options.framework_profiles),
+                reference_range_note: options.reference_range_note.map(str::to_owned),
+                import_metrics_note,
+                source_sets,
+                test_gap_note,
+                dependencies,
+            },
+            measured_duplication,
+        ))
     }
 }

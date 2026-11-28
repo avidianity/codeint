@@ -4,18 +4,18 @@
     "production": {
       "boundaries": {
         "ceiling": 0.0,
-        "metric_version": 1
+        "metric_version": 2
       },
       "cognitive_complexity": {
-        "ceiling": 0.0392,
+        "ceiling": 0.0365,
         "metric_version": 1
       },
       "duplication": {
-        "ceiling": 0.0183,
-        "metric_version": 1
+        "ceiling": 0.0167,
+        "metric_version": 2
       },
       "erosion": {
-        "ceiling": 0.0537,
+        "ceiling": 0.0507,
         "metric_version": 1
       },
       "hazards": {
@@ -37,15 +37,15 @@
     },
     "test": {
       "cognitive_complexity": {
-        "ceiling": 0.026,
+        "ceiling": 0.0238,
         "metric_version": 1
       },
       "duplication": {
-        "ceiling": 0.0425,
-        "metric_version": 1
+        "ceiling": 0.0384,
+        "metric_version": 2
       },
       "erosion": {
-        "ceiling": 0.0069,
+        "ceiling": 0.0063,
         "metric_version": 1
       },
       "import_cycles": {
@@ -64,7 +64,7 @@
       },
       "duplication": {
         "ceiling": 0.0,
-        "metric_version": 1
+        "metric_version": 2
       },
       "erosion": {
         "ceiling": 0.0,
