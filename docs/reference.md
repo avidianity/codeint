@@ -2,7 +2,7 @@
 
 This page documents every command, option, exit code, report format, and configuration key of codeint.
 [GLOSSARY.md](../GLOSSARY.md) defines every term on this page.
-For calling codeint from JavaScript, TypeScript, or Rust, see [docs/programmatic.md](./programmatic.md).
+For calling codeint from JavaScript, TypeScript, Rust, or Dart, see [docs/programmatic.md](./programmatic.md).
 
 ## Sample repository
 
@@ -2115,6 +2115,7 @@ The output of `codeint check` [above](#codeint-check) is a TOON report.
 
 `--format json` prints one JSON object with the same fields and values as the TOON report.
 Tools can build on this shape: the [compatibility rule](#compatibility-rule) says how it may change.
+JSON Schemas for `codeint check` live in [schema/codeint-report.schema.json](../schema/codeint-report.schema.json), and schemas for the other 15 JSON report commands live in `schema/reports/*.schema.json` (see [docs/programmatic.md](./programmatic.md)).
 
 ```sh exit=0
 codeint check --format json

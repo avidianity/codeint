@@ -108,7 +108,7 @@ See [docs/guide/languages.md](./docs/guide/languages.md) for per-language rules 
 
 ## Quick start
 
-Install the standalone binary on macOS or Linux, on Windows, or run directly with `npx`:
+Install the standalone binary on macOS or Linux, on Windows, or run directly with `npx` or `dart run`:
 
 ```sh
 curl -fsSL https://github.com/avidianity/codeint/releases/latest/download/install.sh | bash
@@ -120,6 +120,11 @@ irm https://github.com/avidianity/codeint/releases/latest/download/install.ps1 |
 
 ```sh
 npx codeint check
+```
+
+```sh
+dart pub add --dev codeint
+dart run codeint check
 ```
 
 Run codeint inside any Git repository:
@@ -148,7 +153,7 @@ codeint agent install
 - `codeint plugin test plugins/my-plugin.wasm` runs the Conformance runner against an external Wasm Plugin and prints each violated rule with a fix hint.
 - `codeint agent install` registers `codeint mcp` in detected local coding agents.
 
-Or call codeint programmatically from JavaScript/TypeScript (`npm install codeint`) or Rust (`codeint-cli`):
+Or call codeint programmatically from JavaScript/TypeScript (`npm install codeint`), Rust (`codeint-cli`), or Dart (`codeint` on pub.dev):
 
 ```ts
 import { check, diff } from "codeint";
@@ -165,11 +170,19 @@ let checked = check(Path::new("."), &CheckOptions::default())?;
 let pr_diff = diff(Path::new("."), "main", &DiffOptions::default())?;
 ```
 
+```dart
+import 'package:codeint/codeint.dart';
+
+const client = CodeintClient(cwd: '.');
+final checked = await client.check();
+final prDiff = await client.diff('main');
+```
+
 ## Documentation
 
 - [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Import boundaries](./docs/guide/import-boundaries.md), [Test gap](./docs/guide/test-gap.md), [Hazards](./docs/guide/hazards.md), [Built-in Languages](./docs/guide/languages.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), [Adopting codeint on an existing codebase](./docs/guide/adopting-on-an-existing-codebase.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
 - [Reference](./docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and configuration key.
-- [Programmatic API](./docs/programmatic.md): JavaScript/TypeScript SDK and Rust library API.
+- [Programmatic API](./docs/programmatic.md): Wave 1 client SDKs for JavaScript/TypeScript (`codeint` on npm), Rust (`codeint-cli`), and Dart (`codeint` on pub.dev and `dart run codeint`).
 - [Plugins](./docs/plugins.md): build external WebAssembly Language and Metric plugins with `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`), pin SHA-256 digests, and test them.
 - [Glossary](./GLOSSARY.md): canonical definitions of every domain term on this page.
 - [llms.txt](./llms.txt): compact documentation index for coding agents and LLM tools.
