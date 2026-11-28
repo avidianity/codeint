@@ -59,7 +59,7 @@ const BUILT_IN_METRIC_DESCRIPTORS: [BuiltInMetricDescriptor; 12] = [
         name: Metric::OrphanFiles.display_name(),
         short_description: "A Production file unreachable from any entry point",
         full_description: "Orphan files measures the share of Production files that cannot be reached through resolved runtime imports from any manifest-declared, program-start, or configured entry point, annotating files imported only by tests as test-only.",
-        help: "Delete the unused Production file (and any stale tests that only import it), wire it into an entry point, or add its path glob to entry_points in codeint.json.",
+        help: "Delete the unused Production file (and any stale tests that only import it), wire it into an entry point, or add its path glob to entry_points in the configuration file.",
     },
     BuiltInMetricDescriptor {
         name: Metric::TestGap.display_name(),
@@ -71,13 +71,13 @@ const BUILT_IN_METRIC_DESCRIPTORS: [BuiltInMetricDescriptor; 12] = [
         name: Metric::Hazards.display_name(),
         short_description: "A Hazard line: a parsed pattern likely to cause wrong results, slow execution, or a security exposure",
         full_description: "Hazards is the share of source lines that are Hazard lines in languages that have Hazard line rules. Each Hazard line Finding names its path, line, and rule, and never the source text.",
-        help: "Rewrite the statement to remove the hazard named by the rule, or turn off the rule in hazards.disabled_rules in codeint.json.",
+        help: "Rewrite the statement to remove the hazard named by the rule, or turn off the rule in hazards.disabled_rules in the configuration file.",
     },
     BuiltInMetricDescriptor {
         name: Metric::UnusedDependencies.display_name(),
         short_description: "A declared dependency that no file in the package imports",
         full_description: "Unused dependencies is the share of declared runtime and dev dependencies in package manifests that are not imported by any source file in the owning package.",
-        help: "Remove the unused dependency from the package manifest, or add it to dependencies.ignore in codeint.json if it is used outside source imports.",
+        help: "Remove the unused dependency from the package manifest, or add it to dependencies.ignore in the configuration file if it is used outside source imports.",
     },
     BuiltInMetricDescriptor {
         name: Metric::UnlistedDependencies.display_name(),

@@ -5,7 +5,7 @@ An Import boundary governs both internal dependencies between named architectura
 
 ## How Import boundaries work
 
-- **Inactive until configured**: when `boundaries` is omitted from `codeint.jsonc` or `codeint.json`, boundary evaluation does not run and reports omit `boundaries`.
+- **Inactive until configured**: when `boundaries` is omitted from the configuration file, boundary evaluation does not run and reports omit `boundaries`.
 - **Named zones and precedence**: each zone under `boundaries.zones` lists repository-relative path globs under `patterns` and optional `public_files` globs naming the only files other zones may import.
   When a file matches multiple zones, the most specific pattern wins (most literal characters, then longest pattern, then zone name alphabetically).
 - **Internal zone rules (`allow` and `deny`)**: each rule under `boundaries.rules` names a `from` zone (or `*` as a fallback for zones without a specific rule) and sets either `allow` or `deny` (mutually exclusive) to govern cross-zone internal imports.

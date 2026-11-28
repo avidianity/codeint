@@ -1,7 +1,7 @@
 # Built-in Languages
 
 codeint ships eight built-in Language plugins in pure, safe Rust (`#![forbid(unsafe_code)]`).
-Each plugin parses the modern superset of its language family with no language-version pin needed in `codeint.jsonc` or `codeint.json`.
+Each plugin parses the modern superset of its language family with no language-version pin needed in the configuration file.
 
 Every built-in Language plugin extracts:
 

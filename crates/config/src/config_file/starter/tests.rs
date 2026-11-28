@@ -6,7 +6,7 @@ use super::{
     starter_configuration_text_with_boundaries, zero_budget_keys,
 };
 use crate::baseline::MeasuredBaselineMetric;
-use crate::codeint_json::{configuration_schema, parse, parse_jsonc, shape};
+use crate::config_file::{configuration_schema, parse, parse_jsonc, shape};
 
 fn path(text: &str) -> RepoPath {
     RepoPath::new(text).expect("a repository-relative path")
@@ -29,6 +29,16 @@ fn the_starter_configuration_passes_the_shape_check_of_the_published_schema_with
         schema,
         serde_json::from_str::<Value>(&configuration_schema()).expect("the schema is JSON"),
         "the published schema is current"
+    );
+    assert_eq!(schema["title"], "codeint configuration");
+    let schema_description = schema["properties"]["$schema"]["description"]
+        .as_str()
+        .expect("$schema has description");
+    assert!(
+        schema_description.contains("major")
+            && schema_description.contains("minor")
+            && !schema_description.contains("does not read it"),
+        "unexpected $schema description: {schema_description}"
     );
     let detected = [DetectedLanguage {
         plugin: "typescript-javascript".to_owned(),

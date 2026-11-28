@@ -197,7 +197,7 @@ coverage xml -o coverage.xml
 
 ## Configuring codeint
 
-List your Coverage reports in `codeint.jsonc` or `codeint.json` under `coverage_reports`, using paths relative to the repository root.
+List your Coverage reports in the configuration file under `coverage_reports`, using paths relative to the repository root.
 You can mix LCOV and Cobertura XML files in the same list, and set a Production **Budget** under `budgets.production.test_gap`:
 
 ```jsonc
@@ -220,7 +220,7 @@ To pass Coverage reports from a CI step, use the repeatable `--coverage-report` 
 codeint check --coverage-report web/coverage/lcov.info --coverage-report api/coverage.xml
 ```
 
-When `--coverage-report` is present on the command line, it replaces `coverage_reports` from `codeint.jsonc` or `codeint.json` for that run.
+When `--coverage-report` is present on the command line, it replaces `coverage_reports` from the configuration file for that run.
 
 ## Budgets, `codeint diff`, and `codeint trend`
 

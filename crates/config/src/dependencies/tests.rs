@@ -1,7 +1,7 @@
 use crate::NewFindingsRule;
 
 fn read_json_config(json: &str) -> Result<crate::Configuration, crate::ConfigurationFileError> {
-    crate::codeint_json::parse(json)
+    crate::config_file::parse(json)
 }
 
 #[test]

@@ -399,7 +399,7 @@ fn exit_codes() -> Vec<ExitCodeSchema> {
         ExitCodeSchema {
             code: OPERATIONAL_ERROR,
             name: "operational_error",
-            description: "An operational error stopped the run, such as an invalid option, missing Git ref, or invalid codeint.json.",
+            description: "An operational error stopped the run, such as an invalid option, missing Git ref, or invalid configuration file.",
         },
     ]
 }
