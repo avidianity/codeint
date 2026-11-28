@@ -4,8 +4,7 @@ use codeint_config::{
     Boundaries as BoundariesConfig, DependenciesConfig, DuplicationConfig, FindingAnchor,
 };
 use codeint_metrics::{
-    DependencyHygiene, Duplication, MinimumCloneTokens, MinimumDistinctTokens, NearCloneConfig,
-    OrphanFiles,
+    DependencyHygiene, Duplication, MinimumCloneTokens, MinimumDistinctTokens, OrphanFiles,
 };
 use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, RepoPath, SourceSet, SourceSets};
 use serde::{Deserialize, Serialize};
@@ -632,10 +631,7 @@ fn measure_per_language_duplication(
     lang_source_sets: &[SourceSets],
     duplication_config: DuplicationConfig,
 ) -> BTreeMap<SourceSet, Duplication> {
-    let near_clones = duplication_config.near_clones.then(|| {
-        NearCloneConfig::new(duplication_config.min_similarity.ratio())
-            .expect("validated min_similarity is in (0, 1]")
-    });
+    let near_clones = crate::summary::near_clone_config(duplication_config);
     let mut by_source_set = BTreeMap::new();
     for source_set in SourceSet::ALL {
         let parts: Vec<Duplication> = lang_source_sets

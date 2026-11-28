@@ -436,6 +436,14 @@ fn boundary_evaluation_memoizes_zone_lookup_once_per_unique_file() {
     assert_eq!(calls.len(), 4);
 }
 
+fn strict_counting_policy(zones: &[(&str, &str)]) -> CountingPolicy {
+    CountingPolicy {
+        inner: StubPolicy::new(zones),
+        strict: true,
+        zone_calls: std::cell::RefCell::new(BTreeMap::new()),
+    }
+}
+
 #[test]
 fn strict_zones_uses_combined_denominator_without_clamping_while_non_strict_keeps_resolved_imports()
 {
@@ -453,12 +461,10 @@ fn strict_zones_uses_combined_denominator_without_clamping_while_non_strict_keep
         ..CodeModel::default()
     };
 
-    let strict_policy = CountingPolicy {
-        inner: StubPolicy::new(&[("src/domain/a.ts", "domain")]),
-        strict: true,
-        zone_calls: std::cell::RefCell::new(BTreeMap::new()),
-    };
-    let strict_measured = Boundaries::measure(&model, &strict_policy);
+    let strict_measured = Boundaries::measure(
+        &model,
+        &strict_counting_policy(&[("src/domain/a.ts", "domain")]),
+    );
     assert_eq!(strict_measured.resolved_imports(), 1);
     assert_eq!(strict_measured.findings().len(), 2);
     assert_eq!(strict_measured.ratio(), 0.5);
@@ -488,4 +494,35 @@ fn strict_zones_uses_combined_denominator_without_clamping_while_non_strict_keep
     assert_eq!(non_strict_measured.resolved_imports(), 2);
     assert_eq!(non_strict_measured.findings().len(), 1);
     assert_eq!(non_strict_measured.ratio(), 0.5);
+}
+
+#[test]
+fn strict_zones_empty_model_reports_zero_ratio() {
+    let measured = Boundaries::measure(&CodeModel::default(), &strict_counting_policy(&[]));
+    assert_eq!(measured.resolved_imports(), 0);
+    assert_eq!(measured.evaluated_files(), 0);
+    assert_eq!(measured.denominator(), 0);
+    assert!(measured.findings().is_empty());
+    assert_eq!(measured.ratio(), 0.0);
+}
+
+#[test]
+fn strict_zones_without_imports_divides_unzoned_files_by_evaluated_files() {
+    let model = CodeModel {
+        files: vec![
+            production_file("src/domain/a.ts"),
+            production_file("src/unzoned_one.ts"),
+            production_file("src/unzoned_two.ts"),
+        ],
+        ..CodeModel::default()
+    };
+    let measured = Boundaries::measure(
+        &model,
+        &strict_counting_policy(&[("src/domain/a.ts", "domain")]),
+    );
+    assert_eq!(measured.resolved_imports(), 0);
+    assert_eq!(measured.evaluated_files(), 3);
+    assert_eq!(measured.denominator(), 3);
+    assert_eq!(measured.findings().len(), 2);
+    assert_eq!(measured.ratio(), 2.0 / 3.0);
 }

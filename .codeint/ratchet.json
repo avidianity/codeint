@@ -15,7 +15,7 @@
         "metric_version": 2
       },
       "erosion": {
-        "ceiling": 0.0508,
+        "ceiling": 0.0507,
         "metric_version": 1
       },
       "hazards": {
@@ -37,15 +37,15 @@
     },
     "test": {
       "cognitive_complexity": {
-        "ceiling": 0.0241,
+        "ceiling": 0.0238,
         "metric_version": 1
       },
       "duplication": {
-        "ceiling": 0.0386,
+        "ceiling": 0.0384,
         "metric_version": 2
       },
       "erosion": {
-        "ceiling": 0.0064,
+        "ceiling": 0.0063,
         "metric_version": 1
       },
       "import_cycles": {

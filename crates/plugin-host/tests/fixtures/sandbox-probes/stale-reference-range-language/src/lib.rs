@@ -64,7 +64,7 @@ impl Guest for StaleReferenceRangeLanguagePlugin {
         [
             ("erosion", 2, 0.1, 0.4, "stale v2 erosion panel"),
             ("verbosity", 0, 0.05, 0.25, "invalid v0 verbosity panel"),
-            ("duplication", 1, 0.02, 0.22, "fresh v1 duplication panel"),
+            ("duplication", 2, 0.02, 0.22, "fresh v2 duplication panel"),
         ]
         .into_iter()
         .map(|(metric, metric_version, low, high, source)| ReferenceRange {

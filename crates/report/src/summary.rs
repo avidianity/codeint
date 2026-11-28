@@ -138,6 +138,13 @@ pub(crate) struct Measured {
     pub(crate) hazards: Option<Hazards>,
 }
 
+pub(crate) fn near_clone_config(duplication_config: DuplicationConfig) -> Option<NearCloneConfig> {
+    duplication_config.near_clones.then(|| {
+        NearCloneConfig::new(duplication_config.min_similarity.ratio())
+            .expect("validated min_similarity is in (0, 1]")
+    })
+}
+
 impl Measured {
     pub(crate) fn new(
         models: SectionModels<'_>,
@@ -147,10 +154,7 @@ impl Measured {
         precomputed_duplication: Option<Duplication>,
     ) -> Measured {
         let model = models.model;
-        let near_clones = duplication_config.near_clones.then(|| {
-            NearCloneConfig::new(duplication_config.min_similarity.ratio())
-                .expect("validated min_similarity is in (0, 1]")
-        });
+        let near_clones = near_clone_config(duplication_config);
         let (
             duplication,
             (
