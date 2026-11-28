@@ -33,6 +33,9 @@ fn synthetic_model(file_count: usize, same_content_prefix: usize) -> CodeModel {
                     hazard_lines: Vec::new(),
                     runtime_imports: Vec::new(),
                     program_start: false,
+                    is_tooling_file: false,
+                    diagnostics: Vec::new(),
+                    scope_artifact: None,
                 },
             }
         })

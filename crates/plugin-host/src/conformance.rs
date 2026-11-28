@@ -520,7 +520,7 @@ fn check_non_empty_list(
         return;
     }
     let mut seen = HashSet::with_capacity(items.len());
-    if let Some(duplicate) = items.iter().find(|item| !seen.insert(item.as_str())) {
+    if let Some(duplicate) = items.iter().find(|item| !seen.insert(item.trim())) {
         report.fail(
             id,
             format!("{id} lists duplicate entry {duplicate:?}"),
@@ -901,12 +901,17 @@ fn built_in_probes(extensions: &[String], sources: &[ConformanceSource]) -> Vec<
         } else {
             String::new()
         };
-        probes.extend(samples.iter().map(|(label, text)| LowerProbe {
-            label: format!("{label}{label_suffix}"),
-            extension: extension.clone(),
-            file_name: format!("probe.{extension}"),
-            text: text.clone(),
-        }));
+        probes.extend(
+            samples
+                .iter()
+                .enumerate()
+                .map(|(index, (label, text))| LowerProbe {
+                    label: format!("{label}{label_suffix}"),
+                    extension: extension.clone(),
+                    file_name: format!("probe-{}.{extension}", index + 1),
+                    text: text.clone(),
+                }),
+        );
     }
     probes.extend(sources.iter().map(|source| LowerProbe {
         label: format!("source {}", source.file_name),

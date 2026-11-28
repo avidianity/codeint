@@ -88,11 +88,13 @@ fn built_in_probes_cover_every_extension_and_sources_once() {
     let probes = built_in_probes(&extensions, &sources);
     assert_eq!(probes.len(), 8 * 2 + 1);
     for extension in &extensions {
-        assert!(
-            probes
-                .iter()
-                .any(|probe| probe.file_name == format!("probe.{extension}"))
-        );
+        for index in 1..=8 {
+            assert!(
+                probes
+                    .iter()
+                    .any(|probe| probe.file_name == format!("probe-{index}.{extension}"))
+            );
+        }
     }
 }
 
@@ -133,22 +135,62 @@ fn finalize_orders_checks_and_adds_the_missing_ones_as_skipped() {
     assert_eq!(report.checks[1].status, ConformanceStatus::Skipped);
 }
 
+type ListCheck = fn(&mut ConformanceReport, &[String]);
+
 #[test]
 fn duplicate_dialects_and_flagged_line_rules_fail_conformance() {
-    let cases: [(&str, fn(&mut ConformanceReport, &[String])); 2] = [
+    let cases: [(&str, ListCheck); 2] = [
         ("postgres", check_dialects),
         ("redundant-pass", check_flagged_line_rules),
     ];
     for (item, check) in cases {
-        let mut report = ConformanceReport {
-            kind: PluginKind::Language,
-            checks: Vec::new(),
-            end_to_end: None,
-        };
-        check(&mut report, &[item.to_owned(), item.to_owned()]);
-        assert_eq!(report.checks[0].status, ConformanceStatus::Fail);
-        assert!(report.checks[0].message.contains(item));
+        for pair in [
+            [item.to_owned(), item.to_owned()],
+            [item.to_owned(), format!(" {item}")],
+        ] {
+            let mut report = ConformanceReport {
+                kind: PluginKind::Language,
+                checks: Vec::new(),
+                end_to_end: None,
+            };
+            check(&mut report, &pair);
+            assert_eq!(report.checks[0].status, ConformanceStatus::Fail);
+            assert!(report.checks[0].message.contains(item));
+        }
     }
+}
+
+#[test]
+fn scope_analysis_problem_rejects_out_of_bounds_line_on_empty_probe_alongside_long_probe() {
+    let probes = built_in_probes(&["hst".to_owned()], &[]);
+    let mut collected = CollectedScopeArtifacts::default();
+    for probe in &probes {
+        let path = probe_repo_path(&probe.file_name, &probe.extension);
+        collected.record(
+            None,
+            &path,
+            SourceSet::Production,
+            probe.text.lines().count(),
+            b"ok".to_vec(),
+        );
+    }
+    let empty_probe = &probes[0];
+    assert!(empty_probe.text.is_empty());
+    let empty_path = probe_repo_path(&empty_probe.file_name, &empty_probe.extension);
+    let artifacts = &collected.by_dialect[&None];
+    let line_counts = &collected.line_counts[&None];
+    let listed: HashSet<String> = ["cross-file-risk".to_owned()].into_iter().collect();
+    let analysis = codeint_model::ScopeAnalysis {
+        extra_hazards: vec![codeint_model::FileHazards {
+            path: empty_path.to_string(),
+            hazard_lines: vec![HazardLine {
+                line: 10,
+                rule: "cross-file-risk".to_owned(),
+            }],
+        }],
+        summaries: Vec::new(),
+    };
+    assert!(scope_analysis_problem("probe", analysis, artifacts, line_counts, &listed).is_some());
 }
 
 #[test]
