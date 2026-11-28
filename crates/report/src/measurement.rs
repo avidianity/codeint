@@ -3,7 +3,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use codeint_config::{
     Boundaries as BoundariesConfig, DependenciesConfig, DuplicationConfig, FindingAnchor,
 };
-use codeint_metrics::{DependencyHygiene, OrphanFiles};
+use codeint_metrics::{
+    DependencyHygiene, Duplication, MinimumCloneTokens, MinimumDistinctTokens, NearCloneConfig,
+    OrphanFiles,
+};
 use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, RepoPath, SourceSet, SourceSets};
 use serde::{Deserialize, Serialize};
 
@@ -228,8 +231,10 @@ impl CommitMeasurement {
         let dependencies = any_has_imports
             .then(|| DependenciesMeasurement::from_hygiene(hygiene))
             .flatten();
-        let source_sets = CodeModel::merge(languages).into_source_sets();
-        let measure = |source_set: SourceSet, set_orphans: Option<&OrphanFiles>| {
+        let multi_language = measured.len() >= 2;
+        let (source_sets, mut precomputed_duplication) =
+            prepare_source_sets_and_duplication(languages, multi_language, options.duplication);
+        let mut measure = |source_set: SourceSet, set_orphans: Option<&OrphanFiles>| {
             let import_model = select_subset_model(
                 source_set,
                 any_has_imports,
@@ -244,6 +249,9 @@ impl CommitMeasurement {
                 separate_hazards_source_sets.as_ref(),
                 true,
             );
+            let duplication = precomputed_duplication
+                .as_mut()
+                .and_then(|map| map.remove(&source_set));
             measure_source_set(
                 source_set,
                 SectionModels {
@@ -254,6 +262,7 @@ impl CommitMeasurement {
                 },
                 options,
                 set_orphans,
+                duplication,
             )
         };
         Ok(CommitMeasurement {
@@ -346,6 +355,7 @@ impl SourceSetMeasurement {
         boundaries: Option<&BoundariesConfig>,
         options: CommitMeasurementOptions<'_>,
         orphan_files: Option<&OrphanFiles>,
+        precomputed_duplication: Option<Duplication>,
     ) -> Result<SourceSetMeasurement, MetricPluginError> {
         let model = models.model;
         let measured = Measured::new(
@@ -353,6 +363,7 @@ impl SourceSetMeasurement {
             boundaries,
             options.duplication,
             options.disabled_hazard_rules,
+            precomputed_duplication,
         );
         let boundaries = measured.boundaries.as_ref().map(|evaluated| {
             finding_measurement(evaluated.ratio(), evaluated.findings()).with_file_numerators(
@@ -601,15 +612,80 @@ fn select_subset_model<'a>(
     }
 }
 
+fn prepare_source_sets_and_duplication(
+    languages: Vec<CodeModel>,
+    multi_language: bool,
+    duplication_config: DuplicationConfig,
+) -> (SourceSets, Option<BTreeMap<SourceSet, Duplication>>) {
+    if !multi_language {
+        return (CodeModel::merge(languages).into_source_sets(), None);
+    }
+    let lang_source_sets: Vec<SourceSets> = languages
+        .into_iter()
+        .map(CodeModel::into_source_sets)
+        .collect();
+    let duplication = measure_per_language_duplication(&lang_source_sets, duplication_config);
+    (merge_source_sets(lang_source_sets), Some(duplication))
+}
+
+fn measure_per_language_duplication(
+    lang_source_sets: &[SourceSets],
+    duplication_config: DuplicationConfig,
+) -> BTreeMap<SourceSet, Duplication> {
+    let near_clones = duplication_config.near_clones.then(|| {
+        NearCloneConfig::new(duplication_config.min_similarity.ratio())
+            .expect("validated min_similarity is in (0, 1]")
+    });
+    let mut by_source_set = BTreeMap::new();
+    for source_set in SourceSet::ALL {
+        let parts: Vec<Duplication> = lang_source_sets
+            .iter()
+            .map(|sets| sets.get(source_set))
+            .filter(|model| !model.files.is_empty())
+            .map(|model| {
+                Duplication::measure_with_near_clones(
+                    model,
+                    MinimumCloneTokens::DEFAULT,
+                    MinimumDistinctTokens::DEFAULT,
+                    near_clones,
+                )
+            })
+            .collect();
+        if !parts.is_empty() {
+            by_source_set.insert(source_set, Duplication::merge(parts));
+        }
+    }
+    by_source_set
+}
+
+fn merge_source_sets(lang_source_sets: Vec<SourceSets>) -> SourceSets {
+    let mut models = Vec::new();
+    for sets in lang_source_sets {
+        for (_, model) in sets.iter() {
+            if !model.files.is_empty() {
+                models.push(model.clone());
+            }
+        }
+    }
+    CodeModel::merge(models).into_source_sets()
+}
+
 fn measure_source_set(
     source_set: SourceSet,
     models: SectionModels<'_>,
     options: CommitMeasurementOptions<'_>,
     orphan_files: Option<&OrphanFiles>,
+    precomputed_duplication: Option<Duplication>,
 ) -> Result<SourceSetMeasurement, MetricPluginError> {
     let applicable_boundaries = options
         .boundaries
         .filter(|config| models.import_model.is_some() && config.applies_to_source_set(source_set));
     let applicable_orphans = orphan_files.filter(|_| models.import_model.is_some());
-    SourceSetMeasurement::of(models, applicable_boundaries, options, applicable_orphans)
+    SourceSetMeasurement::of(
+        models,
+        applicable_boundaries,
+        options,
+        applicable_orphans,
+        precomputed_duplication,
+    )
 }

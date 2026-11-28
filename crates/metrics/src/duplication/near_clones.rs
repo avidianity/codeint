@@ -1,18 +1,20 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{HashMap, HashSet};
 
 use codeint_model::{CodeModel, StableHasher, Token};
 use rayon::prelude::*;
 
 use super::{
-    CloneGroup, DisjointSet, Fragment, FragmentIdentifier, GroupClusterInput, SearchedRun,
-    TokenSpan, content_digest, distinct_normalized_tokens, fragment, merge_overlapping_spans,
-    mixed, normalized,
+    CloneGroup, Fragment, FragmentIdentifier, GroupClusterInput, SearchedRun, TokenSpan,
+    content_digest, distinct_normalized_tokens, fragment, merge_overlapping_spans, mixed,
+    normalized,
 };
 
 const SHINGLE_LEN: usize = 3;
 const CDC_WINDOW: usize = 4;
 const MINHASH_SIZE: usize = 64;
 const BUCKET_ALL_PAIRS_LIMIT: usize = 32;
+const BUCKET_RANKED_ALL_PAIRS_LIMIT: usize = 512;
 const BUCKET_WINDOW_NEIGHBORS: usize = 8;
 const MAX_CANDIDATES_PER_BLOCK: usize = 64;
 const MAX_SINGLE_RUN_TOKENS: usize = 256;
@@ -372,7 +374,7 @@ fn collect_candidate_pairs(
             if bucket.len() < 2 {
                 continue;
             }
-            record_bucket_pairs(bucket, &mut seen_pairs, &mut partner_counts);
+            record_bucket_pairs(candidates, bucket, &mut seen_pairs, &mut partner_counts);
         }
     }
     let mut pairs: Vec<(usize, usize)> = seen_pairs.into_iter().collect();
@@ -381,6 +383,7 @@ fn collect_candidate_pairs(
 }
 
 fn record_bucket_pairs(
+    candidates: &[CandidateBlock],
     bucket: &[(u64, usize)],
     seen_pairs: &mut HashSet<(usize, usize)>,
     partner_counts: &mut [usize],
@@ -393,15 +396,70 @@ fn record_bucket_pairs(
         }
         return;
     }
-    let anchor = bucket[0].1;
-    for pos in 1..bucket.len() {
-        let current = bucket[pos].1;
-        try_insert_pair(anchor, current, seen_pairs, partner_counts);
-        let window_start = pos.saturating_sub(BUCKET_WINDOW_NEIGHBORS);
-        for &(_, prev) in &bucket[window_start..pos] {
-            try_insert_pair(prev, current, seen_pairs, partner_counts);
+    let max_pairs = bucket.len().saturating_mul(BUCKET_WINDOW_NEIGHBORS);
+    let mut scored = collect_bucket_pair_scores(candidates, bucket);
+    scored.sort_unstable_by_key(|&(matches, left, right)| (Reverse(matches), left, right));
+    for (_, left, right) in scored.into_iter().take(max_pairs) {
+        try_insert_pair(left, right, seen_pairs, partner_counts);
+    }
+}
+
+fn collect_bucket_pair_scores(
+    candidates: &[CandidateBlock],
+    bucket: &[(u64, usize)],
+) -> Vec<(usize, usize, usize)> {
+    if bucket.len() <= BUCKET_RANKED_ALL_PAIRS_LIMIT {
+        return score_all_bucket_pairs(candidates, bucket);
+    }
+    score_similarity_ordered_bucket_window(candidates, bucket)
+}
+
+fn score_all_bucket_pairs(
+    candidates: &[CandidateBlock],
+    bucket: &[(u64, usize)],
+) -> Vec<(usize, usize, usize)> {
+    let mut scored = Vec::with_capacity(bucket.len() * (bucket.len() - 1) / 2);
+    for (pos, &(_, left)) in bucket.iter().enumerate() {
+        for &(_, right) in &bucket[pos + 1..] {
+            let matches =
+                minhash_matches(&candidates[left].signature, &candidates[right].signature);
+            scored.push((matches, left.min(right), left.max(right)));
         }
     }
+    scored
+}
+
+fn score_similarity_ordered_bucket_window(
+    candidates: &[CandidateBlock],
+    bucket: &[(u64, usize)],
+) -> Vec<(usize, usize, usize)> {
+    let anchor = bucket[0].1;
+    let mut ordered: Vec<(usize, usize)> = bucket
+        .iter()
+        .map(|&(_, idx)| {
+            let matches =
+                minhash_matches(&candidates[anchor].signature, &candidates[idx].signature);
+            (matches, idx)
+        })
+        .collect();
+    ordered.sort_unstable_by_key(|&(matches, idx)| (Reverse(matches), idx));
+    let mut scored = Vec::with_capacity(ordered.len().saturating_mul(BUCKET_WINDOW_NEIGHBORS + 1));
+    for (pos, &(_, left)) in ordered.iter().enumerate() {
+        let end = (pos + 1 + BUCKET_WINDOW_NEIGHBORS).min(ordered.len());
+        for &(_, right) in &ordered[pos + 1..end] {
+            let matches =
+                minhash_matches(&candidates[left].signature, &candidates[right].signature);
+            scored.push((matches, left.min(right), left.max(right)));
+        }
+    }
+    scored
+}
+
+fn minhash_matches(left: &[u64; MINHASH_SIZE], right: &[u64; MINHASH_SIZE]) -> usize {
+    left.iter()
+        .zip(right.iter())
+        .filter(|(a, b)| a == b)
+        .count()
 }
 
 fn try_insert_pair(
@@ -615,18 +673,8 @@ fn build_near_clone_groups(
             spans: Vec::new(),
         };
     }
-    let mut dsu = DisjointSet::new(candidates.len());
-    for pair in pairs {
-        dsu.union(pair.left, pair.right);
-    }
-    let mut components: BTreeMap<usize, Vec<MatchedPair>> = BTreeMap::new();
-    for &pair in pairs {
-        components
-            .entry(dsu.find(pair.left))
-            .or_default()
-            .push(pair);
-    }
-    let unidentified = collect_unidentified_near_groups(model, candidates, components);
+    let clusters = cluster_pairs_by_anchor(model, candidates, pairs);
+    let unidentified = collect_unidentified_near_groups(model, candidates, clusters);
     let mut identifier = FragmentIdentifier::new("near_clone", model);
     let mut groups = Vec::with_capacity(unidentified.len());
     let mut cluster_inputs = Vec::with_capacity(unidentified.len());
@@ -655,13 +703,97 @@ fn build_near_clone_groups(
     }
 }
 
+fn candidate_order_key<'a>(
+    model: &'a CodeModel,
+    candidates: &[CandidateBlock],
+    idx: usize,
+) -> (&'a codeint_model::RepoPath, usize, usize) {
+    let span = candidates[idx].span;
+    (
+        &model.files[span.file].path,
+        span.start_token,
+        span.end_token,
+    )
+}
+
+fn normalized_edge(left: usize, right: usize) -> (usize, usize) {
+    (left.min(right), left.max(right))
+}
+
+fn cluster_pairs_by_anchor(
+    model: &CodeModel,
+    candidates: &[CandidateBlock],
+    pairs: &[MatchedPair],
+) -> Vec<Vec<MatchedPair>> {
+    let mut adjacency: HashMap<usize, Vec<(usize, f64)>> = HashMap::new();
+    for &pair in pairs {
+        adjacency
+            .entry(pair.left)
+            .or_default()
+            .push((pair.right, pair.similarity));
+        adjacency
+            .entry(pair.right)
+            .or_default()
+            .push((pair.left, pair.similarity));
+    }
+    let mut ordered_nodes: Vec<usize> = adjacency.keys().copied().collect();
+    ordered_nodes.sort_by(|&left, &right| {
+        candidate_order_key(model, candidates, left)
+            .cmp(&candidate_order_key(model, candidates, right))
+    });
+    for neighbors in adjacency.values_mut() {
+        neighbors.sort_by(|&(left, _), &(right, _)| {
+            candidate_order_key(model, candidates, left)
+                .cmp(&candidate_order_key(model, candidates, right))
+        });
+    }
+    let mut covered_edges: HashSet<(usize, usize)> = HashSet::with_capacity(pairs.len());
+    let mut clusters = Vec::new();
+    for anchor in ordered_nodes {
+        let Some(neighbors) = adjacency.get(&anchor) else {
+            continue;
+        };
+        let uncovered: Vec<(usize, f64)> = neighbors
+            .iter()
+            .copied()
+            .filter(|&(member, _)| !covered_edges.contains(&normalized_edge(anchor, member)))
+            .collect();
+        if uncovered.is_empty() {
+            continue;
+        }
+        mark_cluster_edges_covered(anchor, &uncovered, &mut covered_edges);
+        let cluster_pairs = uncovered
+            .into_iter()
+            .map(|(member, similarity)| MatchedPair {
+                left: anchor,
+                right: member,
+                similarity,
+            })
+            .collect();
+        clusters.push(cluster_pairs);
+    }
+    clusters
+}
+
+fn mark_cluster_edges_covered(
+    anchor: usize,
+    members: &[(usize, f64)],
+    covered_edges: &mut HashSet<(usize, usize)>,
+) {
+    for (pos, &(member, _)) in members.iter().enumerate() {
+        covered_edges.insert(normalized_edge(anchor, member));
+        for &(other, _) in &members[pos + 1..] {
+            covered_edges.insert(normalized_edge(member, other));
+        }
+    }
+}
+
 fn collect_unidentified_near_groups(
     model: &CodeModel,
     candidates: &[CandidateBlock],
-    components: BTreeMap<usize, Vec<MatchedPair>>,
+    clusters: Vec<Vec<MatchedPair>>,
 ) -> Vec<UnidentifiedNearGroup> {
-    let component_groups: Vec<Vec<MatchedPair>> = components.into_values().collect();
-    let mut unidentified: Vec<UnidentifiedNearGroup> = component_groups
+    let mut unidentified: Vec<UnidentifiedNearGroup> = clusters
         .into_par_iter()
         .filter_map(|component_pairs| unidentified_near_group(model, candidates, &component_pairs))
         .collect();
@@ -707,4 +839,48 @@ fn unidentified_near_group(
         spans,
         content_digests,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::{CandidateBlock, MINHASH_SIZE, TokenSpan, record_bucket_pairs};
+
+    fn synthetic_candidate(file: usize, signature: [u64; MINHASH_SIZE]) -> CandidateBlock {
+        CandidateBlock {
+            span: TokenSpan {
+                file,
+                start_token: 0,
+                end_token: 80,
+            },
+            shingles: Vec::new(),
+            signature,
+        }
+    }
+
+    #[test]
+    fn oversized_lsh_bucket_ranks_pairs_by_minhash_similarity_not_alphabetical_order() {
+        let mut candidates = Vec::new();
+        for idx in 0..40usize {
+            let mut sig = [0u64; MINHASH_SIZE];
+            for (row, slot) in sig.iter_mut().enumerate() {
+                *slot = ((idx as u64 + 1) << 16) | row as u64;
+            }
+            candidates.push(synthetic_candidate(idx, sig));
+        }
+        let shared_sig = [777u64; MINHASH_SIZE];
+        candidates[15].signature = shared_sig;
+        candidates[39].signature = shared_sig;
+
+        let bucket: Vec<(u64, usize)> = (0..40usize).map(|idx| (42u64, idx)).collect();
+        let mut seen_pairs = HashSet::new();
+        let mut partner_counts = vec![0usize; candidates.len()];
+        record_bucket_pairs(&candidates, &bucket, &mut seen_pairs, &mut partner_counts);
+
+        assert!(
+            seen_pairs.contains(&(15, 39)),
+            "high-similarity pair (15, 39) must be selected in oversized bucket"
+        );
+    }
 }

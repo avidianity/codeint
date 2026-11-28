@@ -435,3 +435,57 @@ fn boundary_evaluation_memoizes_zone_lookup_once_per_unique_file() {
     }
     assert_eq!(calls.len(), 4);
 }
+
+#[test]
+fn strict_zones_uses_combined_denominator_without_clamping_while_non_strict_keeps_resolved_imports()
+{
+    let model = CodeModel {
+        files: vec![
+            production_file("src/domain/a.ts"),
+            production_file("src/unzoned_one.ts"),
+            production_file("src/unzoned_two.ts"),
+        ],
+        runtime_imports: vec![RuntimeImport {
+            importer: path("src/domain/a.ts"),
+            specifier: "./a".to_owned(),
+            resolution: ImportResolution::Resolved(vec![path("src/domain/a.ts")]),
+        }],
+        ..CodeModel::default()
+    };
+
+    let strict_policy = CountingPolicy {
+        inner: StubPolicy::new(&[("src/domain/a.ts", "domain")]),
+        strict: true,
+        zone_calls: std::cell::RefCell::new(BTreeMap::new()),
+    };
+    let strict_measured = Boundaries::measure(&model, &strict_policy);
+    assert_eq!(strict_measured.resolved_imports(), 1);
+    assert_eq!(strict_measured.findings().len(), 2);
+    assert_eq!(strict_measured.ratio(), 0.5);
+
+    let non_strict_model = model_with_multi_target_import(
+        &[
+            "ui/page.ts",
+            "shared/public.ts",
+            "shared/secret.ts",
+            "misc/unzoned.ts",
+        ],
+        "ui/page.ts",
+        "shared",
+        &["shared/public.ts", "shared/secret.ts"],
+    );
+    let non_strict_policy = StubPolicy::new(&[
+        ("ui/page.ts", "ui"),
+        ("shared/public.ts", "public"),
+        ("shared/secret.ts", "secret"),
+    ])
+    .with_decision(
+        "ui",
+        "secret",
+        BoundaryEdgeCheck::DeniedByDenyRule { reason: None },
+    );
+    let non_strict_measured = Boundaries::measure(&non_strict_model, &non_strict_policy);
+    assert_eq!(non_strict_measured.resolved_imports(), 2);
+    assert_eq!(non_strict_measured.findings().len(), 1);
+    assert_eq!(non_strict_measured.ratio(), 0.5);
+}

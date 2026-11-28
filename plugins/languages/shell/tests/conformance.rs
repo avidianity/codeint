@@ -72,7 +72,7 @@ fn plugin_metadata_capabilities_and_no_imports_contract() {
                 0.828,
                 source.clone()
             ),
-            ("duplication".to_owned(), 1, 0.003, 0.713, source.clone()),
+            ("duplication".to_owned(), 2, 0.003, 0.713, source.clone()),
             ("erosion".to_owned(), 1, 0.364, 0.930, source.clone()),
             ("verbosity".to_owned(), 2, 0.000, 0.031, source),
         ]

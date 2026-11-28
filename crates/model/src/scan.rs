@@ -361,7 +361,7 @@ impl CoreReferenceRanges {
                     self.cognitive_complexity.1,
                 ),
                 ("verbosity", 2, self.verbosity.0, self.verbosity.1),
-                ("duplication", 1, self.duplication.0, self.duplication.1),
+                ("duplication", 2, self.duplication.0, self.duplication.1),
             ],
         );
         if let Some((low, high)) = self.import_cycles {

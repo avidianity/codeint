@@ -44,7 +44,7 @@ Five core Metrics are calibrated against stratified panels of current public rep
 
 - **Erosion**: share of Function mass (`cyclomatic_complexity * sqrt(source_lines)`) in functions with cyclomatic complexity over 10, reported with function names.
 - **Cognitive complexity**: share of total nesting-weighted cognitive complexity held by functions scoring over 15.
-- **Duplication**: share of source lines in exact Clone groups (at least 75 normalized tokens and 14 distinct normalized tokens, catching renamed copy-paste while ignoring import lists and data tables), grouped into Clone families across three or more locations, with opt-in shingle-based near-clone detection.
+- **Duplication**: share of source lines in per-language exact Clone groups (at least 75 normalized tokens and 14 distinct normalized tokens, catching renamed copy-paste while ignoring import lists and data tables), grouped into Clone families across three or more locations, with opt-in anchor-checked near-clone detection ([ADR 0037](./docs/adr/0037-metric-v2-duplication-and-boundaries.md)).
 - **Verbosity**: share of source lines in zero-false-positive Flagged lines (independent of Duplication, [ADR 0024](./docs/adr/0024-verbosity-decoupling.md)).
 - **Import cycles**: share of modules in at least one runtime Import cycle.
 

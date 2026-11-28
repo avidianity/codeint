@@ -7,7 +7,7 @@ use codeint_config::{
     FindingsShown, MeasuredBaselineMetric, MeasuredRatchetMetric, Ratchet, RatchetVersionMismatch,
     ReportFormat,
 };
-use codeint_metrics::{DependencyHygiene, OrphanFiles};
+use codeint_metrics::{DependencyHygiene, Duplication, OrphanFiles};
 use codeint_model::{
     CodeModel, Metric, MetricPlugin, MetricPluginError, ReferenceRanges, RepoPath, SourceSet,
 };
@@ -618,7 +618,7 @@ impl Report {
             reference_range_note: top_reference_range_note.as_deref(),
             baseline: options.baseline,
         };
-        let (total_ranges, sections_per_language) =
+        let (total_ranges, sections_per_language, precomputed_duplication) =
             build_per_language_sections(&measured, &options, ignored, section_options)?;
         let import_bearing_model = collect_import_bearing_model(&measured, top_has_imports);
         let coverage_bearing_model = collect_coverage_bearing_model(&measured);
@@ -635,7 +635,7 @@ impl Report {
             .iter()
             .map(RepoPath::to_string)
             .collect();
-        let measured = MeasuredSection::new(
+        let (measured, _) = MeasuredSection::new(
             MeasuredSectionModels {
                 model,
                 import_model: import_bearing_model,
@@ -645,6 +645,7 @@ impl Report {
             total_hygiene,
             &total_ranges,
             section_options,
+            precomputed_duplication,
         )?;
         let mut failures = measured.source_sets.over_budget(options.budgets);
         if let Some(dependencies) = &measured.dependencies {
@@ -931,29 +932,49 @@ fn collect_framework_profiles_by_package(
         .collect()
 }
 
+type PerLanguageSections = (
+    ReferenceRangeScope,
+    BTreeMap<String, MeasuredSection>,
+    Option<BTreeMap<SourceSet, Duplication>>,
+);
+
 fn build_per_language_sections(
     measured: &[MeasuredLanguage],
     options: &ReportOptions<'_>,
     ignored: &BTreeSet<String>,
     section_options: SectionOptions<'_>,
-) -> Result<(ReferenceRangeScope, BTreeMap<String, MeasuredSection>), MetricPluginError> {
+) -> Result<PerLanguageSections, MetricPluginError> {
     match measured {
         [] => Ok((
             ReferenceRangeScope::OneLanguage(ReferenceRanges::default()),
             BTreeMap::new(),
+            None,
         )),
         [only] => Ok((
             ReferenceRangeScope::OneLanguage(only.reference_ranges.clone()),
             BTreeMap::new(),
+            None,
         )),
         _ => {
             let mut per_language = BTreeMap::new();
+            let mut duplication_parts: BTreeMap<SourceSet, Vec<Duplication>> = BTreeMap::new();
             for language in measured {
-                let section =
+                let (section, lang_duplication) =
                     build_single_language_section(language, options, ignored, section_options)?;
                 per_language.insert(language.plugin.clone(), section);
+                for (source_set, dup) in lang_duplication {
+                    duplication_parts.entry(source_set).or_default().push(dup);
+                }
             }
-            Ok((ReferenceRangeScope::SeveralLanguages, per_language))
+            let merged_duplication = duplication_parts
+                .into_iter()
+                .map(|(source_set, parts)| (source_set, Duplication::merge(parts)))
+                .collect();
+            Ok((
+                ReferenceRangeScope::SeveralLanguages,
+                per_language,
+                Some(merged_duplication),
+            ))
         }
     }
 }
@@ -963,7 +984,7 @@ fn build_single_language_section(
     options: &ReportOptions<'_>,
     ignored: &BTreeSet<String>,
     section_options: SectionOptions<'_>,
-) -> Result<MeasuredSection, MetricPluginError> {
+) -> Result<(MeasuredSection, BTreeMap<SourceSet, Duplication>), MetricPluginError> {
     let measured_language_hygiene;
     let language_hygiene = if language.has_imports {
         match options
@@ -1008,5 +1029,6 @@ fn build_single_language_section(
             reference_range_note: language.reference_range_note.as_deref(),
             ..section_options
         },
+        None,
     )
 }

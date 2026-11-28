@@ -937,3 +937,50 @@ fn parallel_duplication_and_compact_clone_lines_are_deterministic_across_repeate
         assert_eq!(repeated, baseline);
     }
 }
+
+#[test]
+fn near_clone_anchor_clustering_does_not_chain_dissimilar_endpoints() {
+    let lines_a: Vec<String> = (0..20usize)
+        .map(|idx| format!("let $v = k_{idx} + p_{idx} ;"))
+        .collect();
+    let mut lines_b = lines_a.clone();
+    lines_b[2] = "const $x = b_2 - q_2 ;".to_owned();
+    lines_b[6] = "const $y = b_6 - q_6 ;".to_owned();
+    lines_b[12] = "const $z = b_12 - q_12 ;".to_owned();
+    let mut lines_c = lines_b.clone();
+    lines_c[4] = "var $p = c_4 ^ r_4 ;".to_owned();
+    lines_c[10] = "var $q = c_10 ^ r_10 ;".to_owned();
+    lines_c[16] = "var $r = c_16 ^ r_16 ;".to_owned();
+
+    let files: Vec<SourceFile> = [
+        ("src/a.ts", &lines_a),
+        ("src/b.ts", &lines_b),
+        ("src/c.ts", &lines_c),
+    ]
+    .into_iter()
+    .map(|(path, owned)| {
+        let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+        file_with_functions(path, &refs, whole_function(refs.len()))
+    })
+    .collect();
+    let duplication = Duplication::measure_with_near_clones(
+        &model(files),
+        minimum(55),
+        MinimumDistinctTokens::new(10),
+        NearCloneConfig::new(0.70),
+    );
+
+    let near_groups: Vec<_> = duplication
+        .clone_groups
+        .iter()
+        .filter(|group| group.similarity.is_some())
+        .collect();
+    assert_eq!(near_groups.len(), 2, "got: {near_groups:?}");
+    for group in near_groups {
+        let paths: Vec<&str> = group.fragments.iter().map(|f| f.path.as_str()).collect();
+        assert!(
+            !(paths.contains(&"src/a.ts") && paths.contains(&"src/c.ts")),
+            "dissimilar endpoints must not chain: {paths:?}"
+        );
+    }
+}

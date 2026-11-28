@@ -114,15 +114,38 @@ impl ChurnReport {
         history: &ChurnHistoryInput,
         findings: FindingsShown,
     ) -> ChurnReport {
-        let model = CodeModel::merge(languages.into_iter().map(|lang| lang.model));
+        let lang_source_sets: Vec<codeint_model::SourceSets> = languages
+            .into_iter()
+            .filter(|lang| !lang.model.files.is_empty())
+            .map(|lang| lang.model.into_source_sets())
+            .collect();
         let mut source_sets = BTreeMap::new();
-        for (source_set, part) in model.into_source_sets().iter() {
-            if !part.files.is_empty() {
-                source_sets.insert(
-                    SourceSetKey::from_source_set(source_set),
-                    SourceSetChurnSection::new(part, &history.touches_by_file, findings),
-                );
+        for source_set in SourceSet::ALL {
+            let lang_parts: Vec<&CodeModel> = lang_source_sets
+                .iter()
+                .map(|sets| sets.get(source_set))
+                .filter(|part| !part.files.is_empty())
+                .collect();
+            if lang_parts.is_empty() {
+                continue;
             }
+            let duplication = Duplication::merge(lang_parts.iter().map(|part| {
+                Duplication::measure(
+                    part,
+                    MinimumCloneTokens::DEFAULT,
+                    MinimumDistinctTokens::DEFAULT,
+                )
+            }));
+            let merged = CodeModel::merge(lang_parts.into_iter().cloned());
+            source_sets.insert(
+                SourceSetKey::from_source_set(source_set),
+                SourceSetChurnSection::new(
+                    &merged,
+                    &duplication,
+                    &history.touches_by_file,
+                    findings,
+                ),
+            );
         }
         let warning = history.shallow.then(|| SHALLOW_WARNING.to_owned());
         ChurnReport {
@@ -148,19 +171,15 @@ impl ChurnReport {
 impl SourceSetChurnSection {
     fn new(
         model: &CodeModel,
+        duplication: &Duplication,
         touches_by_file: &BTreeMap<RepoPath, usize>,
         shown: FindingsShown,
     ) -> SourceSetChurnSection {
         let erosion = Erosion::measure(model);
-        let duplication = Duplication::measure(
-            model,
-            MinimumCloneTokens::DEFAULT,
-            MinimumDistinctTokens::DEFAULT,
-        );
         SourceSetChurnSection {
             files: model.files.len(),
             erosion: ErosionChurnSection::new(&erosion, touches_by_file, shown),
-            duplication: DuplicationChurnSection::new(&duplication, touches_by_file, shown),
+            duplication: DuplicationChurnSection::new(duplication, touches_by_file, shown),
         }
     }
 }

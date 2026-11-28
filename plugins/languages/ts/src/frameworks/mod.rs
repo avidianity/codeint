@@ -313,7 +313,7 @@ pub(crate) fn vue_reference_ranges(
                 cognitive_complexity.1,
             ),
             ("verbosity", 2, verbosity.0, verbosity.1),
-            ("duplication", 1, duplication.0, duplication.1),
+            ("duplication", 2, duplication.0, duplication.1),
             ("import_cycles", 1, import_cycles.0, import_cycles.1),
         ],
     )

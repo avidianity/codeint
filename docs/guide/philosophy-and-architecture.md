@@ -22,7 +22,7 @@ Five core Metrics are calibrated against stratified panels of current public rep
 - **Erosion**: the share of total **Function mass** (`cyclomatic_complexity * sqrt(source_lines)`) held by functions with cyclomatic complexity over 10, reported with function names.
   Weighting by both complexity and size highlights the few large, tangled functions that hurt maintainability most.
 - **Cognitive complexity**: the share of total nesting-weighted cognitive complexity held by functions scoring over 15.
-- **Duplication**: the share of source lines inside **Clone groups** (two or more fragments matching at least 75 normalized tokens and 14 distinct normalized tokens, [ADR 0007](../adr/0007-default-minimum-clone-size.md)).
+- **Duplication**: the share of source lines inside **Clone groups** (two or more fragments matching at least 75 normalized tokens and 14 distinct normalized tokens, [ADR 0007](../adr/0007-default-minimum-clone-size.md)), measured per Language plugin and aggregated into the repository total ([ADR 0037](../adr/0037-metric-v2-duplication-and-boundaries.md)).
   Normalizing identifiers and literals catches renamed copy-paste while ignoring import blocks and repetitive data tables, clusters three or more overlapping locations into **Clone families**, and supports opt-in shingle-based near-clone detection.
 - **Verbosity**: the share of source lines that are **Flagged lines** (independent of Duplication, [ADR 0024](../adr/0024-verbosity-decoupling.md)).
   Each Flagged-line rule targets a zero-false-positive redundant construct (such as `else` after an unconditional `return` or `if (c) return true; else return false;`).

@@ -68,6 +68,7 @@ impl BoundaryFindingKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Boundaries {
     resolved_imports: usize,
+    evaluated_files: usize,
     findings: Vec<BoundaryFinding>,
 }
 
@@ -108,26 +109,39 @@ impl Boundaries {
     pub fn measure(model: &CodeModel, policy: &dyn BoundaryPolicy) -> Boundaries {
         let mut zone_cache = ZoneCache::new(policy, model.files.len());
         let (resolved_imports, mut pending) = evaluate_imports(model, policy, &mut zone_cache);
-        collect_unzoned_files(model, policy, &mut zone_cache, &mut pending);
+        let evaluated_files = if policy.strict_zones() {
+            collect_unzoned_files(model, &mut zone_cache, &mut pending);
+            model.files.len()
+        } else {
+            0
+        };
         let findings = assign_finding_ids(pending);
         Boundaries {
             resolved_imports,
+            evaluated_files,
             findings,
         }
     }
 
     pub fn ratio(&self) -> f64 {
-        if self.findings.is_empty() {
+        let denominator = self.denominator();
+        if denominator == 0 {
             0.0
-        } else if self.resolved_imports == 0 {
-            1.0
         } else {
-            (self.findings.len() as f64 / self.resolved_imports as f64).min(1.0)
+            self.findings.len() as f64 / denominator as f64
         }
+    }
+
+    pub fn denominator(&self) -> usize {
+        self.resolved_imports + self.evaluated_files
     }
 
     pub fn resolved_imports(&self) -> usize {
         self.resolved_imports
+    }
+
+    pub fn evaluated_files(&self) -> usize {
+        self.evaluated_files
     }
 
     pub fn findings(&self) -> &[BoundaryFinding] {
@@ -342,13 +356,9 @@ fn check_public_files_edge(
 
 fn collect_unzoned_files<'a>(
     model: &'a CodeModel,
-    policy: &dyn BoundaryPolicy,
     zone_cache: &mut ZoneCache<'a>,
     pending: &mut Vec<PendingFinding>,
 ) {
-    if !policy.strict_zones() {
-        return;
-    }
     for file in &model.files {
         if zone_cache.zone_of(&file.path).is_none() {
             pending.push(PendingFinding {

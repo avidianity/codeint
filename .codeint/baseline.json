@@ -3,7 +3,7 @@
   "source_sets": {
     "production": {
       "boundaries": {
-        "metric_version": 1,
+        "metric_version": 2,
         "findings": []
       },
       "cognitive_complexity": {
@@ -50,13 +50,6 @@
             "before": "c7a25b643a92af4c",
             "after": "fb4d4f27af2ea598",
             "line": 5
-          },
-          {
-            "id": "4898439730453d90",
-            "content": "5db2a579dfb50d51",
-            "before": "c857742cbde5ca1c",
-            "after": "d24e2310ee61d607",
-            "line": 322
           },
           {
             "id": "77b497cc70453f5f",
@@ -125,7 +118,7 @@
             "content": "9b16acdba71c37b2",
             "before": "c857742cbde5ca1c",
             "after": "74b0bc38cd028190",
-            "line": 101
+            "line": 100
           },
           {
             "id": "dd9e5d0dee0114ee",
@@ -136,14 +129,14 @@
         ]
       },
       "duplication": {
-        "metric_version": 1,
+        "metric_version": 2,
         "findings": [
           {
             "id": "098e7496e37e1b16",
             "content": "e655447b8d503f7d",
             "before": "b80caff8aea47a24",
             "after": "6c65d278ea146e0c",
-            "line": 147
+            "line": 154
           },
           {
             "id": "16f4c89eaa4a0b15",
@@ -157,14 +150,14 @@
             "content": "e55eca54c4fdd2da",
             "before": "e8561520a84b2dc8",
             "after": "1394c5a04826411e",
-            "line": 977
+            "line": 913
           },
           {
             "id": "1cf90d324c3f64c1",
             "content": "bc411fcbb2ea3477",
             "before": "9698becad51cb758",
             "after": "5d6aa9becf5d3bfb",
-            "line": 492
+            "line": 499
           },
           {
             "id": "1e50203faa9c6984",
@@ -174,25 +167,11 @@
             "line": 23
           },
           {
-            "id": "2ad6b786b46292f9",
-            "content": "a23e35da87fe40c2",
-            "before": "63b39e9ae83ef113",
-            "after": "4d4e5f57ca42eb06",
-            "line": 89
-          },
-          {
             "id": "30fd64bfc831a7a3",
             "content": "dc6b8711ac2b98b2",
             "before": "8730e506794fb264",
             "after": "baed1e6367715bb6",
-            "line": 222
-          },
-          {
-            "id": "32d7e28f521dd537",
-            "content": "ce7ef7bd3c78efdb",
-            "before": "6c44f18d14be9636",
-            "after": "5afc2dc401066cb7",
-            "line": 411
+            "line": 229
           },
           {
             "id": "37e74704ba6746aa",
@@ -241,7 +220,7 @@
             "content": "41e39d1746aca4fa",
             "before": "43fdfa135cf648cf",
             "after": "5d6aa9becf5d3bfb",
-            "line": 340
+            "line": 347
           },
           {
             "id": "5a3f1a8347f5bc1d",
@@ -262,7 +241,7 @@
             "content": "f79e7e03fde1b2cf",
             "before": "69d12fe4a391134d",
             "after": "864844d27a4297d2",
-            "line": 197
+            "line": 204
           },
           {
             "id": "7ec5822f3626fe51",
@@ -304,21 +283,14 @@
             "content": "9cb81cb5c168f374",
             "before": "56bfb18dcf67f713",
             "after": "5929ea514199a2d3",
-            "line": 1008
+            "line": 944
           },
           {
             "id": "a79a0553d1db897b",
             "content": "fbc3ce8f41fa17ed",
             "before": "63b39e9ae83ef113",
             "after": "cc236ccf3fee4048",
-            "line": 884
-          },
-          {
-            "id": "ae59e9ae8dfd0df8",
-            "content": "5a8403144f54d843",
-            "before": "63b39e9ae83ef113",
-            "after": "79dc8c1d99229989",
-            "line": 427
+            "line": 948
           },
           {
             "id": "b1c51ca05d4610db",
@@ -374,7 +346,7 @@
             "content": "b8059c90d86a6a23",
             "before": "6d3050ad0ea7dc93",
             "after": "19e7e4001367522c",
-            "line": 127
+            "line": 130
           },
           {
             "id": "d103812048048e07",
@@ -402,7 +374,7 @@
             "content": "adc4ab58f545f551",
             "before": "63b39e9ae83ef113",
             "after": "ea98d8a6a8f34adc",
-            "line": 683
+            "line": 685
           },
           {
             "id": "d8150aace59253f2",
@@ -451,7 +423,7 @@
             "content": "edf124e5da5b6b1a",
             "before": "63b39e9ae83ef113",
             "after": "dde1cf420f8b865a",
-            "line": 1006
+            "line": 942
           },
           {
             "id": "fa606496f522c5b3",
@@ -544,7 +516,7 @@
             "id": "53cd9fbf5e8d374b",
             "content": "84b9d2793bb34a14",
             "before": "c857742cbde5ca1c",
-            "line": 348
+            "line": 374
           },
           {
             "id": "5e4e4646e3214d4e",
@@ -559,13 +531,6 @@
             "before": "c857742cbde5ca1c",
             "after": "ff9cf266b95c34cb",
             "line": 265
-          },
-          {
-            "id": "723d41c47efb41f9",
-            "content": "9a9918737bec1207",
-            "before": "c857742cbde5ca1c",
-            "after": "57c27bc31785ce34",
-            "line": 236
           },
           {
             "id": "73f9b9b01dc9eebc",
@@ -733,7 +698,7 @@
             "content": "237c61656538daf3",
             "before": "698ecffea06abe4a",
             "after": "0e9bd7ae0a249b53",
-            "line": 180
+            "line": 183
           },
           {
             "id": "6c4792bcf097d887",
@@ -892,14 +857,14 @@
         ]
       },
       "duplication": {
-        "metric_version": 1,
+        "metric_version": 2,
         "findings": [
           {
             "id": "029346b81756f04f",
             "content": "f33e2cb7f6d93166",
             "before": "6ef6c897593ed66a",
             "after": "723c5c124149c968",
-            "line": 1632
+            "line": 1636
           },
           {
             "id": "081031480f20020c",
@@ -913,35 +878,42 @@
             "content": "c1e59f5ec7447b7b",
             "before": "8ba061c2e64a2bef",
             "after": "d84c666a28552619",
-            "line": 619
+            "line": 622
+          },
+          {
+            "id": "0ad5ff40f7e8ae64",
+            "content": "979548d214696a14",
+            "before": "2c0690b51146d9eb",
+            "after": "2c0690b51146d9eb",
+            "line": 92
           },
           {
             "id": "0b516bebeb06ecdc",
             "content": "830217bb250b4319",
             "before": "2f5d1190f14e67c0",
             "after": "47298c7a467011d0",
-            "line": 2395
+            "line": 2394
           },
           {
             "id": "0b978f345ed4bb97",
             "content": "58d4c07b744ee352",
             "before": "3b0121ccf80794a7",
             "after": "d07949c1e32aec65",
-            "line": 4740
+            "line": 4743
           },
           {
             "id": "0bf8d60806269568",
             "content": "d2a86f9ebd0e7152",
             "before": "ee1902172346c97f",
             "after": "74754bba8047016b",
-            "line": 992
+            "line": 991
           },
           {
             "id": "1416be50dcd8c43a",
             "content": "ee2928e79f9c3581",
             "before": "3250bfab4df3ad64",
             "after": "7f5dc988af7e851e",
-            "line": 369
+            "line": 372
           },
           {
             "id": "1428a55b33ef1b87",
@@ -951,11 +923,18 @@
             "line": 12
           },
           {
+            "id": "15b0372c6be26f88",
+            "content": "92588ecc3986fcb4",
+            "before": "63b39e9ae83ef113",
+            "after": "b5bccff5a989774d",
+            "line": 18
+          },
+          {
             "id": "15e506ca32435834",
             "content": "6d78fac49bc6dd74",
             "before": "1aa27e7c0128c4c9",
             "after": "ce226deda6ee3c39",
-            "line": 152
+            "line": 157
           },
           {
             "id": "15f210a6279a3ace",
@@ -982,28 +961,14 @@
             "content": "c57e96a6c27a0ad8",
             "before": "4cb78dfec8702371",
             "after": "8714e984605212c7",
-            "line": 2036
-          },
-          {
-            "id": "1b9b4e3cc3770b33",
-            "content": "143196543efbd004",
-            "before": "9eca5bccf7453bcf",
-            "after": "db34119ee3374da4",
-            "line": 439
-          },
-          {
-            "id": "20bcbef56d4a5d35",
-            "content": "aa2e5b0aad27bbf6",
-            "before": "a8836fefa8c2ab77",
-            "after": "7a398bc27a710003",
-            "line": 170
+            "line": 2040
           },
           {
             "id": "25c79857b00917e4",
             "content": "d5b7ed9a951baafe",
             "before": "2c0690b51146d9eb",
             "after": "a4410caed7e3b263",
-            "line": 484
+            "line": 487
           },
           {
             "id": "260c14c989dcc535",
@@ -1017,14 +982,14 @@
             "content": "313168bae0195671",
             "before": "4a1441a563245814",
             "after": "0bf15b683d09767d",
-            "line": 1908
+            "line": 1912
           },
           {
             "id": "2a0efe98407112c9",
             "content": "ea872d1af3bb83a3",
             "before": "79a2175bb23f2847",
             "after": "f170365678ab2c34",
-            "line": 1634
+            "line": 1638
           },
           {
             "id": "2bc88501f5c660a4",
@@ -1038,7 +1003,7 @@
             "content": "ee4da7aa1952bae3",
             "before": "65fb5d20443a0b60",
             "after": "38dc4b1fba3b4325",
-            "line": 336
+            "line": 341
           },
           {
             "id": "32b17adf9818399b",
@@ -1059,27 +1024,20 @@
             "content": "316620a655453d4b",
             "before": "2c0690b51146d9eb",
             "after": "2c0690b51146d9eb",
-            "line": 624
+            "line": 629
           },
           {
             "id": "362a22e585669bc4",
             "content": "b0cc2e76cb0809ff",
             "before": "2c0690b51146d9eb",
             "after": "2c0690b51146d9eb",
-            "line": 801
+            "line": 805
           },
           {
             "id": "38cf6e1f02c94bf4",
             "content": "6835daae9f57dbc7",
             "before": "4b8e56209359e797",
             "line": 20
-          },
-          {
-            "id": "38f2694a238f9a1c",
-            "content": "60c8193cdb9a52f7",
-            "before": "2c0690b51146d9eb",
-            "after": "2c0690b51146d9eb",
-            "line": 174
           },
           {
             "id": "3c33c5c7bf962aa1",
@@ -1100,7 +1058,7 @@
             "content": "33b4ea6c21af2b96",
             "before": "f1e554810cf903bb",
             "after": "f14bf5a75398e4bf",
-            "line": 328
+            "line": 331
           },
           {
             "id": "3e4e34cee379b4df",
@@ -1180,18 +1138,25 @@
             "line": 37
           },
           {
+            "id": "6d96d1499500f53b",
+            "content": "0b6278991a97c481",
+            "before": "2c0690b51146d9eb",
+            "after": "bc35fa0f82ea1248",
+            "line": 2402
+          },
+          {
             "id": "6e1ecf6ab4528391",
             "content": "d7476b1f4fa1fede",
             "before": "2c0690b51146d9eb",
             "after": "1fb6075f1049bcf4",
-            "line": 793
+            "line": 795
           },
           {
             "id": "6f63218a2fac95c0",
             "content": "01f316a0a940b4ec",
             "before": "023f6164e910dc86",
             "after": "8e3eb803085dab70",
-            "line": 2541
+            "line": 2540
           },
           {
             "id": "6f7944a271fde102",
@@ -1205,7 +1170,7 @@
             "content": "d901a7fc54643ece",
             "before": "3427d809318e7461",
             "after": "a87213195ae31a0d",
-            "line": 979
+            "line": 1094
           },
           {
             "id": "771ca4544b4592a9",
@@ -1233,7 +1198,7 @@
             "content": "799a967392a2350a",
             "before": "2c0690b51146d9eb",
             "after": "9b2e8b015aaf347d",
-            "line": 985
+            "line": 994
           },
           {
             "id": "8596ec12f46c103e",
@@ -1254,14 +1219,14 @@
             "content": "49b6c0bb7d3c7f3e",
             "before": "2c0690b51146d9eb",
             "after": "2c0690b51146d9eb",
-            "line": 2330
+            "line": 2329
           },
           {
             "id": "8faa9ed4e6d1dbbb",
             "content": "46de509cd3e57be7",
             "before": "0ba70b573b3125b5",
             "after": "0ba70b573b3125b5",
-            "line": 1783
+            "line": 1787
           },
           {
             "id": "8ffe316567fc9fc2",
@@ -1278,32 +1243,25 @@
             "line": 38
           },
           {
-            "id": "9129a8190393b285",
-            "content": "3a0da0169bae6204",
-            "before": "a4456196b091e64b",
-            "after": "67041a38865b55b5",
-            "line": 164
-          },
-          {
             "id": "91ac9309f5da04ad",
             "content": "5631999c9d39ef0f",
             "before": "2c0690b51146d9eb",
             "after": "2c0690b51146d9eb",
-            "line": 2150
+            "line": 2154
           },
           {
             "id": "958743d6a269335f",
             "content": "adc601f67926d78e",
             "before": "ddeced05032a1992",
             "after": "e5af7ae625d4408e",
-            "line": 396
+            "line": 397
           },
           {
             "id": "96b7ce5d82900fd7",
             "content": "d70955192da16204",
             "before": "2c0690b51146d9eb",
             "after": "2f79494887874faf",
-            "line": 400
+            "line": 401
           },
           {
             "id": "99092c53735fd029",
@@ -1330,21 +1288,28 @@
             "content": "84d130a9e12fbbba",
             "before": "820309b32b697dfc",
             "after": "df7b9ecce1115d28",
-            "line": 344
+            "line": 349
           },
           {
             "id": "9fcc17f7398ee3f7",
             "content": "efaac5c41aa80898",
             "before": "2c0690b51146d9eb",
             "after": "6e1ef4c37f0582d9",
-            "line": 315
+            "line": 318
           },
           {
             "id": "a02aa94a4196be2b",
             "content": "bc7a5ae7e2c7c06c",
             "before": "a8836fefa8c2ab77",
             "after": "24d10c6c97783634",
-            "line": 620
+            "line": 623
+          },
+          {
+            "id": "a886d43e0c613f99",
+            "content": "8ce34678c4ddab41",
+            "before": "2c0690b51146d9eb",
+            "after": "92549653b06b391f",
+            "line": 2633
           },
           {
             "id": "a9598a6f559477a3",
@@ -1379,14 +1344,14 @@
             "content": "59307060965ce2ed",
             "before": "ee1902172346c97f",
             "after": "c9aa4e7b0f77b384",
-            "line": 1802
+            "line": 1806
           },
           {
             "id": "b6e5c3c4597f3a28",
             "content": "e30ac824b194c2f3",
             "before": "c9fc493ba5cd8f60",
             "after": "eab9b8f1c6b7726a",
-            "line": 968
+            "line": 967
           },
           {
             "id": "bd10b6da0cc31755",
@@ -1407,7 +1372,7 @@
             "content": "699c81b2cdc3172a",
             "before": "59cb04333743a05b",
             "after": "0cd98f9f72a6ddee",
-            "line": 1667
+            "line": 1671
           },
           {
             "id": "c0041aa33fa83a1c",
@@ -1428,7 +1393,7 @@
             "content": "a346169198806d9f",
             "before": "b6459d48a1fe5a25",
             "after": "814559cdf4282510",
-            "line": 346
+            "line": 351
           },
           {
             "id": "c433712c914fdad4",
@@ -1449,21 +1414,14 @@
             "content": "beee557e3dd01a2c",
             "before": "6b6c09c1dce99b47",
             "after": "ab16193d607341a8",
-            "line": 1602
-          },
-          {
-            "id": "d03ea63d6ead8a2f",
-            "content": "923c07846fdf25bc",
-            "before": "c556f3d8d30848a8",
-            "after": "ef2b79e4e5e12f03",
-            "line": 18
+            "line": 1607
           },
           {
             "id": "d26fce493a3bc5a4",
             "content": "bbc156ff6ddf1755",
             "before": "2c0690b51146d9eb",
             "after": "2c0690b51146d9eb",
-            "line": 587
+            "line": 590
           },
           {
             "id": "d29f0f1a4591e5ab",
@@ -1473,18 +1431,18 @@
             "line": 126
           },
           {
-            "id": "d30241a285834af2",
-            "content": "de5810ed9b1df5cf",
-            "before": "63b39e9ae83ef113",
-            "after": "2d2c7285cffe88e9",
-            "line": 73
+            "id": "d6e7d2f72c47a18e",
+            "content": "04259a34774c0411",
+            "before": "2c0690b51146d9eb",
+            "after": "fc52593d21a4771e",
+            "line": 120
           },
           {
             "id": "d7c84074cd6f6b62",
             "content": "bb07501d7bbcc26b",
             "before": "932af575a56f8b15",
             "after": "3401390ee467b811",
-            "line": 1202
+            "line": 1203
           },
           {
             "id": "d80d48a67429b2fb",
@@ -1505,42 +1463,35 @@
             "content": "d44d4d1fba57f5b7",
             "before": "2c0690b51146d9eb",
             "after": "d580fbba13bccd48",
-            "line": 1623
+            "line": 1627
           },
           {
-            "id": "dc5109552db9a7f3",
-            "content": "e76fc940de0b04d2",
-            "before": "20f643d8510ab297",
-            "after": "a7a115c03f973342",
-            "line": 92
+            "id": "de1921d64ddf3f11",
+            "content": "d4266760c7d81c1a",
+            "before": "63b39e9ae83ef113",
+            "after": "e16691b9b80a0ba8",
+            "line": 21
           },
           {
             "id": "de523bc95deee2bd",
             "content": "d8bbbfb7f306eca6",
             "before": "bdd0d140bf99ff25",
             "after": "7c542048e5d5a22b",
-            "line": 661
+            "line": 664
           },
           {
             "id": "debc485165215fac",
             "content": "6e4886b70ff6260b",
             "before": "8125d4c83e4283f4",
             "after": "d028e0615e73d9d9",
-            "line": 275
-          },
-          {
-            "id": "df57d44f706e944c",
-            "content": "447473fa3706a8cd",
-            "before": "f7da4e5d266b1f6e",
-            "after": "54500ae21017b7eb",
-            "line": 137
+            "line": 274
           },
           {
             "id": "df87ad72a9bf2840",
             "content": "618c4513fa917f90",
             "before": "b7b8402dfc81ff23",
             "after": "7ea0d093a1dad89d",
-            "line": 1797
+            "line": 1801
           },
           {
             "id": "dfe9d84c306f2b4a",
@@ -1554,14 +1505,14 @@
             "content": "1e1b21c18dd28e79",
             "before": "ddac4cb4e03eaebd",
             "after": "499440bea3c2ff3c",
-            "line": 3911
+            "line": 3914
           },
           {
             "id": "e35d8d8935b33ea8",
             "content": "ee2e7f13b1347781",
             "before": "9db624c672ef1a73",
             "after": "c29cb9370523dc88",
-            "line": 1617
+            "line": 1621
           },
           {
             "id": "e446cb22e4431f84",
@@ -1581,21 +1532,14 @@
             "content": "61baa45c63b6b482",
             "before": "f7d65845b61c0f02",
             "after": "3fe1d625cb9fe8ad",
-            "line": 1834
+            "line": 1838
           },
           {
             "id": "ea7b58c1198660a4",
             "content": "d571b446619feac7",
             "before": "98ef4f4f83cdc613",
             "after": "c9aa4e7b0f77b384",
-            "line": 1916
-          },
-          {
-            "id": "ef2d91382091ac60",
-            "content": "d01b85511aad8a81",
-            "before": "b3e4a27eb1bf2103",
-            "after": "63b39e9ae83ef113",
-            "line": 62
+            "line": 1920
           },
           {
             "id": "f0a09aeb24d3732e",
@@ -1619,11 +1563,18 @@
             "line": 269
           },
           {
+            "id": "f6fb1feb34b3b6a4",
+            "content": "af4113e6ea5557d0",
+            "before": "3b17a19683b21659",
+            "after": "82c5bd797670acd1",
+            "line": 442
+          },
+          {
             "id": "f8809471157b511a",
             "content": "daaecf6e3c22e3b3",
             "before": "48f674100fc9e5b9",
             "after": "bc35fa0f82ea1248",
-            "line": 2405
+            "line": 2404
           },
           {
             "id": "fa094b269524419e",
@@ -1651,7 +1602,7 @@
             "content": "8d5586c3bb6e3d18",
             "before": "2c0690b51146d9eb",
             "after": "2c0690b51146d9eb",
-            "line": 3888
+            "line": 3891
           }
         ]
       },
@@ -1702,7 +1653,7 @@
         "findings": []
       },
       "duplication": {
-        "metric_version": 1,
+        "metric_version": 2,
         "findings": []
       },
       "erosion": {
