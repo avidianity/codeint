@@ -10,6 +10,9 @@ use crate::command::{
     GuardFormat, ImpactFormat, InitFormat, PluginTestFormat, RatchetFormat, ReportFormat,
     ReportRenderFormat, SchemaFormat, TraceFormat, TrendFormat,
 };
+use crate::config_file::{
+    MAX_PLUGIN_MEMORY_MB, MAX_PLUGIN_TIMEOUT_MS, MIN_PLUGIN_MEMORY_MB, MIN_PLUGIN_TIMEOUT_MS,
+};
 use crate::coupling::{CouplingRatio, DEFAULT_MAX_COMMIT_FILES, DEFAULT_MIN_CO_CHANGES};
 use crate::resolved::{BudgetOverride, SourceSetOverride};
 
@@ -297,14 +300,14 @@ pub(super) struct PluginLimitArguments {
     #[arg(
         long = "plugin-memory-mb",
         value_name = "MB",
-        value_parser = clap::value_parser!(u64).range(1..=4096),
+        value_parser = clap::value_parser!(u64).range(MIN_PLUGIN_MEMORY_MB..=MAX_PLUGIN_MEMORY_MB),
         help = "Override the memory limit in MiB of each Plugin call, plugin_limits.memory_mb (1 to 4096)"
     )]
     pub(super) memory_mb: Option<u64>,
     #[arg(
         long = "plugin-timeout-ms",
         value_name = "MS",
-        value_parser = clap::value_parser!(u64).range(1..=300_000),
+        value_parser = clap::value_parser!(u64).range(MIN_PLUGIN_TIMEOUT_MS..=MAX_PLUGIN_TIMEOUT_MS),
         help = "Override the time limit in milliseconds of each Plugin call, plugin_limits.timeout_ms (1 to 300000)"
     )]
     pub(super) timeout_ms: Option<u64>,

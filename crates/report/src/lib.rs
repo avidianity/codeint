@@ -139,7 +139,10 @@ pub use ownership::OwnershipOptions;
 pub use plugin_test::{PluginTestCheck, PluginTestReport, PluginTestStatus, PluginTestSummary};
 pub use ratchet::{RATCHET_PACKAGE_SKIPPED_NOTE, RatchetFailure, RatchetUpdateReport};
 pub use render::{ReportError, render_toon};
-pub use report_schema::report_schema;
+pub use report_schema::{
+    ReportSchemaKind, all_report_schemas, report_schema, schema_for, validate_json_against_schema,
+    validate_report_json,
+};
 pub use saved::{SavedReport, SavedReportError};
 pub use schema::{ExitCodeSchema, LanguageSchema, McpToolSchema, MetricSchema, SchemaReport};
 pub use trace::{TraceMultiFileImport, TraceReport};

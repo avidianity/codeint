@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codeint config JSON report",
+  "description": "The JSON output of `codeint config --format json`.",
+  "type": "object",
+  "required": [
+    "config_file",
+    "config_file_present",
+    "settings"
+  ],
+  "properties": {
+    "config_file": {
+      "type": "string"
+    },
+    "config_file_present": {
+      "type": "boolean"
+    },
+    "settings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ResolvedSetting"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "ResolvedSetting": {
+      "type": "object",
+      "required": [
+        "key",
+        "value",
+        "source"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {},
+        "source": {
+          "type": "string",
+          "enum": [
+            "default",
+            "file",
+            "cli"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

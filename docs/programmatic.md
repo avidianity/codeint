@@ -1,12 +1,12 @@
 # Programmatic API
 
 codeint can be called directly from JavaScript, TypeScript, and Rust without parsing terminal text.
-The JavaScript/TypeScript package (`codeint`) exposes `check`, `diff`, `trend`, and `init`, while the Rust library (`codeint-cli`) also exposes `impact`, `trace`, `guard`, `schema`, `resolved_config`, `doctor`, `agent_status`, `agent_install`, `churn`, and `coupling`.
+The JavaScript/TypeScript package (`codeint`) exposes `check`, `diff`, `trend`, and `init`, while the Rust library (`codeint-cli`) also exposes `impact`, `trace`, `guard`, `schema`, `resolved_config`, `doctor`, `agent_status`, `agent_install`, `churn`, `coupling`, `ratchet_update`, `baseline_update`, `rerender_report`, and `plugin_test`.
 `codeint update` remains CLI-only.
 
 ## Failure semantics
 
-- `check` and `diff` return a structured result on both exit `0` (passed) and exit `1` (Budget or Regression failed).
+- `check`, `diff`, `doctor`, and `plugin_test` return a structured gated outcome on both exit `0` (passed) and exit `1` (Budget, Ratchet, Regression, `doctor` blocking error, or `plugin test` failure).
 - Operational errors (exit `2`, such as an invalid configuration file, a missing folder, or a directory outside Git) throw `CodeintError` in JavaScript/TypeScript or return `Err(CodeintError)` in Rust.
 
 ## JavaScript and TypeScript (`codeint`)
@@ -51,7 +51,8 @@ Within the workspace or from a path dependency on `crates/cli`, import the typed
 ```rust
 use std::path::Path;
 use codeint_cli::{
-    CheckOptions, DiffOptions, ReportFormat, TrendOptions, check, diff, guard, init, trend,
+    CheckOptions, DiffOptions, InitOptions, ReportFormat, TrendOptions, check, diff, guard, init,
+    trend,
 };
 
 let folder = Path::new(".");
@@ -66,7 +67,7 @@ let json = checked.report.render(ReportFormat::Json)?;
 let diffed = diff(folder, "origin/main", &DiffOptions::default())?;
 let history = trend(folder, &TrendOptions::default())?;
 let boundary = guard(folder, Path::new("src/domain/order.ts"))?;
-let created = init(folder)?;
+let created = init(folder, &InitOptions::default())?;
 ```
 
 Operational failures return `Err(CodeintError)`, which exposes `message()` and `remedy()`.

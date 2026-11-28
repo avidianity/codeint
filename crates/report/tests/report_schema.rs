@@ -1,108 +1,34 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use codeint_config::{Budgets, DependenciesConfig, FindingsShown, ReportFormat};
+use codeint_config::{
+    Budgets, CalendarDay, DependenciesConfig, FindingsShown, RegressionLimits, ReportFormat,
+    TrendFormat,
+};
 use codeint_model::language::Function;
 use codeint_model::{
     CodeModel, FileModel, FunctionCoverage, HazardLine, LanguageFacts, ReferenceRanges, RepoPath,
     SourceFile, SourceSet, Workspace,
 };
 use codeint_report::{
-    FileDiagnosticEntry, MeasuredLanguage, Report, ReportExtras, ReportOptions, ScopeSummaryEntry,
-    report_schema,
+    BaseCommit, CommitMeasurement, CommitMeasurementOptions, DiffReport, FileDiagnosticEntry, Head,
+    MeasuredLanguage, Report, ReportExtras, ReportOptions, ReportSchemaKind, ScopeSummaryEntry,
+    TrendPoint, TrendReport, all_report_schemas, report_schema, schema_for,
+    validate_json_against_schema, validate_report_json,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
 
 fn published_report_schema_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../schema/codeint-report.schema.json")
+    repo_root().join(ReportSchemaKind::Check.relative_path())
 }
 
-fn validate_against_schema(value: &Value, schema: &Value, root: &Value, path: &str) {
-    if let Some(allowed) = schema.as_bool() {
-        assert!(allowed, "value disallowed by schema at {path}: {value}");
-        return;
-    }
-    if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
-        let def_name = reference
-            .strip_prefix("#/$defs/")
-            .expect("local $defs reference");
-        validate_against_schema(value, &root["$defs"][def_name], root, path);
-        return;
-    }
-    check_json_type(value, schema, path);
-    check_number_bounds(value, schema, path);
-    check_object_schema(value, schema, root, path);
-    check_array_schema(value, schema, root, path);
-}
-
-fn check_json_type(value: &Value, schema: &Value, path: &str) {
-    let Some(expected_type) = schema.get("type").and_then(Value::as_str) else {
-        return;
-    };
-    let ok = match expected_type {
-        "object" => value.is_object(),
-        "array" => value.is_array(),
-        "string" => value.is_string(),
-        "number" => value.is_number(),
-        "integer" => value.is_u64() || value.is_i64(),
-        "boolean" => value.is_boolean(),
-        other => panic!("unsupported schema type {other} at {path}"),
-    };
-    assert!(ok, "expected {expected_type} at {path}, got {value}");
-}
-
-fn check_number_bounds(value: &Value, schema: &Value, path: &str) {
-    let Some(number) = value.as_f64() else {
-        return;
-    };
-    if let Some(min) = schema.get("minimum").and_then(Value::as_f64) {
-        assert!(
-            number >= min,
-            "value {number} below minimum {min} at {path}"
-        );
-    }
-    if let Some(max) = schema.get("maximum").and_then(Value::as_f64) {
-        assert!(
-            number <= max,
-            "value {number} above maximum {max} at {path}"
-        );
-    }
-}
-
-fn check_object_schema(value: &Value, schema: &Value, root: &Value, path: &str) {
-    let Some(object) = value.as_object() else {
-        return;
-    };
-    for key in schema
-        .get("required")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        let key_str = key.as_str().expect("required key string");
-        assert!(
-            object.contains_key(key_str),
-            "missing required key {key_str:?} at {path}"
-        );
-    }
-    let properties = schema.get("properties").and_then(Value::as_object);
-    for (key, child) in object {
-        let child_path = format!("{path}.{key}");
-        let child_schema = properties
-            .and_then(|props| props.get(key))
-            .or_else(|| schema.get("additionalProperties"));
-        if let Some(target) = child_schema {
-            validate_against_schema(child, target, root, &child_path);
-        }
-    }
-}
-
-fn check_array_schema(value: &Value, schema: &Value, root: &Value, path: &str) {
-    let (Some(items), Some(item_schema)) = (value.as_array(), schema.get("items")) else {
-        return;
-    };
-    for (index, item) in items.iter().enumerate() {
-        validate_against_schema(item, item_schema, root, &format!("{path}[{index}]"));
+fn validate_against_schema(value: &Value, schema: &Value) {
+    if let Err(message) = validate_json_against_schema(value, schema) {
+        panic!("{message}");
     }
 }
 
@@ -215,7 +141,7 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
     let with_gap_json: Value =
         serde_json::from_str(&with_gap.render(ReportFormat::Json).expect("json"))
             .expect("valid JSON");
-    validate_against_schema(&with_gap_json, &schema, &schema, "$");
+    validate_against_schema(&with_gap_json, &schema);
     assert_eq!(
         with_gap_json["source_sets"]["production"]["test_gap"]["ratio"],
         0.75
@@ -250,7 +176,7 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
     let without_gap_json: Value =
         serde_json::from_str(&without_gap.render(ReportFormat::Json).expect("json"))
             .expect("valid JSON");
-    validate_against_schema(&without_gap_json, &schema, &schema, "$");
+    validate_against_schema(&without_gap_json, &schema);
     assert!(
         without_gap_json["source_sets"]["production"]
             .get("test_gap")
@@ -322,7 +248,7 @@ fn report_schema_validates_external_package_boundary_findings() {
     .expect("report with external boundary finding");
     let report_json: Value =
         serde_json::from_str(&report.render(ReportFormat::Json).expect("json")).expect("json");
-    validate_against_schema(&report_json, &schema, &schema, "$");
+    validate_against_schema(&report_json, &schema);
     let finding = &report_json["source_sets"]["production"]["boundaries"]["findings"][0];
     assert_eq!(finding["kind"], "external_package");
     assert_eq!(finding["external_package"], "prisma");
@@ -397,7 +323,7 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
 
     let json_text = report.render(ReportFormat::Json).expect("json");
     let report_json: Value = serde_json::from_str(&json_text).expect("valid JSON");
-    validate_against_schema(&report_json, &schema, &schema, "$");
+    validate_against_schema(&report_json, &schema);
 
     let prod = &report_json["source_sets"]["production"];
     for metric in [
@@ -428,4 +354,159 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
     assert!(toon_text.contains("metric_version: 1"));
     assert!(toon_text.contains("metric_version: 2"));
     assert!(toon_text.contains("metric_version: 3"));
+}
+
+#[test]
+fn published_report_schemas_match_generated_output_for_all_commands() {
+    let root = repo_root();
+    let mut drifted = Vec::new();
+    for (kind, generated) in all_report_schemas() {
+        let path = root.join(kind.relative_path());
+        let published = std::fs::read_to_string(&path).unwrap_or_default();
+        if published != generated {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("create schema dir");
+            }
+            std::fs::write(&path, &generated).expect("write published report schema");
+            drifted.push(path.display().to_string());
+        }
+        let parsed: Value = serde_json::from_str(&generated).expect("schema is valid JSON");
+        assert_eq!(
+            parsed["$schema"],
+            "https://json-schema.org/draft/2020-12/schema"
+        );
+    }
+    assert!(
+        drifted.is_empty(),
+        "report schemas drifted and were rewritten: {drifted:?}; review and re-run"
+    );
+}
+
+fn parse_and_validate(kind: ReportSchemaKind, rendered: String) -> Value {
+    let schema: Value = serde_json::from_str(&schema_for(kind)).expect("schema");
+    let value: Value = serde_json::from_str(&rendered).expect("rendered json");
+    validate_against_schema(&value, &schema);
+    value
+}
+
+fn sample_diff_with_external_metric() -> DiffReport {
+    let plugin = VersionedExternalMetricPlugin;
+    let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
+    let budgets = Budgets::default();
+    let limits = RegressionLimits::default();
+    let options = CommitMeasurementOptions {
+        metric_plugins: &metric_plugins,
+        ..CommitMeasurementOptions::default()
+    };
+    let base_measurement =
+        CommitMeasurement::of_languages(vec![sample_model(false, true)], options)
+            .expect("base measurement");
+    let head_measurement =
+        CommitMeasurement::of_languages(vec![sample_model(false, true)], options)
+            .expect("head measurement");
+    DiffReport::compare(
+        BaseCommit {
+            git_ref: "main".to_owned(),
+            merge_base: "abc1234".to_owned(),
+        },
+        Head::WorkingTree,
+        base_measurement,
+        head_measurement,
+        FindingsShown::default(),
+        &budgets,
+        &limits,
+    )
+}
+
+#[test]
+fn diff_and_trend_schemas_validate_reports_with_external_metrics() {
+    let plugin = VersionedExternalMetricPlugin;
+    let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
+    let diff = sample_diff_with_external_metric();
+    let diff_json = parse_and_validate(
+        ReportSchemaKind::Diff,
+        diff.render(ReportFormat::Json).expect("diff json"),
+    );
+    assert_eq!(
+        diff_json["source_sets"]["production"]["custom_depth"]["metric_version"],
+        3
+    );
+
+    let trend_measurement = CommitMeasurement::of_languages(
+        vec![sample_model(false, true)],
+        CommitMeasurementOptions {
+            metric_plugins: &metric_plugins,
+            ..CommitMeasurementOptions::default()
+        },
+    )
+    .expect("trend measurement");
+    let trend = TrendReport::of(vec![TrendPoint {
+        commit: "abc1234".to_owned(),
+        committed_on: CalendarDay::containing(1_700_000_000),
+        measurement: trend_measurement,
+    }]);
+    let trend_json = parse_and_validate(
+        ReportSchemaKind::Trend,
+        trend.render(TrendFormat::Json).expect("trend json"),
+    );
+    assert_eq!(trend_json["metric_versions"]["custom_depth"], 3);
+}
+
+#[test]
+fn report_schemas_and_validator_reject_malformed_payloads_and_invalid_schemas() {
+    assert!(validate_json_against_schema(&json!({"a": 1}), &Value::Null).is_err());
+    assert!(validate_json_against_schema(&json!({"a": 1}), &json!(42)).is_err());
+    assert!(validate_json_against_schema(&json!({"a": 1}), &json!("object")).is_err());
+    assert!(validate_json_against_schema(&json!({"a": 1}), &json!([])).is_err());
+    assert!(validate_json_against_schema(&json!({"a": 1}), &json!(false)).is_err());
+    assert!(validate_json_against_schema(&json!({"a": 1}), &json!(true)).is_ok());
+
+    let plugin = VersionedExternalMetricPlugin;
+    let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
+    let budgets = Budgets::default();
+    let report = Report::summarize_with_options(
+        vec![MeasuredLanguage::new(
+            "typescript-javascript",
+            sample_model(true, true),
+            ReferenceRanges::default(),
+            true,
+        )],
+        Vec::new(),
+        ReportOptions {
+            metric_plugins: &metric_plugins,
+            ..ReportOptions::new(FindingsShown::default(), &budgets)
+        },
+    )
+    .expect("report");
+    let valid_check: Value =
+        serde_json::from_str(&report.render(ReportFormat::Json).expect("json")).expect("json");
+    validate_report_json(ReportSchemaKind::Check, &valid_check).expect("valid check report");
+
+    let mut bad_erosion_findings = valid_check.clone();
+    bad_erosion_findings["source_sets"]["production"]["erosion"]["findings"] =
+        json!("not-an-array");
+    assert!(validate_report_json(ReportSchemaKind::Check, &bad_erosion_findings).is_err());
+
+    let mut bad_external_findings = valid_check.clone();
+    bad_external_findings["source_sets"]["production"]["custom_depth"]["findings"] =
+        json!([123, false]);
+    assert!(validate_report_json(ReportSchemaKind::Check, &bad_external_findings).is_err());
+
+    let mut bad_external_key = valid_check.clone();
+    bad_external_key["source_sets"]["production"]["custom_depth"]["bogus"] = json!("anything");
+    assert!(validate_report_json(ReportSchemaKind::Check, &bad_external_key).is_err());
+
+    let mut unknown_top_level = valid_check.clone();
+    unknown_top_level["unknown_top_level_key"] = json!(true);
+    assert!(validate_report_json(ReportSchemaKind::Check, &unknown_top_level).is_err());
+
+    let mut empty_package_erosion = valid_check.clone();
+    empty_package_erosion["source_sets"]["production"]["packages"][0]["erosion"] = json!({});
+    assert!(validate_report_json(ReportSchemaKind::Check, &empty_package_erosion).is_err());
+
+    let diff = sample_diff_with_external_metric();
+    let mut bad_diff: Value =
+        serde_json::from_str(&diff.render(ReportFormat::Json).expect("diff json")).expect("json");
+    bad_diff["source_sets"]["production"]["erosion"]["new"] = json!([{"completely_bogus": 42}]);
+    assert!(validate_report_json(ReportSchemaKind::Diff, &bad_diff).is_err());
 }

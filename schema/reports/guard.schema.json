@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codeint guard JSON report",
+  "description": "The JSON output of `codeint guard --format json`.",
+  "type": "object",
+  "required": [
+    "path",
+    "exists",
+    "configured",
+    "strict_zones",
+    "allowed_targets",
+    "denied_targets",
+    "allowed_importers"
+  ],
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "exists": {
+      "type": "boolean"
+    },
+    "configured": {
+      "type": "boolean"
+    },
+    "strict_zones": {
+      "type": "boolean"
+    },
+    "zone": {
+      "type": "string"
+    },
+    "is_public_file": {
+      "type": "boolean"
+    },
+    "public_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_targets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/GuardAllowedTarget"
+      }
+    },
+    "denied_targets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/GuardDeniedTarget"
+      }
+    },
+    "allowed_importers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "external_imports": {
+      "$ref": "#/$defs/GuardExternalImports"
+    },
+    "note": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "GuardAllowedTarget": {
+      "type": "object",
+      "required": [
+        "zone"
+      ],
+      "properties": {
+        "zone": {
+          "type": "string"
+        },
+        "public_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "GuardDeniedTarget": {
+      "type": "object",
+      "required": [
+        "zone",
+        "directive"
+      ],
+      "properties": {
+        "zone": {
+          "type": "string"
+        },
+        "directive": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "GuardExternalImports": {
+      "type": "object",
+      "required": [
+        "directive",
+        "patterns"
+      ],
+      "properties": {
+        "directive": {
+          "type": "string"
+        },
+        "patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

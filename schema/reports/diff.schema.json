@@ -1,0 +1,1435 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codeint diff JSON report",
+  "description": "The JSON output of `codeint diff --format json`.",
+  "type": "object",
+  "required": [
+    "base",
+    "head",
+    "source_sets"
+  ],
+  "properties": {
+    "base": {
+      "$ref": "#/$defs/BaseEntry"
+    },
+    "head": {
+      "$ref": "#/$defs/HeadEntry"
+    },
+    "test_gap_note": {
+      "type": "string"
+    },
+    "ratchet_note": {
+      "type": "string"
+    },
+    "manifest_warnings": {
+      "$ref": "#/$defs/ManifestWarnings"
+    },
+    "source_sets": {
+      "$ref": "#/$defs/SourceSetChangesSections"
+    },
+    "dependencies": {
+      "$ref": "#/$defs/DependenciesChanges"
+    },
+    "over_budget": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BudgetFailure"
+      }
+    },
+    "over_new_file_budget": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/NewFileBudgetFailure"
+      }
+    },
+    "over_ratchet": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RatchetFailure"
+      }
+    },
+    "regressions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Regression"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "BaseEntry": {
+      "type": "object",
+      "required": [
+        "ref",
+        "merge_base"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "merge_base": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "HeadEntry": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "required": [
+            "ref",
+            "commit"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string"
+            },
+            "commit": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ManifestWarnings": {
+      "type": "object",
+      "properties": {
+        "base": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "head": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SourceSetChangesSections": {
+      "type": "object",
+      "properties": {
+        "production": {
+          "$ref": "#/$defs/SourceSetChanges"
+        },
+        "test": {
+          "$ref": "#/$defs/SourceSetChanges"
+        },
+        "generated": {
+          "$ref": "#/$defs/SourceSetChanges"
+        },
+        "vendored": {
+          "$ref": "#/$defs/SourceSetChanges"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SourceSetChanges": {
+      "type": "object",
+      "required": [
+        "erosion",
+        "cognitive_complexity",
+        "duplication",
+        "verbosity"
+      ],
+      "properties": {
+        "erosion": {
+          "$ref": "#/$defs/ErosionChanges"
+        },
+        "cognitive_complexity": {
+          "$ref": "#/$defs/CognitiveComplexityChanges"
+        },
+        "duplication": {
+          "$ref": "#/$defs/DuplicationChanges"
+        },
+        "verbosity": {
+          "$ref": "#/$defs/VerbosityChanges"
+        },
+        "import_cycles": {
+          "$ref": "#/$defs/ImportCyclesChanges"
+        },
+        "boundaries": {
+          "$ref": "#/$defs/BoundariesChanges"
+        },
+        "orphan_files": {
+          "$ref": "#/$defs/OrphanFilesChanges"
+        },
+        "hazards": {
+          "$ref": "#/$defs/HazardsChanges"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/ExternalMetricChanges"
+      }
+    },
+    "ErosionChanges": {
+      "type": "object",
+      "required": [
+        "base_ratio",
+        "head_ratio",
+        "metric_version",
+        "new",
+        "resolved",
+        "unchanged"
+      ],
+      "properties": {
+        "base_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "head_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ErodedFunctionFinding"
+          }
+        },
+        "new_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ErodedFunctionFinding"
+          }
+        },
+        "resolved_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ErodedFunctionFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "path",
+        "line",
+        "end_line",
+        "cyclomatic_complexity",
+        "cognitive_complexity",
+        "source_lines",
+        "function_mass"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "cyclomatic_complexity": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cognitive_complexity": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "function_mass": {
+          "type": "number",
+          "minimum": 0
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "CognitiveComplexityChanges": {
+      "type": "object",
+      "required": [
+        "base_ratio",
+        "head_ratio",
+        "metric_version",
+        "new",
+        "resolved",
+        "unchanged"
+      ],
+      "properties": {
+        "base_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "head_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CognitiveComplexityFinding"
+          }
+        },
+        "new_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CognitiveComplexityFinding"
+          }
+        },
+        "resolved_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "CognitiveComplexityFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "path",
+        "line",
+        "end_line",
+        "cognitive_complexity",
+        "cyclomatic_complexity",
+        "source_lines"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "cognitive_complexity": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cyclomatic_complexity": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "DuplicationChanges": {
+      "type": "object",
+      "required": [
+        "base_ratio",
+        "head_ratio",
+        "metric_version",
+        "new",
+        "resolved",
+        "unchanged"
+      ],
+      "properties": {
+        "base_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "head_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CloneGroupFinding"
+          }
+        },
+        "new_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CloneGroupFinding"
+          }
+        },
+        "resolved_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "clone_families": {
+          "$ref": "#/$defs/CloneFamilyChanges"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CloneLocation": {
+      "type": "object",
+      "required": [
+        "path",
+        "start_line",
+        "end_line"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "CloneGroupFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "tokens",
+        "locations"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "similarity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CloneLocation"
+          }
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "CloneFamilyChanges": {
+      "type": "object",
+      "required": [
+        "new",
+        "resolved",
+        "unchanged"
+      ],
+      "properties": {
+        "new": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CloneFamilyFinding"
+          }
+        },
+        "new_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CloneFamilyFinding"
+          }
+        },
+        "resolved_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unlisted_clone_family_group_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "CloneFamilyFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "duplicated_lines",
+        "clone_group_ids",
+        "locations"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "duplicated_lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "clone_group_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CloneLocation"
+          }
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "VerbosityChanges": {
+      "type": "object",
+      "required": [
+        "base_ratio",
+        "head_ratio",
+        "metric_version",
+        "new",
+        "resolved",
+        "unchanged"
+      ],
+      "properties": {
+        "base_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "head_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FlaggedLineFinding"
+          }
+        },
+        "new_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FlaggedLineFinding"
+          }
+        },
+        "resolved_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "FlaggedLineFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "path",
+        "line",
+        "rule"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rule": {
+          "type": "string"
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ImportCyclesChanges": {
+      "type": "object",
+      "required": [
+        "base_ratio",
+        "head_ratio",
+        "metric_version",
+        "new",
+        "resolved",
+        "unchanged"
+      ],
+      "properties": {
+        "base_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "head_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportCycleFinding"
+          }
+        },
+        "new_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportCycleFinding"
+          }
+        },
+        "resolved_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ImportCycleFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "modules"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "BoundariesChanges": {
+      "type": "object",
+      "required": [
+        "base_ratio",
+        "head_ratio",
+        "metric_version",
+        "new",
+        "resolved",
+        "unchanged"
+      ],
+      "properties": {
+        "base_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "head_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BoundaryFinding"
+          }
+        },
+        "new_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BoundaryFinding"
+          }
+        },
+        "resolved_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "BoundaryFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "importer",
+        "message"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "zone_rule",
+            "external_package",
+            "public_files",
+            "unzoned_file"
+          ]
+        },
+        "importer": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "external_package": {
+          "type": "string"
+        },
+        "specifier": {
+          "type": "string"
+        },
+        "source_zone": {
+          "type": "string"
+        },
+        "target_zone": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "OrphanFilesChanges": {
+      "type": "object",
+      "required": [
+        "base_ratio",
+        "head_ratio",
+        "metric_version",
+        "new",
+        "resolved",
+        "unchanged"
+      ],
+      "properties": {
+        "base_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "head_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrphanFileFinding"
+          }
+        },
+        "new_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrphanFileFinding"
+          }
+        },
+        "resolved_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "OrphanFileFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "path",
+        "kind",
+        "message"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "unreferenced",
+            "test-only"
+          ]
+        },
+        "test_importers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "message": {
+          "type": "string"
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "HazardsChanges": {
+      "type": "object",
+      "required": [
+        "base_ratio",
+        "head_ratio",
+        "metric_version",
+        "new",
+        "resolved",
+        "unchanged"
+      ],
+      "properties": {
+        "base_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "head_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HazardLineFinding"
+          }
+        },
+        "new_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HazardLineFinding"
+          }
+        },
+        "resolved_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "HazardLineFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "path",
+        "line",
+        "rule"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rule": {
+          "type": "string"
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ExternalMetricChanges": {
+      "type": "object",
+      "required": [
+        "base_ratio",
+        "head_ratio",
+        "metric_version",
+        "new",
+        "resolved",
+        "unchanged"
+      ],
+      "properties": {
+        "base_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "head_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExternalMetricFinding"
+          }
+        },
+        "new_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExternalMetricFinding"
+          }
+        },
+        "resolved_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ExternalMetricFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "path",
+        "line",
+        "message"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "message": {
+          "type": "string"
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "DependenciesChanges": {
+      "type": "object",
+      "required": [
+        "unused_dependencies",
+        "unlisted_dependencies",
+        "dev_in_production_dependencies"
+      ],
+      "properties": {
+        "unused_dependencies": {
+          "$ref": "#/$defs/UnusedDependenciesChanges"
+        },
+        "unlisted_dependencies": {
+          "$ref": "#/$defs/ImportedDependenciesChanges"
+        },
+        "dev_in_production_dependencies": {
+          "$ref": "#/$defs/ImportedDependenciesChanges"
+        }
+      },
+      "additionalProperties": false
+    },
+    "UnusedDependenciesChanges": {
+      "type": "object",
+      "required": [
+        "base_ratio",
+        "head_ratio",
+        "metric_version",
+        "new",
+        "resolved",
+        "unchanged"
+      ],
+      "properties": {
+        "base_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "head_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UnusedDependencyFinding"
+          }
+        },
+        "new_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UnusedDependencyFinding"
+          }
+        },
+        "resolved_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "UnusedDependencyFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "package",
+        "manifest",
+        "dependency",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "package": {
+          "type": "string"
+        },
+        "manifest": {
+          "type": "string"
+        },
+        "dependency": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ImportedDependenciesChanges": {
+      "type": "object",
+      "required": [
+        "base_ratio",
+        "head_ratio",
+        "metric_version",
+        "new",
+        "resolved",
+        "unchanged"
+      ],
+      "properties": {
+        "base_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "head_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportedDependencyFinding"
+          }
+        },
+        "new_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportedDependencyFinding"
+          }
+        },
+        "resolved_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unchanged": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ImportedDependencyFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "package",
+        "manifest",
+        "dependency",
+        "importers"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "package": {
+          "type": "string"
+        },
+        "manifest": {
+          "type": "string"
+        },
+        "dependency": {
+          "type": "string"
+        },
+        "importers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "BudgetFailure": {
+      "type": "object",
+      "required": [
+        "metric",
+        "ratio",
+        "budget"
+      ],
+      "properties": {
+        "source_set": {
+          "type": "string"
+        },
+        "metric": {
+          "type": "string"
+        },
+        "ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "budget": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "non_baselined": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "NewFileBudgetFailure": {
+      "type": "object",
+      "required": [
+        "source_set",
+        "metric",
+        "ratio",
+        "budget",
+        "files"
+      ],
+      "properties": {
+        "source_set": {
+          "type": "string"
+        },
+        "metric": {
+          "type": "string"
+        },
+        "ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "budget": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "RatchetFailure": {
+      "type": "object",
+      "required": [
+        "metric",
+        "ratio",
+        "ceiling"
+      ],
+      "properties": {
+        "source_set": {
+          "type": "string"
+        },
+        "metric": {
+          "type": "string"
+        },
+        "ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "ceiling": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "Regression": {
+      "type": "object",
+      "required": [
+        "metric",
+        "rule",
+        "base",
+        "head",
+        "new_findings",
+        "ratio_rise_limit"
+      ],
+      "properties": {
+        "source_set": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "metric": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string",
+          "enum": [
+            "ratio_rise",
+            "new_findings",
+            "numerator_rise",
+            "per_file_numerator_rise",
+            "per_file_new_findings"
+          ]
+        },
+        "base": {
+          "type": "number",
+          "minimum": 0
+        },
+        "head": {
+          "type": "number",
+          "minimum": 0
+        },
+        "new_findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ratio_rise_limit": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

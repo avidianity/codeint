@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codeint schema JSON report",
+  "description": "The JSON output of `codeint schema --format json`.",
+  "type": "object",
+  "required": [
+    "name",
+    "version",
+    "description",
+    "commands",
+    "metrics",
+    "configuration_keys",
+    "source_sets",
+    "languages",
+    "output_formats",
+    "mcp_tools",
+    "exit_codes"
+  ],
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CliCommandSchema"
+      }
+    },
+    "metrics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/MetricSchema"
+      }
+    },
+    "configuration_keys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "source_sets": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "languages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/LanguageSchemaEntry"
+      }
+    },
+    "output_formats": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/OutputFormatSchema"
+      }
+    },
+    "mcp_tools": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/McpToolSchema"
+      }
+    },
+    "exit_codes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ExitCodeSchema"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "CliCommandSchema": {
+      "type": "object",
+      "required": [
+        "name",
+        "arguments",
+        "flags"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CliArgumentSchema"
+          }
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CliFlagSchema"
+          }
+        },
+        "subcommands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CliCommandSchema"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "CliArgumentSchema": {
+      "type": "object",
+      "required": [
+        "name",
+        "value_name",
+        "required"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value_name": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CliFlagSchema": {
+      "type": "object",
+      "required": [
+        "takes_value",
+        "required"
+      ],
+      "properties": {
+        "short": {
+          "type": "string"
+        },
+        "long": {
+          "type": "string"
+        },
+        "value_name": {
+          "type": "string"
+        },
+        "takes_value": {
+          "type": "boolean"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default_value": {
+          "type": "string"
+        },
+        "possible_values": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "MetricSchema": {
+      "type": "object",
+      "required": [
+        "key",
+        "name",
+        "metric_version",
+        "short_description",
+        "description",
+        "unit"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "short_description": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "default_ratio_rise_limit": {
+          "type": "number",
+          "minimum": 0
+        },
+        "default_new_findings_rule": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "LanguageSchemaEntry": {
+      "type": "object",
+      "required": [
+        "name",
+        "extensions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hazard_rules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "framework_profiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "OutputFormatSchema": {
+      "type": "object",
+      "required": [
+        "name",
+        "commands"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "McpToolSchema": {
+      "type": "object",
+      "required": [
+        "name",
+        "description",
+        "inputSchema"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "inputSchema": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ExitCodeSchema": {
+      "type": "object",
+      "required": [
+        "code",
+        "name",
+        "description"
+      ],
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

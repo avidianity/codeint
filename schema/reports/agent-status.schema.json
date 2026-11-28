@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codeint agent status JSON report",
+  "description": "The JSON output of `codeint agent status --format json`.",
+  "type": "object",
+  "required": [
+    "config_root",
+    "agents"
+  ],
+  "properties": {
+    "config_root": {
+      "type": "string"
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/AgentStatusEntry"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "AgentStatusEntry": {
+      "type": "object",
+      "required": [
+        "client",
+        "name",
+        "config_path",
+        "detected",
+        "config_exists",
+        "registered"
+      ],
+      "properties": {
+        "client": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "detected": {
+          "type": "boolean"
+        },
+        "config_exists": {
+          "type": "boolean"
+        },
+        "registered": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

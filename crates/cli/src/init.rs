@@ -59,12 +59,13 @@ fn format_paths(paths: &[PathBuf]) -> String {
         .join(", ")
 }
 
-pub(crate) struct AdoptedFiles {
-    pub(crate) configuration: PathBuf,
-    pub(crate) ratchet: PathBuf,
-    pub(crate) ratchet_entries: usize,
-    pub(crate) baseline: PathBuf,
-    pub(crate) baselined_findings: usize,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdoptedFiles {
+    pub configuration: PathBuf,
+    pub ratchet: PathBuf,
+    pub ratchet_entries: usize,
+    pub baseline: PathBuf,
+    pub baselined_findings: usize,
 }
 
 pub(crate) fn init(folder: &Path, format: InitFormat) -> Result<PathBuf, InitError> {

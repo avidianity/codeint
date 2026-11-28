@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codeint coupling JSON report",
+  "description": "The JSON output of `codeint coupling --format json`.",
+  "type": "object",
+  "required": [
+    "window",
+    "commits_analyzed",
+    "commits_excluded_by_bulk_limit",
+    "max_commit_files",
+    "min_co_changes",
+    "min_ratio",
+    "source_sets",
+    "shallow",
+    "pairs"
+  ],
+  "properties": {
+    "window": {
+      "type": "string"
+    },
+    "commits_analyzed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "commits_excluded_by_bulk_limit": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_commit_files": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "min_co_changes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "min_ratio": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "source_sets": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "production",
+          "test",
+          "generated",
+          "vendored"
+        ]
+      }
+    },
+    "shallow": {
+      "type": "boolean"
+    },
+    "warning": {
+      "type": "string"
+    },
+    "pairs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CoupledPairRow"
+      }
+    },
+    "pairs_left_out": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "CoupledPairRow": {
+      "type": "object",
+      "required": [
+        "file_a",
+        "file_b",
+        "co_change_count",
+        "file_a_commits",
+        "file_b_commits",
+        "coupling_ratio",
+        "has_direct_import"
+      ],
+      "properties": {
+        "file_a": {
+          "type": "string"
+        },
+        "file_b": {
+          "type": "string"
+        },
+        "co_change_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "file_a_commits": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "file_b_commits": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "coupling_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "has_direct_import": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

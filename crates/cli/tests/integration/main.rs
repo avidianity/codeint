@@ -37,6 +37,7 @@ mod planted_defects;
 mod plugin_test;
 mod ratchet;
 mod report;
+mod report_schemas;
 mod schema;
 mod sdk;
 mod shell;
