@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0
+
+- Release 0.9.0.
+
 ## 0.8.0
 
 - Initial release of the pure Dart `codeint` client SDK and CLI runner.

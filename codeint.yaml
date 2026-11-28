@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/avidianity/codeint/v0.8.0/schema/codeint.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/avidianity/codeint/v0.9.0/schema/codeint.schema.json
 budgets:
   production:
     erosion: 0
