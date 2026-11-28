@@ -3,7 +3,7 @@ use codeint_model::{LanguagePlugin, RepoPath, TokenKind};
 
 fn lower(src: &str) -> codeint_model::FileModel {
     Python
-        .lower(&RepoPath::new("src/sample.py").unwrap(), src)
+        .lower(&RepoPath::new("src/sample.py").unwrap(), src, None)
         .expect("valid Python 3 source should lower")
 }
 

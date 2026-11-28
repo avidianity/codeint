@@ -22,14 +22,7 @@ struct UnlistedHazardRuleLanguagePlugin;
 export!(UnlistedHazardRuleLanguagePlugin);
 
 impl Guest for UnlistedHazardRuleLanguagePlugin {
-    fn extensions() -> Vec<String> {
-        vec!["uhr".to_string()]
-    }
-
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
-        if !path.ends_with(".uhr") {
-            return Err(LowerError::UnsupportedFile("unsupported".to_string()));
-        }
+    probe_runtime::lower_with_extension!("uhr", |_path, text| {
         let source_lines = probe_runtime::count_non_empty_lines(&text);
         let mut hazard_lines = Vec::new();
         for (index, line) in text.lines().enumerate() {
@@ -52,19 +45,7 @@ impl Guest for UnlistedHazardRuleLanguagePlugin {
             source_lines,
             hazard_lines: hazard_lines,
         ))
-    }
+    });
 
-    probe_runtime::empty_language_metadata_stubs!();
-
-    fn has_hazard_rules() -> bool {
-        true
-    }
-
-    fn hazard_rules() -> Vec<String> {
-        vec!["allowed-rule".to_string()]
-    }
-
-    fn has_imports() -> bool {
-        true
-    }
+    probe_runtime::hazard_language_tail!("allowed-rule");
 }

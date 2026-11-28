@@ -16,7 +16,7 @@ fn componentize_std_core_module(core_module_file: &str, component_file: &str) ->
     let component_bytes = wit_component::ComponentEncoder::default()
         .validate(true)
         .module(&core_bytes)
-        .expect("std core module carries codeint:plugin@0.4.0 component metadata")
+        .expect("std core module carries codeint:plugin@0.5.0 component metadata")
         .encode()
         .expect("encode std core module as a component without a WASI adapter");
     let component_path = core_path.with_file_name(component_file);
@@ -107,7 +107,7 @@ fn sdk_std_unknown_unknown_plugins_load_and_match_no_std_wasip2_results() {
         PluginKind::Language,
         &std_language_bytes,
     )
-    .expect("std language component exports codeint:plugin/language@0.4.0");
+    .expect("std language component exports codeint:plugin/language@0.5.0");
     let std_metric_bytes = std::fs::read(&std_metric_path).expect("read std metric");
     verify_plugin_component(
         "long-functions-std",
@@ -115,7 +115,7 @@ fn sdk_std_unknown_unknown_plugins_load_and_match_no_std_wasip2_results() {
         PluginKind::Metric,
         &std_metric_bytes,
     )
-    .expect("std metric component exports codeint:plugin/metric@0.4.0");
+    .expect("std metric component exports codeint:plugin/metric@0.5.0");
 
     let host_config = PluginHostConfig::default();
     let no_std_language = load_language_plugin(
@@ -135,10 +135,10 @@ fn sdk_std_unknown_unknown_plugins_load_and_match_no_std_wasip2_results() {
     let repo_path = RepoPath::new("src/paths.mini").expect("valid repo path");
     let source = sample_mini_source();
     let no_std_model = no_std_language
-        .lower(&repo_path, &source)
+        .lower(&repo_path, &source, None)
         .expect("no_std lower succeeds");
     let std_model = std_language
-        .lower(&repo_path, &source)
+        .lower(&repo_path, &source, None)
         .expect("std lower succeeds");
     assert_eq!(std_model, no_std_model);
     assert_eq!(std_model.functions.len(), 13);

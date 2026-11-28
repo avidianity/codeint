@@ -3,7 +3,7 @@ use codeint_model::{LanguagePlugin, RepoPath};
 
 fn lower(path: &str, src: &str) -> codeint_model::FileModel {
     Shell
-        .lower(&RepoPath::new(path).unwrap(), src)
+        .lower(&RepoPath::new(path).unwrap(), src, None)
         .unwrap_or_else(|err| panic!("failed to lower {path}: {err}"))
 }
 

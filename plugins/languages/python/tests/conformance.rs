@@ -16,7 +16,7 @@ fn python_plugin_contract_and_python2_rejection() {
         ("legacy_op.py", "if a <> b:\n    pass\n", false),
     ];
     for (path, src, expect_unsupported) in bad_cases {
-        let res = Python.lower(&RepoPath::new(path).unwrap(), src);
+        let res = Python.lower(&RepoPath::new(path).unwrap(), src, None);
         if expect_unsupported {
             assert!(matches!(res, Err(LowerError::UnsupportedFile { .. })));
         } else {
@@ -24,7 +24,7 @@ fn python_plugin_contract_and_python2_rejection() {
         }
     }
     let empty = Python
-        .lower(&RepoPath::new("empty.py").unwrap(), "")
+        .lower(&RepoPath::new("empty.py").unwrap(), "", None)
         .unwrap();
     assert_eq!(empty.source_set, SourceSet::Production);
     assert_eq!(empty.source_lines, 0);
@@ -46,7 +46,7 @@ fn python_functions_decisions_and_source_sets() {
     ]
     .join("\n");
     let model = Python
-        .lower(&RepoPath::new("src/app/eval.py").unwrap(), &src)
+        .lower(&RepoPath::new("src/app/eval.py").unwrap(), &src, None)
         .unwrap();
     assert_eq!(model.functions.len(), 2);
     assert_eq!(
@@ -71,7 +71,9 @@ fn python_functions_decisions_and_source_sets() {
         ("pkg/api_pb2.py", "x = 1\n", SourceSet::Generated),
         ("pkg/gen.py", "# @generated\nx = 1\n", SourceSet::Generated),
     ] {
-        let m = Python.lower(&RepoPath::new(path).unwrap(), body).unwrap();
+        let m = Python
+            .lower(&RepoPath::new(path).unwrap(), body, None)
+            .unwrap();
         assert_eq!(m.source_set, expected, "wrong source set for {path}");
     }
 }
@@ -91,7 +93,7 @@ fn python_imports_type_checking_resolution_and_workspaces() {
     ]
     .join("\n");
     let model = Python
-        .lower(&RepoPath::new("src/demo/main.py").unwrap(), &src)
+        .lower(&RepoPath::new("src/demo/main.py").unwrap(), &src, None)
         .unwrap();
     assert_eq!(
         model.runtime_imports,
@@ -163,7 +165,7 @@ fn python_imports_type_checking_resolution_and_workspaces() {
     assert!(matches!(resolutions[4], Resolution::Unresolved(_)));
 
     let packages = Python
-        .workspace_packages(vec![
+        .analyze_manifests(vec![
             Manifest {
                 path: "pyproject.toml".into(),
                 text: "[tool.uv.workspace]\nmembers = [\"packages/*\"]\nexclude = [\"packages/ignored\"]\n".into(),
@@ -177,8 +179,9 @@ fn python_imports_type_checking_resolution_and_workspaces() {
                 text: "[project]\nname = \"ignored\"\n".into(),
             },
         ])
-        .unwrap();
-    assert_eq!(packages, [RepoPath::new("packages/core").unwrap()]);
+        .unwrap()
+        .workspace_packages;
+    assert_eq!(packages, ["packages/core"]);
 }
 
 #[test]
@@ -223,8 +226,12 @@ fn python_verbosity_rules() {
         ),
     ];
     for (rule, bad, good) in cases {
-        let bad_model = Python.lower(&RepoPath::new("a.py").unwrap(), bad).unwrap();
-        let good_model = Python.lower(&RepoPath::new("b.py").unwrap(), good).unwrap();
+        let bad_model = Python
+            .lower(&RepoPath::new("a.py").unwrap(), bad, None)
+            .unwrap();
+        let good_model = Python
+            .lower(&RepoPath::new("b.py").unwrap(), good, None)
+            .unwrap();
         assert!(bad_model.flagged_lines.iter().any(|l| l.rule == rule));
         assert!(!good_model.flagged_lines.iter().any(|l| l.rule == rule));
     }
@@ -280,7 +287,7 @@ def fetch(cfg: Mapping[str, str]) -> str:
 "#;
     let client_path = "packages/core/src/acme_core/client.py";
     let model = Python
-        .lower(&RepoPath::new(client_path).unwrap(), CLIENT_PY)
+        .lower(&RepoPath::new(client_path).unwrap(), CLIENT_PY, None)
         .unwrap();
     let repo: Vec<RepoPath> = [
         "pyproject.toml",
@@ -328,7 +335,10 @@ def fetch(cfg: Mapping[str, str]) -> str:
         assert_eq!((spec.as_str(), actual), (want_spec, want_res));
     }
 
-    let deps = Python.declared_dependencies(manifests).unwrap();
+    let deps = Python
+        .analyze_manifests(manifests)
+        .unwrap()
+        .declared_dependencies;
     let expected_deps = [
         ("", "pydantic-settings", DepKind::Runtime),
         ("", "requests", DepKind::Runtime),
@@ -365,7 +375,7 @@ fn python_function_names_cover_defs_async_methods_nested_and_anonymous_lambdas()
     ]
     .join("\n");
     let model = Python
-        .lower(&RepoPath::new("src/names.py").unwrap(), &src)
+        .lower(&RepoPath::new("src/names.py").unwrap(), &src, None)
         .unwrap();
     let extracted: Vec<(u32, Option<&str>)> = model
         .functions
@@ -442,7 +452,7 @@ fn python_cognitive_complexity_distinguishes_flat_vs_nested_and_isolates_inner_f
     ]
     .join("\n");
     let model = Python
-        .lower(&RepoPath::new("src/cognitive.py").unwrap(), &src)
+        .lower(&RepoPath::new("src/cognitive.py").unwrap(), &src, None)
         .unwrap();
     let expected = [
         (Some("flat_match"), 4u32, 1u32),
@@ -470,7 +480,7 @@ fn python_cognitive_complexity_distinguishes_flat_vs_nested_and_isolates_inner_f
 fn relative_symbol_imports_fall_back_to_package_init_without_hiding_missing_submodules() {
     let cli_src = "from . import Flask\nfrom . import *\ndef run():\n    return Flask\n";
     let lowered = Python
-        .lower(&RepoPath::new("src/flask/cli.py").unwrap(), cli_src)
+        .lower(&RepoPath::new("src/flask/cli.py").unwrap(), cli_src, None)
         .unwrap();
     assert_eq!(lowered.runtime_imports, [".", ".Flask"]);
 

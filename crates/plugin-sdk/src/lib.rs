@@ -27,97 +27,90 @@ pub use runtime::link_runtime_symbols as __link_runtime_symbols;
 #[doc(hidden)]
 pub use wit_bindgen as __wit_bindgen;
 
-pub const PLUGIN_INTERFACE_VERSION: &str = "0.4.0";
+pub const PLUGIN_INTERFACE_VERSION: &str = "0.5.0";
 
 #[macro_export]
 macro_rules! export_language_plugin {
     ($plugin:ty) => {
         const _: () = {
+            use $crate::__alloc::string::String as __SdkString;
+            use $crate::__alloc::vec::Vec as __SdkVec;
+            use $crate::language::{self as __lang, LanguagePlugin as __LangPlugin};
+
             struct __CodeintLanguageBridge;
 
             impl $crate::__bindings::language::exports::codeint::plugin::language::Guest
                 for __CodeintLanguageBridge
             {
-                fn extensions() -> $crate::__alloc::vec::Vec<$crate::__alloc::string::String> {
+                fn extensions() -> __SdkVec<__SdkString> {
                     $crate::__link_runtime_symbols();
-                    <$plugin as $crate::language::LanguagePlugin>::extensions()
+                    <$plugin as __LangPlugin>::extensions()
+                }
+
+                fn known_dialects() -> __SdkVec<__SdkString> {
+                    <$plugin as __LangPlugin>::known_dialects()
                 }
 
                 fn lower(
-                    path: $crate::__alloc::string::String,
-                    text: $crate::__alloc::string::String,
-                ) -> ::core::result::Result<
-                    $crate::language::FileModel,
-                    $crate::language::LowerError,
-                > {
-                    <$plugin as $crate::language::LanguagePlugin>::lower(path, text)
+                    path: __SdkString,
+                    text: __SdkString,
+                    dialect: ::core::option::Option<__SdkString>,
+                ) -> ::core::result::Result<__lang::FileModel, __lang::LowerError> {
+                    <$plugin as __LangPlugin>::lower(path, text, dialect)
+                }
+
+                fn flagged_line_rules() -> __SdkVec<__SdkString> {
+                    <$plugin as __LangPlugin>::flagged_line_rules()
                 }
 
                 fn manifest_paths(
-                    repository_paths: $crate::__alloc::vec::Vec<$crate::__alloc::string::String>,
-                ) -> $crate::__alloc::vec::Vec<$crate::__alloc::string::String> {
-                    <$plugin as $crate::language::LanguagePlugin>::manifest_paths(repository_paths)
+                    repository_paths: __SdkVec<__SdkString>,
+                ) -> __SdkVec<__SdkString> {
+                    <$plugin as __LangPlugin>::manifest_paths(repository_paths)
                 }
 
-                fn workspace_packages(
-                    manifests: $crate::__alloc::vec::Vec<$crate::language::Manifest>,
-                ) -> ::core::result::Result<
-                    $crate::__alloc::vec::Vec<$crate::__alloc::string::String>,
-                    $crate::language::WorkspaceError,
-                > {
-                    <$plugin as $crate::language::LanguagePlugin>::workspace_packages(manifests)
+                fn analyze_manifests(
+                    manifests: __SdkVec<__lang::Manifest>,
+                ) -> __lang::ManifestAnalysis {
+                    <$plugin as __LangPlugin>::analyze_manifests(manifests)
                 }
 
                 fn resolve_imports(
-                    repository_paths: $crate::__alloc::vec::Vec<$crate::__alloc::string::String>,
-                    manifests: $crate::__alloc::vec::Vec<$crate::language::Manifest>,
-                    requests: $crate::__alloc::vec::Vec<$crate::language::ImportRequest>,
-                    active_profiles: $crate::__alloc::vec::Vec<$crate::__alloc::string::String>,
-                ) -> $crate::__alloc::vec::Vec<$crate::language::Resolution> {
-                    <$plugin as $crate::language::LanguagePlugin>::resolve_imports(
+                    repository_paths: __SdkVec<__SdkString>,
+                    manifests: __SdkVec<__lang::Manifest>,
+                    requests: __SdkVec<__lang::ImportRequest>,
+                    package_profiles: __SdkVec<__lang::PackageFrameworkProfiles>,
+                ) -> __SdkVec<__lang::Resolution> {
+                    <$plugin as __LangPlugin>::resolve_imports(
                         repository_paths,
                         manifests,
                         requests,
-                        active_profiles,
+                        package_profiles,
                     )
-                }
-
-                fn declared_dependencies(
-                    manifests: $crate::__alloc::vec::Vec<$crate::language::Manifest>,
-                ) -> $crate::__alloc::vec::Vec<$crate::language::DeclaredDep> {
-                    <$plugin as $crate::language::LanguagePlugin>::declared_dependencies(manifests)
                 }
 
                 fn entry_points(
-                    repository_paths: $crate::__alloc::vec::Vec<$crate::__alloc::string::String>,
-                    manifests: $crate::__alloc::vec::Vec<$crate::language::Manifest>,
-                ) -> $crate::__alloc::vec::Vec<$crate::__alloc::string::String> {
-                    <$plugin as $crate::language::LanguagePlugin>::entry_points(
-                        repository_paths,
-                        manifests,
-                    )
+                    repository_paths: __SdkVec<__SdkString>,
+                    manifests: __SdkVec<__lang::Manifest>,
+                ) -> __SdkVec<__SdkString> {
+                    <$plugin as __LangPlugin>::entry_points(repository_paths, manifests)
                 }
 
-                fn reference_ranges() -> $crate::__alloc::vec::Vec<$crate::language::ReferenceRange>
-                {
-                    <$plugin as $crate::language::LanguagePlugin>::reference_ranges()
+                fn reference_ranges() -> __SdkVec<__lang::ReferenceRange> {
+                    <$plugin as __LangPlugin>::reference_ranges()
                 }
 
-                fn known_framework_profiles()
-                -> $crate::__alloc::vec::Vec<$crate::__alloc::string::String> {
-                    <$plugin as $crate::language::LanguagePlugin>::known_framework_profiles()
+                fn known_framework_profiles() -> __SdkVec<__SdkString> {
+                    <$plugin as __LangPlugin>::known_framework_profiles()
                 }
 
                 fn resolve_framework_profiles(
-                    package_root: $crate::__alloc::string::String,
-                    files: $crate::__alloc::vec::Vec<$crate::__alloc::string::String>,
-                    manifests: $crate::__alloc::vec::Vec<$crate::language::Manifest>,
-                    selection: $crate::language::FrameworkProfileSelection,
-                ) -> ::core::result::Result<
-                    $crate::language::FrameworkProfileResult,
-                    $crate::__alloc::string::String,
-                > {
-                    <$plugin as $crate::language::LanguagePlugin>::resolve_framework_profiles(
+                    package_root: __SdkString,
+                    files: __SdkVec<__SdkString>,
+                    manifests: __SdkVec<__lang::Manifest>,
+                    selection: __lang::FrameworkProfileSelection,
+                ) -> ::core::result::Result<__lang::FrameworkProfileResult, __SdkString> {
+                    <$plugin as __LangPlugin>::resolve_framework_profiles(
                         package_root,
                         files,
                         manifests,
@@ -126,15 +119,27 @@ macro_rules! export_language_plugin {
                 }
 
                 fn has_hazard_rules() -> bool {
-                    <$plugin as $crate::language::LanguagePlugin>::has_hazard_rules()
+                    <$plugin as __LangPlugin>::has_hazard_rules()
                 }
 
-                fn hazard_rules() -> $crate::__alloc::vec::Vec<$crate::__alloc::string::String> {
-                    <$plugin as $crate::language::LanguagePlugin>::hazard_rules()
+                fn hazard_rules() -> __SdkVec<__SdkString> {
+                    <$plugin as __LangPlugin>::hazard_rules()
                 }
 
                 fn has_imports() -> bool {
-                    <$plugin as $crate::language::LanguagePlugin>::has_imports()
+                    <$plugin as __LangPlugin>::has_imports()
+                }
+
+                fn has_scope_analysis() -> bool {
+                    <$plugin as __LangPlugin>::has_scope_analysis()
+                }
+
+                fn analyze_scope(
+                    package_root: __SdkString,
+                    dialect: ::core::option::Option<__SdkString>,
+                    artifacts: __SdkVec<__lang::FileScopeArtifact>,
+                ) -> __lang::ScopeAnalysis {
+                    <$plugin as __LangPlugin>::analyze_scope(package_root, dialect, artifacts)
                 }
             }
 

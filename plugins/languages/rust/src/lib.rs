@@ -13,7 +13,7 @@ mod workspaces;
 
 use std::collections::BTreeSet;
 
-use codeint_model::language::{FileModel, LowerError, SourceSet};
+use codeint_model::language::{FileModel, SourceSet};
 use codeint_model::scan::CoreReferenceRanges;
 
 use crate::cfg_test::excluded_cfg_test_lines;
@@ -37,19 +37,16 @@ const RUST_RANGES: CoreReferenceRanges = CoreReferenceRanges::new(
     Some((0.000, 0.611)),
 );
 
-fn lower_rust(path: &str, text: &str) -> Result<FileModel, LowerError> {
-    if !path.ends_with(".rs") {
-        return Err(LowerError::UnsupportedFile(format!(
-            "{path} is not a Rust source file"
-        )));
-    }
+fn lower_rust(path: &str, text: &str) -> Result<FileModel, codeint_model::LowerError> {
     let parsed = syn::parse_file(text).map_err(|error| {
         let start = error.span().start();
-        LowerError::Unparsable(format!(
-            "{error} at line {}, column {}",
-            start.line,
-            start.column + 1
-        ))
+        codeint_model::LowerError::Unparsable {
+            message: format!(
+                "{error} at line {}, column {}",
+                start.line,
+                start.column + 1
+            ),
+        }
     })?;
     let source_set = source_set::classify(path, text);
     let exclude_cfg_test = source_set == SourceSet::Production;
@@ -60,30 +57,23 @@ fn lower_rust(path: &str, text: &str) -> Result<FileModel, LowerError> {
     };
     let code_lines = CodeLines::new(text, &excluded_lines);
     Ok(FileModel {
-        source_set,
-        source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
+        source_lines: u32::try_from(code_lines.count())
+            .map_err(|_| codeint_model::LowerError::TooLarge)?,
         functions: functions(&parsed, &code_lines, exclude_cfg_test),
-        tokens: tokens(text, &parsed, &excluded_lines, exclude_cfg_test)?,
+        tokens: tokens(text, &parsed, &excluded_lines, exclude_cfg_test)
+            .map_err(codeint_model::LowerError::from)?,
         flagged_lines: rules::flag(&parsed, &code_lines, exclude_cfg_test),
-        hazard_lines: Vec::new(),
         runtime_imports: runtime_import_specifiers(&parsed, exclude_cfg_test),
-        program_start: false,
+        ..codeint_model::empty_file_model(source_set)
     })
-}
-
-fn lower_rust_plugin(
-    _plugin: &Rust,
-    path: &codeint_model::RepoPath,
-    text: &str,
-) -> Result<FileModel, codeint_model::LowerError> {
-    lower_rust(path.as_str(), text).map_err(codeint_model::LowerError::from)
 }
 
 codeint_model::impl_builtin_language_plugin!(
     Rust,
     EXTENSIONS,
-    lower_rust_plugin,
+    lower_ext(lower_rust, ".rs", "Rust"),
     RUST_RANGES.build("codeint stratified panel of 100 Rust repositories, ADR 0035, codeint 0.8.0"),
+    flagged_lines(flagged_line_rules()),
     imports(
         manifest_paths,
         workspaces::workspace_packages,

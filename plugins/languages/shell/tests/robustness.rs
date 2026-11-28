@@ -8,7 +8,7 @@ const NESTING_LIMIT: usize = 256;
 const LARGE_INPUT_BOUND: Duration = Duration::from_secs(30);
 
 fn try_lower(path: &str, src: &str) -> Result<FileModel, LowerError> {
-    Shell.lower(&RepoPath::new(path).unwrap(), src)
+    Shell.lower(&RepoPath::new(path).unwrap(), src, None)
 }
 
 fn lower(path: &str, src: &str) -> FileModel {

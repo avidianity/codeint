@@ -24,8 +24,10 @@ mod bindings {
 
 pub use bindings::exports::codeint::plugin::language;
 pub use language::{
-    DeclaredDep, DepKind, FileModel, FrameworkProfileResult, FrameworkProfileSelection,
-    FunctionCoverage, HazardLine, Manifest, ReferenceRange, SourceSet, Token, TokenKind,
+    DeclaredDep, DepKind, DependencyManifestOwner, FileDiagnostic, FileHazards, FileModel,
+    FileScopeArtifact, FrameworkProfileResult, FrameworkProfileSelection, FunctionCoverage,
+    HazardLine, Manifest, ManifestAnalysis, PackageDependency, PackageFrameworkProfiles,
+    ReferenceRange, ScopeAnalysis, ScopeSummary, SourceSet, SummaryField, Token, TokenKind,
 };
 pub use metric::{
     ExternalFinding, ExternalMetricMeasurement, Metric, MetricCapability, MetricDescriptor,
@@ -307,6 +309,8 @@ pub enum LowerError {
     MemoryLimitExceeded { plugin: String, memory_mb: u64 },
     #[error("Plugin {plugin:?} exceeded its time limit of {timeout_ms} ms")]
     TimeLimitExceeded { plugin: String, timeout_ms: u64 },
+    #[error(transparent)]
+    Contract(#[from] LanguagePluginError),
 }
 
 impl From<language::LowerError> for LowerError {
@@ -407,6 +411,20 @@ pub enum LanguagePluginError {
         "the Language plugin declared a dependency with an empty name in package root {package_root:?}"
     )]
     EmptyDependencyName { package_root: String },
+    #[error("the Language plugin returned an invalid workspace package root {path:?}")]
+    InvalidWorkspacePackageRoot { path: String },
+    #[error(
+        "the Language plugin reported invalid manifest {path:?} which was not passed in: {message}"
+    )]
+    UnknownInvalidManifest { path: String, message: String },
+    #[error("the Language plugin reported duplicate invalid manifest {path:?}")]
+    DuplicateInvalidManifest { path: String },
+    #[error("the Language plugin returned an invalid dependency manifest path {path:?}")]
+    InvalidDependencyManifestPath { path: String },
+    #[error(
+        "the Language plugin returned an invalid root-dependency inheritance package root {package_root:?}"
+    )]
+    InvalidInheritancePackageRoot { package_root: String },
     #[error("Plugin {plugin:?} exceeded its time limit of {timeout_ms} ms")]
     TimeLimitExceeded { plugin: String, timeout_ms: u64 },
     #[error("Plugin {plugin:?} exceeded its memory cap of {memory_mb} MiB")]
@@ -434,6 +452,207 @@ pub enum LanguagePluginError {
         path: RepoPath,
         rule: String,
     },
+    #[error(
+        "Language plugin {plugin:?} returned Flagged line {line} in {path}, which is outside the file's {line_count} lines"
+    )]
+    FlaggedLineOutOfRange {
+        plugin: String,
+        path: RepoPath,
+        line: u32,
+        line_count: usize,
+    },
+    #[error(
+        "Language plugin {plugin:?} returned a Flagged line with unlisted rule {rule:?} in {path}"
+    )]
+    UnlistedFlaggedLineRule {
+        plugin: String,
+        path: RepoPath,
+        rule: String,
+    },
+    #[error("Language plugin {plugin:?} returned an invalid extra-hazards path {path:?}")]
+    InvalidScopeHazardPath { plugin: String, path: String },
+    #[error(
+        "Language plugin {plugin:?} returned extra-hazards path {path:?}, which was not in the analyzed artifacts"
+    )]
+    UnknownScopeHazardPath { plugin: String, path: String },
+    #[error("Language plugin {plugin:?} returned invalid extra Hazard line {line} in {path}")]
+    InvalidScopeHazardLine {
+        plugin: String,
+        path: RepoPath,
+        line: u32,
+    },
+    #[error("Language plugin {plugin:?} returned an invalid scope summary: {reason}")]
+    InvalidScopeSummary { plugin: String, reason: String },
+}
+
+#[derive(Clone, Copy)]
+enum RuleLineKind {
+    Flagged,
+    Hazard,
+}
+
+trait RuleLine {
+    const KIND: RuleLineKind;
+    fn line(&self) -> u32;
+    fn rule(&self) -> &str;
+}
+
+impl RuleLine for language::FlaggedLine {
+    const KIND: RuleLineKind = RuleLineKind::Flagged;
+    fn line(&self) -> u32 {
+        self.line
+    }
+    fn rule(&self) -> &str {
+        &self.rule
+    }
+}
+
+impl RuleLine for HazardLine {
+    const KIND: RuleLineKind = RuleLineKind::Hazard;
+    fn line(&self) -> u32 {
+        self.line
+    }
+    fn rule(&self) -> &str {
+        &self.rule
+    }
+}
+
+fn validate_rule_lines<T: RuleLine>(
+    plugin_name: &str,
+    path: &RepoPath,
+    line_count: usize,
+    entries: &[T],
+    listed_rules: &HashSet<String>,
+) -> Result<(), LanguagePluginError> {
+    for entry in entries {
+        let line_number = usize::try_from(entry.line()).unwrap_or(usize::MAX);
+        if line_number < 1 || line_number > line_count {
+            let plugin = plugin_name.to_owned();
+            let path = path.clone();
+            let line = entry.line();
+            return Err(match T::KIND {
+                RuleLineKind::Flagged => LanguagePluginError::FlaggedLineOutOfRange {
+                    plugin,
+                    path,
+                    line,
+                    line_count,
+                },
+                RuleLineKind::Hazard => LanguagePluginError::HazardLineOutOfRange {
+                    plugin,
+                    path,
+                    line,
+                    line_count,
+                },
+            });
+        }
+    }
+    for entry in entries {
+        if !listed_rules.contains(entry.rule()) {
+            let plugin = plugin_name.to_owned();
+            let path = path.clone();
+            let rule = entry.rule().to_owned();
+            return Err(match T::KIND {
+                RuleLineKind::Flagged => {
+                    LanguagePluginError::UnlistedFlaggedLineRule { plugin, path, rule }
+                }
+                RuleLineKind::Hazard => {
+                    LanguagePluginError::UnlistedHazardRule { plugin, path, rule }
+                }
+            });
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_flagged_lines(
+    plugin_name: &str,
+    path: &RepoPath,
+    line_count: usize,
+    flagged_lines: &[language::FlaggedLine],
+    listed_rules: &HashSet<String>,
+) -> Result<(), LanguagePluginError> {
+    validate_rule_lines(plugin_name, path, line_count, flagged_lines, listed_rules)
+}
+
+pub fn validate_scope_analysis(
+    plugin_name: &str,
+    artifacts: &[FileScopeArtifact],
+    known_hazard_rules: &HashSet<String>,
+    line_counts: Option<&BTreeMap<String, usize>>,
+    analysis: ScopeAnalysis,
+) -> Result<ScopeAnalysis, LanguagePluginError> {
+    let artifact_paths: HashSet<&str> = artifacts.iter().map(|item| item.path.as_str()).collect();
+    for entry in &analysis.extra_hazards {
+        validate_scope_hazards(
+            plugin_name,
+            entry,
+            &artifact_paths,
+            known_hazard_rules,
+            line_counts,
+        )?;
+    }
+    for summary in &analysis.summaries {
+        if summary.kind.trim().is_empty()
+            || summary
+                .fields
+                .iter()
+                .any(|field| field.key.trim().is_empty())
+        {
+            return Err(LanguagePluginError::InvalidScopeSummary {
+                plugin: plugin_name.to_owned(),
+                reason: "scope summary has an empty kind or field key".to_owned(),
+            });
+        }
+    }
+    Ok(analysis)
+}
+
+fn validate_scope_hazards(
+    plugin_name: &str,
+    entry: &FileHazards,
+    artifact_paths: &HashSet<&str>,
+    known_hazard_rules: &HashSet<String>,
+    line_counts: Option<&BTreeMap<String, usize>>,
+) -> Result<(), LanguagePluginError> {
+    let repo_path = RepoPath::new(entry.path.as_str()).map_err(|_| {
+        LanguagePluginError::InvalidScopeHazardPath {
+            plugin: plugin_name.to_owned(),
+            path: entry.path.clone(),
+        }
+    })?;
+    if !artifact_paths.contains(entry.path.as_str()) {
+        return Err(LanguagePluginError::UnknownScopeHazardPath {
+            plugin: plugin_name.to_owned(),
+            path: entry.path.clone(),
+        });
+    }
+    if let Some(counts) = line_counts {
+        let max_lines = counts.get(&entry.path).copied().unwrap_or(0);
+        return validate_hazard_lines(
+            plugin_name,
+            &repo_path,
+            max_lines,
+            &entry.hazard_lines,
+            known_hazard_rules,
+        );
+    }
+    for hazard in &entry.hazard_lines {
+        if hazard.line < 1 {
+            return Err(LanguagePluginError::InvalidScopeHazardLine {
+                plugin: plugin_name.to_owned(),
+                path: repo_path.clone(),
+                line: hazard.line,
+            });
+        }
+        if !known_hazard_rules.contains(&hazard.rule) {
+            return Err(LanguagePluginError::UnlistedHazardRule {
+                plugin: plugin_name.to_owned(),
+                path: repo_path.clone(),
+                rule: hazard.rule.clone(),
+            });
+        }
+    }
+    Ok(())
 }
 
 pub fn validate_hazard_lines(
@@ -443,27 +662,7 @@ pub fn validate_hazard_lines(
     hazard_lines: &[HazardLine],
     listed_rules: &HashSet<String>,
 ) -> Result<(), LanguagePluginError> {
-    for hazard in hazard_lines {
-        let line_number = usize::try_from(hazard.line).unwrap_or(usize::MAX);
-        if line_number < 1 || line_number > line_count {
-            return Err(LanguagePluginError::HazardLineOutOfRange {
-                plugin: plugin_name.to_owned(),
-                path: path.clone(),
-                line: hazard.line,
-                line_count,
-            });
-        }
-    }
-    for hazard in hazard_lines {
-        if !listed_rules.contains(&hazard.rule) {
-            return Err(LanguagePluginError::UnlistedHazardRule {
-                plugin: plugin_name.to_owned(),
-                path: path.clone(),
-                rule: hazard.rule.clone(),
-            });
-        }
-    }
-    Ok(())
+    validate_rule_lines(plugin_name, path, line_count, hazard_lines, listed_rules)
 }
 
 pub fn validate_workspace_packages(roots: Vec<String>) -> Result<Vec<RepoPath>, WorkspaceError> {
@@ -554,6 +753,239 @@ pub fn validate_framework_profile_result(
     Ok(result)
 }
 
+pub fn require_extension<'a>(
+    path: &'a RepoPath,
+    suffix: &str,
+    language: &str,
+) -> Result<&'a str, LowerError> {
+    let raw = path.as_str();
+    if raw.ends_with(suffix) {
+        Ok(raw)
+    } else {
+        Err(LowerError::UnsupportedFile {
+            message: format!("{raw} is not a {language} source file"),
+        })
+    }
+}
+
+pub fn empty_file_model(source_set: SourceSet) -> FileModel {
+    FileModel {
+        source_set,
+        source_lines: 0,
+        functions: Vec::new(),
+        tokens: Vec::new(),
+        flagged_lines: Vec::new(),
+        hazard_lines: Vec::new(),
+        runtime_imports: Vec::new(),
+        program_start: false,
+        is_tooling_file: false,
+        diagnostics: Vec::new(),
+        scope_artifact: None,
+    }
+}
+
+pub fn empty_manifest_analysis() -> ManifestAnalysis {
+    ManifestAnalysis {
+        workspace_packages: Vec::new(),
+        invalid_manifests: Vec::new(),
+        dependency_manifests: Vec::new(),
+        declared_dependencies: Vec::new(),
+        manifest_used_dependencies: Vec::new(),
+        root_dependency_inheritance: Vec::new(),
+    }
+}
+
+pub fn empty_scope_analysis() -> ScopeAnalysis {
+    ScopeAnalysis {
+        extra_hazards: Vec::new(),
+        summaries: Vec::new(),
+    }
+}
+
+pub fn active_profiles_for_path<'a>(
+    package_profiles: &'a [PackageFrameworkProfiles],
+    path: &str,
+) -> &'a [String] {
+    let mut best: Option<(usize, &'a [String])> = None;
+    for entry in package_profiles {
+        let matches = if entry.package_root.is_empty() {
+            true
+        } else {
+            path == entry.package_root
+                || path
+                    .strip_prefix(entry.package_root.as_str())
+                    .is_some_and(|rest| rest.starts_with('/'))
+        };
+        if matches {
+            let depth = entry.package_root.len();
+            if best.is_none_or(|(best_depth, _)| depth >= best_depth) {
+                best = Some((depth, entry.active_profiles.as_slice()));
+            }
+        }
+    }
+    best.map_or(&[], |(_, profiles)| profiles)
+}
+
+pub type ResolveBatchFn = fn(
+    &[RepoPath],
+    &[Manifest],
+    &[language::ImportRequest],
+    &[String],
+) -> Vec<language::Resolution>;
+
+pub fn resolve_imports_by_package_profiles(
+    repository_paths: &[RepoPath],
+    manifests: &[Manifest],
+    requests: &[language::ImportRequest],
+    package_profiles: &[PackageFrameworkProfiles],
+    resolve_batch: ResolveBatchFn,
+) -> Vec<language::Resolution> {
+    if requests.is_empty() {
+        return Vec::new();
+    }
+    let mut grouped: BTreeMap<&[String], Vec<usize>> = BTreeMap::new();
+    for (index, request) in requests.iter().enumerate() {
+        let active = active_profiles_for_path(package_profiles, &request.importer);
+        grouped.entry(active).or_default().push(index);
+    }
+    if grouped.len() == 1 {
+        let active = grouped.keys().next().copied().unwrap_or(&[]);
+        return resolve_batch(repository_paths, manifests, requests, active);
+    }
+    let mut ordered: Vec<Option<language::Resolution>> = vec![None; requests.len()];
+    for (active, indices) in grouped {
+        let batch_requests: Vec<language::ImportRequest> = indices
+            .iter()
+            .map(|&index| requests[index].clone())
+            .collect();
+        let batch_results = resolve_batch(repository_paths, manifests, &batch_requests, active);
+        for (index, resolution) in indices.into_iter().zip(batch_results) {
+            ordered[index] = Some(resolution);
+        }
+    }
+    ordered
+        .into_iter()
+        .map(|item| item.unwrap_or_else(|| language::Resolution::Unresolved(String::new())))
+        .collect()
+}
+
+pub fn validate_manifest_analysis(
+    manifests: &[Manifest],
+    analysis: ManifestAnalysis,
+) -> Result<ManifestAnalysis, LanguagePluginError> {
+    let passed_paths: HashSet<&str> = manifests.iter().map(|m| m.path.as_str()).collect();
+    for root in &analysis.workspace_packages {
+        if RepoPath::new(root.as_str()).is_err() {
+            return Err(LanguagePluginError::InvalidWorkspacePackageRoot { path: root.clone() });
+        }
+    }
+    let mut seen_invalid: HashSet<&str> = HashSet::with_capacity(analysis.invalid_manifests.len());
+    for invalid in &analysis.invalid_manifests {
+        if !passed_paths.contains(invalid.path.as_str()) {
+            return Err(LanguagePluginError::UnknownInvalidManifest {
+                path: invalid.path.clone(),
+                message: invalid.message.clone(),
+            });
+        }
+        if !seen_invalid.insert(invalid.path.as_str()) {
+            return Err(LanguagePluginError::DuplicateInvalidManifest {
+                path: invalid.path.clone(),
+            });
+        }
+    }
+    validate_dependency_owners(&analysis.dependency_manifests)?;
+    let _ = validate_declared_dependencies(analysis.declared_dependencies.clone())?;
+    validate_package_dependencies(&analysis.manifest_used_dependencies)?;
+    validate_inheritance_roots(&analysis.root_dependency_inheritance)?;
+    Ok(analysis)
+}
+
+fn validate_optional_package_root(package_root: &str) -> Result<(), LanguagePluginError> {
+    if !package_root.is_empty() && RepoPath::new(package_root).is_err() {
+        return Err(LanguagePluginError::InvalidDependencyPackageRoot {
+            package_root: package_root.to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_dependency_owners(
+    owners: &[DependencyManifestOwner],
+) -> Result<(), LanguagePluginError> {
+    for owner in owners {
+        validate_optional_package_root(&owner.package_root)?;
+        if RepoPath::new(owner.path.as_str()).is_err() {
+            return Err(LanguagePluginError::InvalidDependencyManifestPath {
+                path: owner.path.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_package_dependencies(deps: &[PackageDependency]) -> Result<(), LanguagePluginError> {
+    for dep in deps {
+        validate_optional_package_root(&dep.package_root)?;
+        if dep.name.trim().is_empty() {
+            return Err(LanguagePluginError::EmptyDependencyName {
+                package_root: dep.package_root.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_inheritance_roots(roots: &[String]) -> Result<(), LanguagePluginError> {
+    for root in roots {
+        if !root.is_empty() && RepoPath::new(root.as_str()).is_err() {
+            return Err(LanguagePluginError::InvalidInheritancePackageRoot {
+                package_root: root.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+pub fn analyze_manifests_single_pass<E: Into<WorkspaceError>>(
+    manifests: Vec<Manifest>,
+    discover_packages: impl Fn(&[Manifest]) -> Result<Vec<String>, E>,
+    extract_declared: impl Fn(&[Manifest]) -> Vec<DeclaredDep>,
+) -> Result<ManifestAnalysis, LanguagePluginError> {
+    let mut remaining = manifests.clone();
+    let mut invalid_manifests = Vec::new();
+    let workspace_packages = loop {
+        match discover_packages(&remaining).map_err(Into::into) {
+            Ok(packages) => break packages,
+            Err(WorkspaceError::Manifest { path, message }) => {
+                let Some(pos) = remaining.iter().position(|m| m.path == path) else {
+                    return Err(LanguagePluginError::UnknownInvalidManifest { path, message });
+                };
+                remaining.remove(pos);
+                invalid_manifests.push(language::WorkspaceError { path, message });
+            }
+            Err(error) => {
+                return Err(LanguagePluginError::Call {
+                    plugin: String::new(),
+                    call: "analyze-manifests",
+                    reason: error.to_string(),
+                });
+            }
+        }
+    };
+    let declared_dependencies = extract_declared(&remaining);
+    validate_manifest_analysis(
+        &manifests,
+        ManifestAnalysis {
+            workspace_packages,
+            invalid_manifests,
+            dependency_manifests: Vec::new(),
+            declared_dependencies,
+            manifest_used_dependencies: Vec::new(),
+            root_dependency_inheritance: Vec::new(),
+        },
+    )
+}
+
 pub fn empty_framework_profile_result() -> FrameworkProfileResult {
     FrameworkProfileResult {
         active_profiles: Vec::new(),
@@ -562,6 +994,31 @@ pub fn empty_framework_profile_result() -> FrameworkProfileResult {
         reference_ranges: Vec::new(),
         reference_range_note: None,
     }
+}
+
+#[macro_export]
+macro_rules! empty_v05_guest_methods {
+    () => {
+        fn known_dialects() -> ::std::vec::Vec<::std::string::String> {
+            ::std::vec::Vec::new()
+        }
+
+        fn flagged_line_rules() -> ::std::vec::Vec<::std::string::String> {
+            ::std::vec::Vec::new()
+        }
+
+        fn has_scope_analysis() -> bool {
+            false
+        }
+
+        fn analyze_scope(
+            _package_root: ::std::string::String,
+            _dialect: ::core::option::Option<::std::string::String>,
+            _artifacts: ::std::vec::Vec<$crate::language::FileScopeArtifact>,
+        ) -> $crate::language::ScopeAnalysis {
+            $crate::empty_scope_analysis()
+        }
+    };
 }
 
 #[macro_export]
@@ -593,8 +1050,38 @@ macro_rules! impl_builtin_language_plugin {
     (
         $plugin:ty,
         $extensions:expr,
+        lower_ext($lower:path, $suffix:literal, $label:literal),
+        $($rest:tt)*
+    ) => {
+        $crate::impl_builtin_language_plugin!(
+            @build
+            $plugin,
+            $extensions,
+            { lower_ext($lower, $suffix, $label) },
+            $($rest)*
+        );
+    };
+    (
+        $plugin:ty,
+        $extensions:expr,
         $lower:path,
+        $($rest:tt)*
+    ) => {
+        $crate::impl_builtin_language_plugin!(
+            @build
+            $plugin,
+            $extensions,
+            { direct($lower) },
+            $($rest)*
+        );
+    };
+    (
+        @build
+        $plugin:ty,
+        $extensions:expr,
+        { $($lower_spec:tt)* },
         $ranges:expr,
+        flagged_lines($flagged:expr),
         imports($($imports:tt)*),
         frameworks($($frameworks:tt)*),
         hazards($($hazards:tt)*) $(,)?
@@ -607,12 +1094,10 @@ macro_rules! impl_builtin_language_plugin {
                     .collect()
             }
 
-            fn lower(
-                &self,
-                path: &$crate::RepoPath,
-                text: &str,
-            ) -> ::std::result::Result<$crate::FileModel, $crate::LowerError> {
-                $lower(self, path, text)
+            $crate::impl_builtin_language_plugin!(@lower $($lower_spec)*);
+
+            fn flagged_line_rules(&self) -> ::std::vec::Vec<::std::string::String> {
+                $flagged.map(::std::string::ToString::to_string).collect()
             }
 
             fn reference_ranges(
@@ -627,7 +1112,46 @@ macro_rules! impl_builtin_language_plugin {
             $crate::impl_builtin_language_plugin!(@hazards $($hazards)*);
         }
     };
+    (@lower lower_ext($lower:path, $suffix:literal, $label:literal)) => {
+        fn lower(
+            &self,
+            path: &$crate::RepoPath,
+            text: &str,
+            _dialect: ::core::option::Option<&str>,
+        ) -> ::std::result::Result<$crate::FileModel, $crate::LowerError> {
+            let raw = $crate::require_extension(path, $suffix, $label)?;
+            $lower(raw, text)
+        }
+    };
+    (@lower direct($lower:path)) => {
+        fn lower(
+            &self,
+            path: &$crate::RepoPath,
+            text: &str,
+            dialect: ::core::option::Option<&str>,
+        ) -> ::std::result::Result<$crate::FileModel, $crate::LowerError> {
+            $lower(self, path, text, dialect)
+        }
+    };
     (@imports none) => {};
+    (@imports $manifest_paths:path, $workspace_packages:path, by_profile($resolve_batch:path), $declared_dependencies:path, $entry_points:path $(,)?) => {
+        $crate::impl_builtin_language_plugin!(
+            @imports
+            $manifest_paths,
+            $workspace_packages,
+            |paths, manifests, requests, package_profiles| {
+                $crate::resolve_imports_by_package_profiles(
+                    paths,
+                    manifests,
+                    requests,
+                    package_profiles,
+                    $resolve_batch,
+                )
+            },
+            $declared_dependencies,
+            $entry_points,
+        );
+    };
     (@imports $manifest_paths:path, $workspace_packages:path, $resolve_imports:expr, $declared_dependencies:path, $entry_points:path $(,)?) => {
         fn has_imports(&self) -> bool {
             true
@@ -641,11 +1165,15 @@ macro_rules! impl_builtin_language_plugin {
             ::std::result::Result::Ok($manifest_paths(repository_paths))
         }
 
-        fn workspace_packages(
+        fn analyze_manifests(
             &self,
             manifests: ::std::vec::Vec<$crate::Manifest>,
-        ) -> ::std::result::Result<::std::vec::Vec<$crate::RepoPath>, $crate::WorkspaceError> {
-            $crate::validate_workspace_packages($workspace_packages(&manifests)?)
+        ) -> ::std::result::Result<$crate::ManifestAnalysis, $crate::LanguagePluginError> {
+            $crate::analyze_manifests_single_pass(
+                manifests,
+                $workspace_packages,
+                $declared_dependencies,
+            )
         }
 
         fn resolve_imports(
@@ -653,7 +1181,7 @@ macro_rules! impl_builtin_language_plugin {
             repository_paths: &[$crate::RepoPath],
             manifests: ::std::vec::Vec<$crate::Manifest>,
             requests: ::std::vec::Vec<$crate::language::ImportRequest>,
-            active_profiles: &[::std::string::String],
+            package_profiles: &[$crate::PackageFrameworkProfiles],
         ) -> ::std::result::Result<
             ::std::vec::Vec<$crate::language::Resolution>,
             $crate::LanguagePluginError,
@@ -662,24 +1190,14 @@ macro_rules! impl_builtin_language_plugin {
                 &[$crate::RepoPath],
                 &[$crate::Manifest],
                 &[$crate::language::ImportRequest],
-                &[::std::string::String],
+                &[$crate::PackageFrameworkProfiles],
             ) -> ::std::vec::Vec<$crate::language::Resolution> = $resolve_imports;
             ::std::result::Result::Ok(resolve(
                 repository_paths,
                 &manifests,
                 &requests,
-                active_profiles,
+                package_profiles,
             ))
-        }
-
-        fn declared_dependencies(
-            &self,
-            manifests: ::std::vec::Vec<$crate::Manifest>,
-        ) -> ::std::result::Result<
-            ::std::vec::Vec<$crate::DeclaredDep>,
-            $crate::LanguagePluginError,
-        > {
-            $crate::validate_declared_dependencies($declared_dependencies(&manifests))
         }
 
         fn entry_points(
@@ -729,7 +1247,20 @@ macro_rules! impl_builtin_language_plugin {
 pub trait LanguagePlugin: Sync {
     fn extensions(&self) -> Vec<String>;
 
-    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError>;
+    fn known_dialects(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn lower(
+        &self,
+        path: &RepoPath,
+        text: &str,
+        dialect: Option<&str>,
+    ) -> Result<FileModel, LowerError>;
+
+    fn flagged_line_rules(&self) -> Vec<String> {
+        Vec::new()
+    }
 
     fn manifest_paths(
         &self,
@@ -738,11 +1269,11 @@ pub trait LanguagePlugin: Sync {
         Ok(Vec::new())
     }
 
-    fn workspace_packages(
+    fn analyze_manifests(
         &self,
         _manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        Ok(Vec::new())
+    ) -> Result<ManifestAnalysis, LanguagePluginError> {
+        Ok(empty_manifest_analysis())
     }
 
     fn resolve_imports(
@@ -750,15 +1281,8 @@ pub trait LanguagePlugin: Sync {
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
         _requests: Vec<language::ImportRequest>,
-        _active_profiles: &[String],
+        _package_profiles: &[PackageFrameworkProfiles],
     ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
-        Ok(Vec::new())
-    }
-
-    fn declared_dependencies(
-        &self,
-        _manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
         Ok(Vec::new())
     }
 
@@ -797,6 +1321,19 @@ pub trait LanguagePlugin: Sync {
     fn has_imports(&self) -> bool {
         false
     }
+
+    fn has_scope_analysis(&self) -> bool {
+        false
+    }
+
+    fn analyze_scope(
+        &self,
+        _package_root: &str,
+        _dialect: Option<&str>,
+        _artifacts: Vec<FileScopeArtifact>,
+    ) -> Result<ScopeAnalysis, LanguagePluginError> {
+        Ok(empty_scope_analysis())
+    }
 }
 
 impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
@@ -804,8 +1341,26 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         Plugin::extensions()
     }
 
-    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
-        Plugin::lower(path.as_str().to_owned(), text.to_owned()).map_err(LowerError::from)
+    fn known_dialects(&self) -> Vec<String> {
+        Plugin::known_dialects()
+    }
+
+    fn lower(
+        &self,
+        path: &RepoPath,
+        text: &str,
+        dialect: Option<&str>,
+    ) -> Result<FileModel, LowerError> {
+        Plugin::lower(
+            path.as_str().to_owned(),
+            text.to_owned(),
+            dialect.map(str::to_owned),
+        )
+        .map_err(LowerError::from)
+    }
+
+    fn flagged_line_rules(&self) -> Vec<String> {
+        Plugin::flagged_line_rules()
     }
 
     fn manifest_paths(
@@ -815,11 +1370,12 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         Ok(Plugin::manifest_paths(owned_paths(repository_paths)))
     }
 
-    fn workspace_packages(
+    fn analyze_manifests(
         &self,
         manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        validate_workspace_packages(Plugin::workspace_packages(manifests)?)
+    ) -> Result<ManifestAnalysis, LanguagePluginError> {
+        let analysis = Plugin::analyze_manifests(manifests.clone());
+        validate_manifest_analysis(&manifests, analysis)
     }
 
     fn resolve_imports(
@@ -827,21 +1383,14 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
-        active_profiles: &[String],
+        package_profiles: &[PackageFrameworkProfiles],
     ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
         Ok(Plugin::resolve_imports(
             owned_paths(repository_paths),
             manifests,
             requests,
-            active_profiles.to_vec(),
+            package_profiles.to_vec(),
         ))
-    }
-
-    fn declared_dependencies(
-        &self,
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        validate_declared_dependencies(Plugin::declared_dependencies(manifests))
     }
 
     fn entry_points(
@@ -891,6 +1440,25 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
 
     fn has_imports(&self) -> bool {
         Plugin::has_imports()
+    }
+
+    fn has_scope_analysis(&self) -> bool {
+        Plugin::has_scope_analysis()
+    }
+
+    fn analyze_scope(
+        &self,
+        package_root: &str,
+        dialect: Option<&str>,
+        artifacts: Vec<FileScopeArtifact>,
+    ) -> Result<ScopeAnalysis, LanguagePluginError> {
+        let analysis = Plugin::analyze_scope(
+            package_root.to_owned(),
+            dialect.map(str::to_owned),
+            artifacts.clone(),
+        );
+        let listed: HashSet<String> = Plugin::hazard_rules().into_iter().collect();
+        validate_scope_analysis("", &artifacts, &listed, None, analysis)
     }
 }
 

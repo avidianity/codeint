@@ -839,7 +839,7 @@ export class Admin extends User {
 fn flagged_lines(rule: &str, text: &str) -> Vec<u32> {
     let path = RepoPath::new("src/fixture.ts").expect("a valid path");
     let model = TypeScriptAndJavaScript
-        .lower(&path, text)
+        .lower(&path, text, None)
         .unwrap_or_else(|error| panic!("the fixture did not lower: {error}\n{text}"));
     model
         .flagged_lines

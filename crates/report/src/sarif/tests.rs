@@ -258,10 +258,7 @@ fn sarif_does_not_leak_member_clone_groups_of_families_beyond_display_cap() {
     use codeint_config::{
         Budgets, FindingsShown, RegressionLimits, ReportFormat, ReportRenderFormat,
     };
-    use codeint_model::{
-        CodeModel, FileModel, ReferenceRanges, RepoPath, SourceFile, Token, TokenKind,
-        token_text_hash,
-    };
+    use codeint_model::{CodeModel, ReferenceRanges, Token, TokenKind, token_text_hash};
     use std::collections::HashSet;
 
     use crate::{
@@ -280,19 +277,7 @@ fn sarif_does_not_leak_member_clone_groups_of_families_beyond_display_cap() {
                 });
             }
         }
-        SourceFile {
-            path: RepoPath::new(path).expect("valid path"),
-            model: FileModel {
-                source_set: SourceSet::Production,
-                source_lines: lines,
-                functions: Vec::new(),
-                tokens,
-                flagged_lines: Vec::new(),
-                hazard_lines: Vec::new(),
-                runtime_imports: Vec::new(),
-                program_start: false,
-            },
-        }
+        crate::tests::production_token_file(path, lines, tokens)
     };
 
     let mut files = Vec::new();

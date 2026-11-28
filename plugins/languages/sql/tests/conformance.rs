@@ -49,13 +49,23 @@ fn sql_plugin_shell_dialects_empty_comments_and_unparsable_files() {
             .expect("manifest paths")
             .is_empty()
     );
-    assert!(sql.workspace_packages(Vec::new()).unwrap().is_empty());
+    assert!(
+        sql.analyze_manifests(Vec::new())
+            .unwrap()
+            .workspace_packages
+            .is_empty()
+    );
     assert!(
         sql.resolve_imports(&[], Vec::new(), Vec::new(), &[])
             .unwrap()
             .is_empty()
     );
-    assert!(sql.declared_dependencies(Vec::new()).unwrap().is_empty());
+    assert!(
+        sql.analyze_manifests(Vec::new())
+            .unwrap()
+            .declared_dependencies
+            .is_empty()
+    );
     assert!(sql.entry_points(&[], Vec::new()).unwrap().is_empty());
 
     let dialect_labels: Vec<(&str, &str, String)> = [
@@ -79,7 +89,7 @@ fn sql_plugin_shell_dialects_empty_comments_and_unparsable_files() {
         ]
     );
 
-    let unsupported = sql.lower(&repo_path("notes.txt"), "SELECT 1;\n");
+    let unsupported = sql.lower(&repo_path("notes.txt"), "SELECT 1;\n", None);
     assert!(matches!(
         unsupported,
         Err(LowerError::UnsupportedFile { .. })
@@ -102,7 +112,7 @@ fn sql_plugin_shell_dialects_empty_comments_and_unparsable_files() {
     assert!(comment_only.file_model.functions.is_empty());
     assert!(comment_only.file_model.tokens.is_empty());
 
-    let unclosed = sql.lower(&repo_path("broken.sql"), "SELECT 'unclosed string");
+    let unclosed = sql.lower(&repo_path("broken.sql"), "SELECT 'unclosed string", None);
     assert!(matches!(unclosed, Err(LowerError::Unparsable { .. })));
 
     let lf_src = "-- header\n\nSELECT a,\n       b\nFROM items;\n";
@@ -476,7 +486,7 @@ fn sql_source_set_classification_and_templated_sql() {
         "SELECT * FROM <%= table_name %>;",
     ] {
         let err = Sql::new()
-            .lower(&repo_path("models/m.sql"), templated)
+            .lower(&repo_path("models/m.sql"), templated, None)
             .expect_err("expected templated SQL to be rejected");
         assert!(
             matches!(err, LowerError::Unparsable { ref message } if message == "templated SQL"),

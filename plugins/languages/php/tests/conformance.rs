@@ -3,7 +3,7 @@ use codeint_model::language::{DepKind, Function, ImportRequest, Resolution};
 use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind};
 
 fn lower_php(path: &str, text: &str) -> Result<codeint_model::FileModel, LowerError> {
-    Php.lower(&RepoPath::new(path).expect("valid repo path"), text)
+    Php.lower(&RepoPath::new(path).expect("valid repo path"), text, None)
 }
 
 #[test]
@@ -398,7 +398,10 @@ final class InvoiceService {
         Resolution::External("unlisted/custom-pkg".into())
     );
 
-    let deps = Php.declared_dependencies(manifests).unwrap();
+    let deps = Php
+        .analyze_manifests(manifests)
+        .unwrap()
+        .declared_dependencies;
     let rows: Vec<(&str, &str, DepKind)> = deps
         .iter()
         .map(|d| (d.package_root.as_str(), d.name.as_str(), d.kind))

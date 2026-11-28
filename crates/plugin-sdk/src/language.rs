@@ -4,9 +4,11 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 pub use crate::runtime::__bindings::language::exports::codeint::plugin::language::{
-    DeclaredDep, DepKind, FileModel, FlaggedLine, FrameworkProfileResult,
-    FrameworkProfileSelection, Function, FunctionCoverage, HazardLine, ImportRequest, LowerError,
-    Manifest, ReferenceRange, Resolution, SourceSet, Token, TokenKind, WorkspaceError,
+    DeclaredDep, DepKind, DependencyManifestOwner, FileDiagnostic, FileHazards, FileModel,
+    FileScopeArtifact, FlaggedLine, FrameworkProfileResult, FrameworkProfileSelection, Function,
+    FunctionCoverage, HazardLine, ImportRequest, LowerError, Manifest, ManifestAnalysis,
+    PackageDependency, PackageFrameworkProfiles, ReferenceRange, Resolution, ScopeAnalysis,
+    ScopeSummary, SourceSet, SummaryField, Token, TokenKind, WorkspaceError,
 };
 
 impl FileModel {
@@ -20,6 +22,31 @@ impl FileModel {
             hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
+            is_tooling_file: false,
+            diagnostics: Vec::new(),
+            scope_artifact: None,
+        }
+    }
+}
+
+impl ManifestAnalysis {
+    pub fn empty() -> ManifestAnalysis {
+        ManifestAnalysis {
+            workspace_packages: Vec::new(),
+            invalid_manifests: Vec::new(),
+            dependency_manifests: Vec::new(),
+            declared_dependencies: Vec::new(),
+            manifest_used_dependencies: Vec::new(),
+            root_dependency_inheritance: Vec::new(),
+        }
+    }
+}
+
+impl ScopeAnalysis {
+    pub fn empty() -> ScopeAnalysis {
+        ScopeAnalysis {
+            extra_hazards: Vec::new(),
+            summaries: Vec::new(),
         }
     }
 }
@@ -39,7 +66,15 @@ impl FrameworkProfileResult {
 pub trait LanguagePlugin {
     fn extensions() -> Vec<String>;
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError>;
+    fn known_dialects() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn lower(path: String, text: String, dialect: Option<String>) -> Result<FileModel, LowerError>;
+
+    fn flagged_line_rules() -> Vec<String> {
+        Vec::new()
+    }
 
     fn has_hazard_rules() -> bool {
         false
@@ -74,24 +109,32 @@ pub trait LanguagePlugin {
         Vec::new()
     }
 
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
+    fn analyze_manifests(_manifests: Vec<Manifest>) -> ManifestAnalysis {
+        ManifestAnalysis::empty()
     }
 
     fn resolve_imports(
         _repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         _requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        _package_profiles: Vec<PackageFrameworkProfiles>,
     ) -> Vec<Resolution> {
         Vec::new()
     }
 
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(Vec::new())
-    }
-
     fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
         Vec::new()
+    }
+
+    fn has_scope_analysis() -> bool {
+        false
+    }
+
+    fn analyze_scope(
+        _package_root: String,
+        _dialect: Option<String>,
+        _artifacts: Vec<FileScopeArtifact>,
+    ) -> ScopeAnalysis {
+        ScopeAnalysis::empty()
     }
 }

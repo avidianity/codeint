@@ -1,7 +1,9 @@
-use crate::language::{DeclaredDep, ImportRequest, Resolution, SourceSet};
+use crate::language::{
+    ImportRequest, ManifestAnalysis, PackageFrameworkProfiles, Resolution, SourceSet,
+};
 use crate::{
     FileModel, LanguagePlugin, LanguagePluginError, LowerError, Manifest, ReferenceRanges,
-    RepoPath, SourceFile, WorkspaceError,
+    RepoPath, SourceFile, empty_file_model, empty_manifest_analysis,
 };
 
 use super::{
@@ -30,14 +32,6 @@ impl Answering {
 }
 
 impl LanguagePlugin for Answering {
-    fn declared_dependencies(
-        &self,
-        _manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        self.assert_imports_enabled("declared_dependencies");
-        Ok(Vec::new())
-    }
-
     fn entry_points(
         &self,
         _repository_paths: &[RepoPath],
@@ -55,7 +49,12 @@ impl LanguagePlugin for Answering {
         }
     }
 
-    fn lower(&self, _path: &RepoPath, _text: &str) -> Result<FileModel, LowerError> {
+    fn lower(
+        &self,
+        _path: &RepoPath,
+        _text: &str,
+        _dialect: Option<&str>,
+    ) -> Result<FileModel, LowerError> {
         Err(LowerError::TooLarge)
     }
 
@@ -67,12 +66,12 @@ impl LanguagePlugin for Answering {
         Ok(vec!["package.json".to_owned()])
     }
 
-    fn workspace_packages(
+    fn analyze_manifests(
         &self,
         _manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        self.assert_imports_enabled("workspace_packages");
-        Ok(Vec::new())
+    ) -> Result<ManifestAnalysis, LanguagePluginError> {
+        self.assert_imports_enabled("analyze_manifests");
+        Ok(empty_manifest_analysis())
     }
 
     fn resolve_imports(
@@ -80,7 +79,7 @@ impl LanguagePlugin for Answering {
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
         _requests: Vec<ImportRequest>,
-        _active_profiles: &[String],
+        _package_profiles: &[PackageFrameworkProfiles],
     ) -> Result<Vec<Resolution>, LanguagePluginError> {
         match &self.0 {
             StubAnswer::Resolutions(resolutions) => Ok(resolutions.clone()),
@@ -123,14 +122,9 @@ fn importer(name: &str, specifiers: &[&str]) -> SourceFile {
     SourceFile {
         path: path(name),
         model: FileModel {
-            source_set: SourceSet::Production,
             source_lines: 1,
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
-            hazard_lines: Vec::new(),
             runtime_imports: specifiers.iter().map(|text| (*text).to_owned()).collect(),
-            program_start: false,
+            ..empty_file_model(SourceSet::Production)
         },
     }
 }

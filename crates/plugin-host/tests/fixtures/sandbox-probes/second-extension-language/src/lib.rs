@@ -26,7 +26,11 @@ impl Guest for SecondExtensionLanguagePlugin {
         vec!["aaa".to_string(), "bbb".to_string()]
     }
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+    fn lower(
+        path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
         let source_lines = probe_runtime::count_non_empty_lines(&text);
         if path.ends_with(".aaa") {
             return Ok(probe_runtime::blank_file_model!(

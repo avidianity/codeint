@@ -60,7 +60,10 @@ fn resolve_single_import(
         importer: importer.to_owned(),
         specifier: specifier.to_owned(),
     }];
-    let profiles: Vec<String> = active_profiles.iter().map(|&n| n.to_owned()).collect();
+    let profiles = vec![codeint_model::PackageFrameworkProfiles {
+        package_root: String::new(),
+        active_profiles: active_profiles.iter().map(|&n| n.to_owned()).collect(),
+    }];
     Php.resolve_imports(&repo_files, manifest_list, request, &profiles)
         .expect("resolve import")
         .into_iter()

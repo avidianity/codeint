@@ -22,14 +22,7 @@ struct HazardRulesLanguagePlugin;
 export!(HazardRulesLanguagePlugin);
 
 impl Guest for HazardRulesLanguagePlugin {
-    fn extensions() -> Vec<String> {
-        vec!["haz".to_string()]
-    }
-
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
-        if !path.ends_with(".haz") {
-            return Err(LowerError::UnsupportedFile("unsupported".to_string()));
-        }
+    probe_runtime::lower_with_extension!("haz", |_path, text| {
         let line_count = text.lines().count() as u32;
         let source_lines = probe_runtime::count_non_empty_lines(&text);
         let mut hazard_lines = Vec::new();
@@ -65,22 +58,7 @@ impl Guest for HazardRulesLanguagePlugin {
             source_lines,
             hazard_lines: hazard_lines,
         ))
-    }
+    });
 
-    probe_runtime::empty_language_metadata_stubs!();
-
-    fn has_hazard_rules() -> bool {
-        true
-    }
-
-    fn hazard_rules() -> Vec<String> {
-        vec![
-            "delete-without-where".to_string(),
-            "leading-wildcard-like".to_string(),
-        ]
-    }
-
-    fn has_imports() -> bool {
-        true
-    }
+    probe_runtime::hazard_language_tail!("delete-without-where", "leading-wildcard-like");
 }

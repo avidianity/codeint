@@ -90,6 +90,9 @@ fn saved_check_and_diff_reports_preserve_metric_versions_across_json_and_toon_ro
             hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
+            is_tooling_file: false,
+            diagnostics: Vec::new(),
+            scope_artifact: None,
         },
     });
     let plugin = VersionFourMetric;

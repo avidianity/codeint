@@ -17,25 +17,16 @@ use exports::codeint::plugin::language::{
     ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet, WorkspaceError,
 };
 
-struct Probe;
-
-export!(Probe);
-
-impl Guest for Probe {
-    probe_runtime::faulty_import_language! {
-        extensions: vec!["probe".to_string()],
-        manifest_paths: vec!["package.json".to_string()],
-        workspace_packages: |manifests| {
-            if manifests.iter().any(|manifest| !manifest.text.trim_start().starts_with('{')) {
-                return Err(WorkspaceError {
-                    path: "wrong/unpassed.json".to_string(),
-                    message: "not valid json".to_string(),
-                });
-            }
-            Ok(Vec::new())
-        },
-        framework_profiles: |selection| {
-            let _ = &selection;
-        }
+probe_runtime::package_json_manifest_probe!(|manifests| {
+    let mut analysis = probe_runtime::empty_manifest_analysis!();
+    if manifests
+        .iter()
+        .any(|manifest| !manifest.text.trim_start().starts_with('{'))
+    {
+        analysis.invalid_manifests.push(WorkspaceError {
+            path: "wrong/unpassed.json".to_string(),
+            message: "not valid json".to_string(),
+        });
     }
-}
+    analysis
+});

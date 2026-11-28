@@ -39,6 +39,7 @@ fn lower_shell(
     _plugin: &Shell,
     path: &codeint_model::RepoPath,
     text: &str,
+    _dialect: Option<&str>,
 ) -> Result<FileModel, codeint_model::LowerError> {
     lower_file(path.as_str(), text).map_err(codeint_model::LowerError::from)
 }
@@ -49,6 +50,7 @@ codeint_model::impl_builtin_language_plugin!(
     lower_shell,
     SHELL_RANGES
         .build("codeint stratified panel of 100 Shell repositories, ADR 0035, codeint 0.8.0"),
+    flagged_lines(flagged_line_rules()),
     imports(none),
     frameworks(none),
     hazards(SHELL_HAZARD_RULES),
@@ -71,14 +73,12 @@ fn lower_file(path: &str, text: &str) -> Result<FileModel, LowerError> {
     append_duplication_tokens(&lexed.tokens, &mut tokens);
     let source_set = source_set::classify(path, &lexed.header_comments);
     Ok(FileModel {
-        runtime_imports: Vec::new(),
         flagged_lines,
         hazard_lines,
         tokens,
         functions: extracted.functions,
         source_lines,
-        source_set,
-        program_start: false,
+        ..codeint_model::empty_file_model(source_set)
     })
 }
 

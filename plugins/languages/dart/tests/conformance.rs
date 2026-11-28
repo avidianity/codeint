@@ -3,7 +3,7 @@ use codeint_model::language::{ImportRequest, Resolution};
 use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind};
 
 fn lower(path: &str, src: &str) -> Result<codeint_model::FileModel, LowerError> {
-    Dart.lower(&RepoPath::new(path).unwrap(), src)
+    Dart.lower(&RepoPath::new(path).unwrap(), src, None)
 }
 
 #[test]
@@ -266,7 +266,10 @@ int run() => coreValue();
         ]
     );
 
-    let deps = Dart.declared_dependencies(pubspecs).unwrap();
+    let deps = Dart
+        .analyze_manifests(pubspecs)
+        .unwrap()
+        .declared_dependencies;
     let rendered: Vec<String> = deps
         .iter()
         .map(|d| format!("{}|{}|{:?}", d.package_root, d.name, d.kind))

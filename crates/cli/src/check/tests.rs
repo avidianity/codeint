@@ -6,10 +6,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use codeint_config::{Configuration, FindingsShown, ReportFormat};
 use codeint_git::Repository;
 use codeint_model::language::{
-    DeclaredDep, FileModel, FlaggedLine, Guest, ImportRequest, LowerError, Manifest,
-    ReferenceRange, Resolution, SourceSet, WorkspaceError,
+    FileModel, FileScopeArtifact, FlaggedLine, Guest, ImportRequest, LowerError, Manifest,
+    ManifestAnalysis, PackageFrameworkProfiles, ReferenceRange, Resolution, ScopeAnalysis,
+    SourceSet, WorkspaceError,
 };
-use codeint_model::{LanguageFacts, LanguagePlugin, Package, ReferenceRanges, RepoPath};
+use codeint_model::{
+    LanguageFacts, LanguagePlugin, Package, ReferenceRanges, RepoPath, empty_manifest_analysis,
+    empty_scope_analysis,
+};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -82,7 +86,22 @@ fn lines_in(source_set: SourceSet, text: &str) -> Result<FileModel, LowerError> 
         hazard_lines: Vec::new(),
         runtime_imports: Vec::new(),
         program_start: false,
+        is_tooling_file: false,
+        diagnostics: Vec::new(),
+        scope_artifact: None,
     })
+}
+
+macro_rules! guest_lower {
+    (|$path:ident, $text:ident| $body:expr) => {
+        fn lower(
+            $path: String,
+            $text: String,
+            _dialect: Option<String>,
+        ) -> Result<FileModel, LowerError> {
+            $body
+        }
+    };
 }
 
 macro_rules! every_import_is_external {
@@ -110,19 +129,16 @@ macro_rules! every_import_is_external {
             _repository_paths: Vec<String>,
             _manifests: Vec<Manifest>,
             requests: Vec<ImportRequest>,
-            _active_profiles: Vec<String>,
+            _package_profiles: Vec<PackageFrameworkProfiles>,
         ) -> Vec<Resolution> {
             requests.iter().map(|_| Resolution::Builtin).collect()
-        }
-
-        fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-            Vec::new()
         }
 
         fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
             Vec::new()
         }
 
+        codeint_model::empty_v05_guest_methods!();
         codeint_model::empty_framework_profile_guest_methods!();
     };
 }
@@ -139,8 +155,8 @@ fn erosion_range(low: f64, high: f64, source: &str) -> Vec<ReferenceRange> {
 
 macro_rules! without_workspaces {
     () => {
-        fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-            Ok(Vec::new())
+        fn analyze_manifests(_manifests: Vec<Manifest>) -> ManifestAnalysis {
+            empty_manifest_analysis()
         }
     };
 }
@@ -151,27 +167,24 @@ macro_rules! panic_on_import_calls {
             panic!("manifest_paths must not be called when has_imports is false");
         }
 
-        fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-            panic!("workspace_packages must not be called when has_imports is false");
+        fn analyze_manifests(_manifests: Vec<Manifest>) -> ManifestAnalysis {
+            panic!("analyze_manifests must not be called when has_imports is false");
         }
 
         fn resolve_imports(
             _repository_paths: Vec<String>,
             _manifests: Vec<Manifest>,
             _requests: Vec<ImportRequest>,
-            _active_profiles: Vec<String>,
+            _package_profiles: Vec<PackageFrameworkProfiles>,
         ) -> Vec<Resolution> {
             panic!("resolve_imports must not be called when has_imports is false");
-        }
-
-        fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-            panic!("declared_dependencies must not be called when has_imports is false");
         }
 
         fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
             panic!("entry_points must not be called when has_imports is false");
         }
 
+        codeint_model::empty_v05_guest_methods!();
         codeint_model::empty_framework_profile_guest_methods!();
     };
 }
@@ -193,7 +206,11 @@ macro_rules! stub_language_plugin {
                 vec![$($ext.to_owned()),+]
             }
 
-            fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+            fn lower(
+                _path: String,
+                text: String,
+                _dialect: Option<String>,
+            ) -> Result<FileModel, LowerError> {
                 lines_of(&text)
             }
 
@@ -227,7 +244,11 @@ impl Guest for FlagsEveryLineInOnePackage {
         vec!["flagged".to_owned()]
     }
 
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+    fn lower(
+        _path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
         let mut model = lines_of(&text)?;
         model.flagged_lines = (1..=model.source_lines)
             .map(|line| FlaggedLine {
@@ -238,8 +259,11 @@ impl Guest for FlagsEveryLineInOnePackage {
         Ok(model)
     }
 
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(vec!["packages/one".to_owned()])
+    fn analyze_manifests(_manifests: Vec<Manifest>) -> ManifestAnalysis {
+        ManifestAnalysis {
+            workspace_packages: vec!["packages/one".to_owned()],
+            ..empty_manifest_analysis()
+        }
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
@@ -254,7 +278,11 @@ impl Guest for ChecksFolderIsTest {
         vec!["checked".to_owned()]
     }
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+    fn lower(
+        path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
         if path.starts_with("checks/") {
             lines_in(SourceSet::Test, &text)
         } else {
@@ -768,7 +796,16 @@ impl LanguagePlugin for ParallelProofPlugin {
         vec!["parallel".to_owned()]
     }
 
-    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, codeint_model::LowerError> {
+    fn known_dialects(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn lower(
+        &self,
+        path: &RepoPath,
+        text: &str,
+        _dialect: Option<&str>,
+    ) -> Result<FileModel, codeint_model::LowerError> {
         if self.arrivals.fetch_add(1, Ordering::SeqCst) < self.expected {
             self.barrier.wait();
         }
@@ -795,11 +832,11 @@ impl LanguagePlugin for ParallelProofPlugin {
         Ok(Vec::new())
     }
 
-    fn workspace_packages(
+    fn analyze_manifests(
         &self,
         _manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, codeint_model::WorkspaceError> {
-        Ok(Vec::new())
+    ) -> Result<ManifestAnalysis, codeint_model::LanguagePluginError> {
+        Ok(empty_manifest_analysis())
     }
 
     fn resolve_imports(
@@ -807,16 +844,9 @@ impl LanguagePlugin for ParallelProofPlugin {
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: &[String],
+        _package_profiles: &[PackageFrameworkProfiles],
     ) -> Result<Vec<Resolution>, codeint_model::LanguagePluginError> {
         Ok(requests.iter().map(|_| Resolution::Builtin).collect())
-    }
-
-    fn declared_dependencies(
-        &self,
-        _manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, codeint_model::LanguagePluginError> {
-        Ok(Vec::new())
     }
 
     fn entry_points(
@@ -836,6 +866,10 @@ impl LanguagePlugin for ParallelProofPlugin {
         Ok(ReferenceRanges::default())
     }
 
+    fn flagged_line_rules(&self) -> Vec<String> {
+        vec!["parallel-marker".to_owned()]
+    }
+
     fn has_hazard_rules(&self) -> bool {
         false
     }
@@ -846,6 +880,19 @@ impl LanguagePlugin for ParallelProofPlugin {
 
     fn has_imports(&self) -> bool {
         true
+    }
+
+    fn has_scope_analysis(&self) -> bool {
+        false
+    }
+
+    fn analyze_scope(
+        &self,
+        _package_root: &str,
+        _dialect: Option<&str>,
+        _artifacts: Vec<FileScopeArtifact>,
+    ) -> Result<ScopeAnalysis, codeint_model::LanguagePluginError> {
+        Ok(empty_scope_analysis())
     }
 }
 
@@ -1119,7 +1166,11 @@ fn measure_snapshot_populates_per_language_coverage_and_hazard_rule_statements()
             vec!["haz".to_owned()]
         }
 
-        fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+        fn lower(
+            _path: String,
+            text: String,
+            _dialect: Option<String>,
+        ) -> Result<FileModel, LowerError> {
             lines_of(&text)
         }
 
@@ -1355,12 +1406,12 @@ fn no_imports_language_plugin_never_has_import_manifest_or_entry_point_functions
             vec!["noimp".to_owned()]
         }
 
-        fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+        guest_lower!(|_path, text| {
             let mut model = lines_of(&text)?;
             model.runtime_imports.push("./never-resolved".to_owned());
             model.program_start = true;
             Ok(model)
-        }
+        });
 
         panic_on_import_calls!();
 
@@ -1506,7 +1557,7 @@ fn lowering_clears_language_plugin_coverage_and_unmeasured_plugins_emit_no_langu
         every_import_is_external!();
         without_workspaces!();
 
-        fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+        guest_lower!(|_path, text| {
             let functions = vec![codeint_model::language::Function {
                 line: 1,
                 end_line: 1,
@@ -1523,7 +1574,7 @@ fn lowering_clears_language_plugin_coverage_and_unmeasured_plugins_emit_no_langu
                 functions,
                 ..lines_of(&text)?
             })
-        }
+        });
 
         fn extensions() -> Vec<String> {
             vec![String::from("cov")]
@@ -1602,9 +1653,7 @@ impl Guest for PickyManifests {
         vec!["picky".to_owned()]
     }
 
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        lines_of(&text)
-    }
+    guest_lower!(|_path, text| lines_of(&text));
 
     fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
         repository_paths
@@ -1613,30 +1662,36 @@ impl Guest for PickyManifests {
             .collect()
     }
 
-    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+    fn analyze_manifests(manifests: Vec<Manifest>) -> ManifestAnalysis {
+        let mut invalid_manifests = Vec::new();
+        let mut workspace_packages = Vec::new();
         for manifest in &manifests {
             match manifest.text.trim() {
                 "bad" => {
-                    return Err(WorkspaceError {
+                    invalid_manifests.push(WorkspaceError {
                         path: manifest.path.clone(),
                         message: "bad manifest".to_owned(),
                     });
                 }
                 "unnamed" => {
-                    return Err(WorkspaceError {
+                    invalid_manifests.push(WorkspaceError {
                         path: "elsewhere/manifest.picky".to_owned(),
                         message: "names a path that was not passed".to_owned(),
                     });
                 }
-                "escape" => return Ok(vec!["../escape".to_owned()]),
-                _ => {}
+                "escape" => workspace_packages.push("../escape".to_owned()),
+                _ => {
+                    if let Some(root) = manifest.path.strip_suffix("/manifest.picky") {
+                        workspace_packages.push(root.to_owned());
+                    }
+                }
             }
         }
-        Ok(manifests
-            .iter()
-            .filter_map(|manifest| manifest.path.strip_suffix("/manifest.picky"))
-            .map(str::to_owned)
-            .collect())
+        ManifestAnalysis {
+            workspace_packages,
+            invalid_manifests,
+            ..empty_manifest_analysis()
+        }
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
@@ -1647,14 +1702,10 @@ impl Guest for PickyManifests {
         _repository_paths: Vec<String>,
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        _package_profiles: Vec<PackageFrameworkProfiles>,
     ) -> Vec<Resolution> {
         assert_no_bad_manifest(&manifests);
         requests.iter().map(|_| Resolution::Builtin).collect()
-    }
-
-    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        empty_after_checking(&manifests)
     }
 
     fn entry_points(_repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
@@ -1673,6 +1724,7 @@ impl Guest for PickyManifests {
         true
     }
 
+    codeint_model::empty_v05_guest_methods!();
     codeint_model::empty_framework_profile_guest_methods!();
 }
 
@@ -1753,7 +1805,7 @@ impl Guest for CountingPathAwarePlugin {
         vec!["alpha".to_owned()]
     }
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+    guest_lower!(|path, text| {
         COUNTING_LOWER_CALLS.fetch_add(1, Ordering::Relaxed);
         let source_set = if path.ends_with(".test.alpha") {
             SourceSet::Test
@@ -1761,7 +1813,7 @@ impl Guest for CountingPathAwarePlugin {
             SourceSet::Production
         };
         lines_in(source_set, &text)
-    }
+    });
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         erosion_range(0.0, 1.0, "counting")

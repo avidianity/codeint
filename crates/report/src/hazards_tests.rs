@@ -41,6 +41,9 @@ fn sql_file(
                 .collect(),
             runtime_imports: Vec::new(),
             program_start: false,
+            is_tooling_file: false,
+            diagnostics: Vec::new(),
+            scope_artifact: None,
         },
     }
 }

@@ -28,9 +28,11 @@ impl Guest for Probe {
         _repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        active_profiles: Vec<String>,
+        package_profiles: Vec<exports::codeint::plugin::language::PackageFrameworkProfiles>,
     ) -> Vec<Resolution> {
-        let alpha_active = active_profiles.iter().any(|profile| profile == "alpha");
+        let alpha_active = package_profiles
+            .iter()
+            .any(|entry| entry.active_profiles.iter().any(|profile| profile == "alpha"));
         requests
             .iter()
             .map(|_| {

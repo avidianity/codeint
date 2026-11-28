@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use codeint_config::{PluginKind, PluginLimits};
@@ -6,10 +6,11 @@ use codeint_model::language::{
     FlaggedLine, Function, FunctionCoverage, HazardLine, Token, TokenKind,
 };
 use codeint_model::{
-    CodeModel, FileModel, FrameworkProfileSelection, ImportResolution, LanguageFacts,
-    LanguagePlugin, LanguagePluginError, LowerError, Manifest, Metric, MetricPlugin,
-    MetricPluginError, Package, RepoPath, ResolveError, RuntimeImport, SourceFile, SourceSet,
-    Workspace, WorkspaceError, choose_manifests, validate_hazard_lines,
+    CodeModel, FileModel, FileScopeArtifact, FrameworkProfileSelection, ImportResolution,
+    LanguageFacts, LanguagePlugin, LanguagePluginError, LowerError, Manifest, Metric, MetricPlugin,
+    MetricPluginError, Package, PackageFrameworkProfiles, RepoPath, ResolveError, RuntimeImport,
+    SourceFile, SourceSet, Workspace, choose_manifests, empty_file_model, validate_flagged_lines,
+    validate_hazard_lines, validate_manifest_analysis, validate_scope_analysis,
 };
 
 use crate::{PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, verify_plugin_component};
@@ -181,19 +182,21 @@ pub struct ConformanceSource {
 
 pub const END_TO_END_CHECK: &str = "end-to-end";
 
-pub const LANGUAGE_CHECKS: [&str; 15] = [
+pub const LANGUAGE_CHECKS: [&str; 17] = [
     "component",
     "wit-contract",
     "zero-imports",
     "extensions",
+    "dialects",
+    "flagged-line-rules",
     "hazard-rules",
     "framework-profiles",
     "lower",
     "manifest-paths",
-    "workspace-packages",
+    "analyze-manifests",
     "resolve-imports",
-    "declared-dependencies",
     "entry-points",
+    "scope-analysis",
     "reference-ranges",
     END_TO_END_CHECK,
     "limits",
@@ -279,7 +282,7 @@ fn pass_structural_checks(report: &mut ConformanceReport) {
 fn pass_load_check(report: &mut ConformanceReport, id: &'static str) {
     let message = match id {
         "component" => "valid WebAssembly component",
-        "wit-contract" => "WIT contract matches codeint:plugin@0.4.0",
+        "wit-contract" => "WIT contract matches codeint:plugin@0.5.0",
         "zero-imports" => "no WASI or host imports",
         "metric-key" => "the key is valid and unique",
         _ => "the version is valid",
@@ -360,7 +363,7 @@ fn record_load_failure(report: &mut ConformanceReport, error: &PluginHostError, 
                     "component",
                     error.to_string(),
                     format!(
-                        "build a WebAssembly component that exports codeint:plugin/{expected_kind}@0.4.0; check that --kind matches the kind of the Plugin"
+                        "build a WebAssembly component that exports codeint:plugin/{expected_kind}@0.5.0; check that --kind matches the kind of the Plugin"
                     ),
                 );
             }
@@ -398,6 +401,10 @@ fn run_language(
     let mut watch = LimitWatch::default();
     let extensions = plugin.extensions();
     check_extensions(report, &extensions);
+    let dialects = plugin.known_dialects();
+    check_dialects(report, &dialects);
+    let flagged_line_rules = plugin.flagged_line_rules();
+    check_flagged_line_rules(report, &flagged_line_rules);
     let hazard_rules = plugin.hazard_rules();
     check_hazard_rules(report, &plugin, &hazard_rules);
     let probe_extensions = probe_extensions(&extensions);
@@ -424,12 +431,14 @@ fn run_language(
         },
         &mut watch,
     );
-    check_lower(
+    let scope_artifacts = check_lower(
         report,
         &plugin,
         LowerProbeSetup {
             plugin_name: &name,
             extensions: &probe_extensions,
+            dialects: &dialects,
+            flagged_line_rules: &flagged_line_rules,
             hazard_rules: &hazard_rules,
             sources,
         },
@@ -443,6 +452,15 @@ fn run_language(
             chosen,
             importers: probe_importers(&probe_extensions),
         },
+        &mut watch,
+    );
+    check_scope_analysis(
+        report,
+        &name,
+        &plugin,
+        &dialects,
+        &hazard_rules,
+        scope_artifacts,
         &mut watch,
     );
     watch.settle(report, plugin.peak_memory_bytes(), limits);
@@ -489,6 +507,52 @@ fn check_extensions(report: &mut ConformanceReport, extensions: &[String]) {
     }
 }
 
+fn check_non_empty_list(
+    report: &mut ConformanceReport,
+    id: &'static str,
+    items: &[String],
+    empty_message: &str,
+    hint: &str,
+    label: &str,
+) {
+    if items.iter().any(|item| item.trim().is_empty()) {
+        report.fail(id, empty_message, hint);
+        return;
+    }
+    let mut seen = HashSet::with_capacity(items.len());
+    if let Some(duplicate) = items.iter().find(|item| !seen.insert(item.trim())) {
+        report.fail(
+            id,
+            format!("{id} lists duplicate entry {duplicate:?}"),
+            hint,
+        );
+        return;
+    }
+    report.pass(id, format!("{} {label} listed", items.len()));
+}
+
+fn check_dialects(report: &mut ConformanceReport, dialects: &[String]) {
+    check_non_empty_list(
+        report,
+        "dialects",
+        dialects,
+        "known-dialects holds an empty or blank Dialect name",
+        "list each Dialect once with a non-empty stable identifier, or return an empty list",
+        "Dialects",
+    );
+}
+
+fn check_flagged_line_rules(report: &mut ConformanceReport, rules: &[String]) {
+    check_non_empty_list(
+        report,
+        "flagged-line-rules",
+        rules,
+        "flagged-line-rules holds an empty or blank rule name",
+        "list each Flagged line rule once with a non-empty stable identifier",
+        "Flagged line rules",
+    );
+}
+
 fn check_hazard_rules(
     report: &mut ConformanceReport,
     plugin: &WasmLanguagePlugin,
@@ -531,8 +595,13 @@ fn reported_workspace(plugin: &WasmLanguagePlugin, chosen: &[RepoPath]) -> Works
     if !plugin.has_imports() {
         return Workspace::default();
     }
-    match plugin.workspace_packages(chosen_manifests(chosen, true)) {
-        Ok(members) => Workspace::new(members),
+    match plugin.analyze_manifests(chosen_manifests(chosen, true)) {
+        Ok(analysis) => Workspace::new(
+            analysis
+                .workspace_packages
+                .into_iter()
+                .filter_map(|root| RepoPath::new(root).ok()),
+        ),
         Err(_) => Workspace::default(),
     }
 }
@@ -753,8 +822,43 @@ struct LowerProbe {
 struct LowerProbeSetup<'a> {
     plugin_name: &'a str,
     extensions: &'a [String],
+    dialects: &'a [String],
+    flagged_line_rules: &'a [String],
     hazard_rules: &'a [String],
     sources: &'a [ConformanceSource],
+}
+
+#[derive(Default)]
+struct CollectedScopeArtifacts {
+    by_dialect: BTreeMap<Option<String>, Vec<FileScopeArtifact>>,
+    line_counts: BTreeMap<Option<String>, BTreeMap<String, usize>>,
+}
+
+impl CollectedScopeArtifacts {
+    fn record(
+        &mut self,
+        dialect: Option<&str>,
+        path: &RepoPath,
+        source_set: SourceSet,
+        line_count: usize,
+        artifact: Vec<u8>,
+    ) {
+        let key = dialect.map(str::to_owned);
+        self.by_dialect
+            .entry(key.clone())
+            .or_default()
+            .push(FileScopeArtifact {
+                path: path.to_string(),
+                source_set,
+                artifact,
+            });
+        self.line_counts
+            .entry(key)
+            .or_default()
+            .entry(path.to_string())
+            .and_modify(|max_lines| *max_lines = (*max_lines).max(line_count))
+            .or_insert(line_count);
+    }
 }
 
 fn probe_repo_path(file_name: &str, extension: &str) -> RepoPath {
@@ -797,12 +901,17 @@ fn built_in_probes(extensions: &[String], sources: &[ConformanceSource]) -> Vec<
         } else {
             String::new()
         };
-        probes.extend(samples.iter().map(|(label, text)| LowerProbe {
-            label: format!("{label}{label_suffix}"),
-            extension: extension.clone(),
-            file_name: format!("probe.{extension}"),
-            text: text.clone(),
-        }));
+        probes.extend(
+            samples
+                .iter()
+                .enumerate()
+                .map(|(index, (label, text))| LowerProbe {
+                    label: format!("{label}{label_suffix}"),
+                    extension: extension.clone(),
+                    file_name: format!("probe-{}.{extension}", index + 1),
+                    text: text.clone(),
+                }),
+        );
     }
     probes.extend(sources.iter().map(|source| LowerProbe {
         label: format!("source {}", source.file_name),
@@ -818,56 +927,49 @@ fn check_lower(
     plugin: &WasmLanguagePlugin,
     setup: LowerProbeSetup<'_>,
     watch: &mut LimitWatch,
-) {
-    let listed: HashSet<String> = setup.hazard_rules.iter().cloned().collect();
+) -> CollectedScopeArtifacts {
+    let listed_flagged: HashSet<String> = setup.flagged_line_rules.iter().cloned().collect();
+    let listed_hazards: HashSet<String> = setup.hazard_rules.iter().cloned().collect();
     let mut lowered_count = 0;
+    let mut scope_artifacts = CollectedScopeArtifacts::default();
+    let mut dialect_options: Vec<Option<&str>> = vec![None];
+    dialect_options.extend(
+        setup
+            .dialects
+            .iter()
+            .filter(|dialect| !dialect.trim().is_empty())
+            .map(|dialect| Some(dialect.as_str())),
+    );
     for probe in built_in_probes(setup.extensions, setup.sources) {
         let path = probe_repo_path(&probe.file_name, &probe.extension);
-        let first = plugin.lower(&path, &probe.text);
-        let second = plugin.lower(&path, &probe.text);
-        for outcome in [&first, &second] {
-            if let Err(error) = outcome
-                && is_limit_error(error)
-            {
-                watch.note(error.to_string());
-                report.fail(
-                    "lower",
-                    format!("{}: {error}", probe.label),
-                    "keep lower within the memory and time limits, or raise them with --plugin-memory-mb and --plugin-timeout-ms",
-                );
-                return;
-            }
-        }
-        if format!("{first:?}") != format!("{second:?}") {
-            report.fail(
-                "lower",
-                format!("{}: two lower calls on the same text differ", probe.label),
-                "make lower deterministic and stateless: no clocks, randomness, or state kept between calls",
+        let line_count = probe.text.lines().count();
+        for &dialect in &dialect_options {
+            let outcome = run_lower_probe(
+                report,
+                &LowerProbeRun {
+                    plugin,
+                    setup: &setup,
+                    listed_flagged: &listed_flagged,
+                    listed_hazards: &listed_hazards,
+                    probe: &probe,
+                    path: &path,
+                    dialect,
+                },
+                watch,
             );
-            return;
-        }
-        if let Ok(model) = first {
-            lowered_count += 1;
-            let line_count = probe.text.lines().count();
-            if let Some(problem) = model_problem(
-                setup.plugin_name,
-                &path,
-                &model,
-                line_count,
-                &listed,
-                plugin.has_imports(),
-            ) {
-                report.fail(
-                    "lower",
-                    format!("{}: {problem}", probe.label),
-                    "fix the FileModel so lines are 1-based and within the file, functions are sorted, and Hazard rules are listed in hazard-rules",
-                );
-                return;
+            let Some(model) = outcome else {
+                return CollectedScopeArtifacts::default();
+            };
+            if let Some(model) = model {
+                lowered_count += 1;
+                if let Some(artifact) = model.scope_artifact {
+                    scope_artifacts.record(dialect, &path, model.source_set, line_count, artifact);
+                }
             }
         }
     }
     let unclaimed = repo_path("src/probe.codeint-unclaimed-extension");
-    match plugin.lower(&unclaimed, "x\n") {
+    match plugin.lower(&unclaimed, "x\n", None) {
         Err(LowerError::UnsupportedFile { .. } | LowerError::Unparsable { .. }) => {}
         other => {
             report.fail(
@@ -875,13 +977,75 @@ fn check_lower(
                 format!("a file with an unclaimed extension was not rejected: {other:?}"),
                 "return unsupported-file from lower for any path whose extension the Plugin does not claim",
             );
-            return;
+            return CollectedScopeArtifacts::default();
         }
     }
     report.pass(
         "lower",
         format!("{lowered_count} probe sources lower deterministically"),
     );
+    scope_artifacts
+}
+
+struct LowerProbeRun<'a> {
+    plugin: &'a WasmLanguagePlugin,
+    setup: &'a LowerProbeSetup<'a>,
+    listed_flagged: &'a HashSet<String>,
+    listed_hazards: &'a HashSet<String>,
+    probe: &'a LowerProbe,
+    path: &'a RepoPath,
+    dialect: Option<&'a str>,
+}
+
+fn run_lower_probe(
+    report: &mut ConformanceReport,
+    run: &LowerProbeRun<'_>,
+    watch: &mut LimitWatch,
+) -> Option<Option<FileModel>> {
+    let first = run.plugin.lower(run.path, &run.probe.text, run.dialect);
+    let second = run.plugin.lower(run.path, &run.probe.text, run.dialect);
+    for outcome in [&first, &second] {
+        if let Err(error) = outcome
+            && is_limit_error(error)
+        {
+            watch.note(error.to_string());
+            report.fail(
+                "lower",
+                format!("{}: {error}", run.probe.label),
+                "keep lower within the memory and time limits, or raise them with --plugin-memory-mb and --plugin-timeout-ms",
+            );
+            return None;
+        }
+    }
+    if format!("{first:?}") != format!("{second:?}") {
+        report.fail(
+            "lower",
+            format!("{}: two lower calls on the same text differ", run.probe.label),
+            "make lower deterministic and stateless: no clocks, randomness, or state kept between calls",
+        );
+        return None;
+    }
+    if let Err(LowerError::Contract(error)) = first {
+        report.fail(
+            "lower",
+            format!("{}: {error}", run.probe.label),
+            "fix the FileModel so Flagged line rules are listed in flagged-line-rules and lines are 1-based and within the file",
+        );
+        return None;
+    }
+    if let Ok(model) = first {
+        let line_count = run.probe.text.lines().count();
+        if let Some(problem) = model_problem(run, &model, line_count) {
+            report.fail(
+                "lower",
+                format!("{}: {problem}", run.probe.label),
+                "fix the FileModel so lines are 1-based and within the file, functions are sorted, diagnostics are valid, scope-artifact matches has-scope-analysis, Flagged line rules are listed in flagged-line-rules, and Hazard rules are listed in hazard-rules",
+            );
+            return None;
+        }
+        return Some(Some(model));
+    }
+    Some(None)
 }
 
 fn is_limit_error(error: &LowerError) -> bool {
@@ -891,14 +1055,7 @@ fn is_limit_error(error: &LowerError) -> bool {
     )
 }
 
-fn model_problem(
-    plugin_name: &str,
-    path: &RepoPath,
-    model: &FileModel,
-    line_count: usize,
-    listed: &HashSet<String>,
-    has_imports: bool,
-) -> Option<String> {
+fn model_problem(run: &LowerProbeRun<'_>, model: &FileModel, line_count: usize) -> Option<String> {
     let in_bounds = |line: u32| line >= 1 && usize::try_from(line).is_ok_and(|n| n <= line_count);
     if usize::try_from(model.source_lines).is_ok_and(|n| n > line_count) {
         return Some(format!(
@@ -908,15 +1065,50 @@ fn model_problem(
     }
     function_problem(model, in_bounds)
         .or_else(|| line_problem(model, in_bounds))
+        .or_else(|| diagnostic_problem(model, in_bounds))
         .or_else(|| {
-            (!has_imports && !model.runtime_imports.is_empty())
+            (!run.plugin.has_imports() && !model.runtime_imports.is_empty())
                 .then(|| "runtime-imports is not empty although has-imports is false".to_owned())
         })
         .or_else(|| {
-            validate_hazard_lines(plugin_name, path, line_count, &model.hazard_lines, listed)
-                .err()
-                .map(|error| error.to_string())
+            (!run.plugin.has_scope_analysis() && model.scope_artifact.is_some()).then(|| {
+                "scope-artifact is present although has-scope-analysis is false".to_owned()
+            })
         })
+        .or_else(|| {
+            validate_flagged_lines(
+                run.setup.plugin_name,
+                run.path,
+                line_count,
+                &model.flagged_lines,
+                run.listed_flagged,
+            )
+            .err()
+            .map(|error| error.to_string())
+        })
+        .or_else(|| {
+            validate_hazard_lines(
+                run.setup.plugin_name,
+                run.path,
+                line_count,
+                &model.hazard_lines,
+                run.listed_hazards,
+            )
+            .err()
+            .map(|error| error.to_string())
+        })
+}
+
+fn diagnostic_problem(model: &FileModel, in_bounds: impl Fn(u32) -> bool) -> Option<String> {
+    model
+        .diagnostics
+        .iter()
+        .any(|diagnostic| {
+            !in_bounds(diagnostic.line)
+                || diagnostic.kind.trim().is_empty()
+                || diagnostic.message.trim().is_empty()
+        })
+        .then(|| "a file diagnostic is out of bounds or has an empty kind or message".to_owned())
 }
 
 fn function_problem(model: &FileModel, in_bounds: impl Fn(u32) -> bool) -> Option<String> {
@@ -954,11 +1146,10 @@ fn line_problem(model: &FileModel, in_bounds: impl Fn(u32) -> bool) -> Option<St
         .then(|| "a flagged line is out of bounds or has an empty rule".to_owned())
 }
 
-const IMPORT_CHECKS: [&str; 5] = [
+const IMPORT_CHECKS: [&str; 4] = [
     "manifest-paths",
-    "workspace-packages",
+    "analyze-manifests",
     "resolve-imports",
-    "declared-dependencies",
     "entry-points",
 ];
 
@@ -1033,7 +1224,7 @@ fn probe_importers(extensions: &[String]) -> Vec<SourceFile> {
                         "left-pad".to_owned(),
                         "fs".to_owned(),
                     ],
-                    ..empty_file_model()
+                    ..empty_file_model(SourceSet::Production)
                 },
             });
         }
@@ -1117,7 +1308,7 @@ fn check_import_calls(
         chosen,
         importers,
     } = probe;
-    let remaining_invalid = check_workspace_packages(report, plugin, &chosen, watch);
+    check_analyze_manifests(report, plugin, &chosen, watch);
     check_imports(
         report,
         plugin,
@@ -1128,33 +1319,6 @@ fn check_import_calls(
         },
         watch,
     );
-
-    let mut dependencies = plugin.declared_dependencies(chosen_manifests(&chosen, true));
-    if dependencies.is_ok()
-        && let Some(invalid_manifests) = remaining_invalid
-        && !chosen.is_empty()
-    {
-        dependencies = plugin.declared_dependencies(invalid_manifests);
-    }
-    match dependencies {
-        Ok(_) => report.pass("declared-dependencies", "dependency declarations are valid"),
-        Err(error) if is_call_error(&error) => {
-            watch.note_language(&error);
-            report.fail(
-                "declared-dependencies",
-                error.to_string(),
-                "declared-dependencies must never trap; return an empty list for manifests it does not understand",
-            );
-        }
-        Err(error) => {
-            watch.note_language(&error);
-            report.fail(
-                "declared-dependencies",
-                error.to_string(),
-                "return dependencies with a repository-relative package root and a non-empty name",
-            );
-        }
-    }
 
     match plugin.entry_points(repository, chosen_manifests(&chosen, true)) {
         Ok(_) => report.pass("entry-points", "entry points are repository files"),
@@ -1200,144 +1364,101 @@ fn check_manifest_paths(
     }
 }
 
-fn check_workspace_packages(
+fn check_analyze_manifests(
     report: &mut ConformanceReport,
     plugin: &WasmLanguagePlugin,
     chosen: &[RepoPath],
     watch: &mut LimitWatch,
-) -> Option<Vec<Manifest>> {
-    if !check_workspace_must_accept(report, plugin, "no manifests", Vec::new(), watch) {
-        return None;
+) {
+    if !check_manifest_batch(report, plugin, "no manifests", Vec::new(), false, watch) {
+        return;
     }
     if chosen.is_empty() {
         report.pass(
-            "workspace-packages",
-            "answers valid and invalid manifests without a trap or an invalid path",
+            "analyze-manifests",
+            "answers valid and invalid manifests in one pass without traps or invalid paths",
         );
-        return Some(Vec::new());
+        return;
     }
-    if !check_workspace_must_accept(
+    if !check_manifest_batch(
         report,
         plugin,
         "the manifests it chose, with valid content",
         chosen_manifests(chosen, true),
+        false,
         watch,
     ) {
-        return None;
+        return;
     }
-    let remaining = check_workspace_invalid_manifests(report, plugin, chosen, watch)?;
+    if !check_manifest_batch(
+        report,
+        plugin,
+        "the manifests it chose, with invalid content",
+        chosen_manifests(chosen, false),
+        true,
+        watch,
+    ) {
+        return;
+    }
     report.pass(
-        "workspace-packages",
-        "answers valid and invalid manifests without a trap or an invalid path",
+        "analyze-manifests",
+        "answers valid and invalid manifests in one pass without traps or invalid paths",
     );
-    Some(remaining)
 }
 
-fn check_workspace_must_accept(
+fn check_manifest_batch(
     report: &mut ConformanceReport,
     plugin: &WasmLanguagePlugin,
     label: &str,
     manifests: Vec<Manifest>,
+    allow_invalid: bool,
     watch: &mut LimitWatch,
 ) -> bool {
-    match plugin.workspace_packages_checked(manifests) {
+    let analysis = match plugin.analyze_manifests_checked(&manifests) {
+        Ok(analysis) => analysis,
         Err(error) => {
-            fail_workspace_trap(report, label, &error, watch);
-            false
-        }
-        Ok(Err(error @ WorkspaceError::Manifest { .. })) => {
+            watch.note_host(&error);
             report.fail(
-                "workspace-packages",
+                "analyze-manifests",
                 format!("{label}: {error}"),
-                "return a workspace-error only for a manifest it cannot read, naming that manifest's exact path; codeint check skips a manifest that a workspace-error names and warns, and stops on any other workspace-error, so never return one for a chosen manifest with valid content or for no manifests",
+                "analyze-manifests must never trap; record unreadable manifests in invalid-manifests",
             );
-            false
-        }
-        Ok(Err(error)) => {
-            fail_workspace_error(report, label, &error);
-            false
-        }
-        Ok(Ok(packages)) => check_workspace_roots(report, label, &packages),
-    }
-}
-
-fn check_workspace_invalid_manifests(
-    report: &mut ConformanceReport,
-    plugin: &WasmLanguagePlugin,
-    chosen: &[RepoPath],
-    watch: &mut LimitWatch,
-) -> Option<Vec<Manifest>> {
-    let label = "the manifests it chose, with invalid content";
-    let mut remaining = chosen_manifests(chosen, false);
-    loop {
-        match plugin.workspace_packages_checked(remaining.clone()) {
-            Err(error) => {
-                fail_workspace_trap(report, label, &error, watch);
-                return None;
-            }
-            Ok(Err(WorkspaceError::Manifest { path, message })) => {
-                let Some(position) = remaining.iter().position(|manifest| manifest.path == path)
-                else {
-                    report.fail(
-                        "workspace-packages",
-                        format!(
-                            "{label}: workspace-error names {path:?}, which is not among the remaining manifests passed in ({message})"
-                        ),
-                        "name the exact path of one of the manifests the host passed in; codeint check skips a manifest that a workspace-error names and stops with exit code 2 when the path is not among the remaining manifests",
-                    );
-                    return None;
-                };
-                remaining.remove(position);
-            }
-            Ok(Err(error)) => {
-                fail_workspace_error(report, label, &error);
-                return None;
-            }
-            Ok(Ok(packages)) => {
-                if !check_workspace_roots(report, label, &packages) {
-                    return None;
-                }
-                return Some(remaining);
-            }
-        }
-    }
-}
-
-fn fail_workspace_trap(
-    report: &mut ConformanceReport,
-    label: &str,
-    error: &PluginHostError,
-    watch: &mut LimitWatch,
-) {
-    watch.note_host(error);
-    report.fail(
-        "workspace-packages",
-        format!("{label}: {error}"),
-        "workspace-packages must never trap; return a workspace-error for a manifest it cannot read",
-    );
-}
-
-fn fail_workspace_error(report: &mut ConformanceReport, label: &str, error: &WorkspaceError) {
-    let hint = match error {
-        WorkspaceError::InvalidPackageRoot(_) => {
-            "return only package roots relative to the repository root with forward slashes, never absolute or containing .."
-        }
-        WorkspaceError::Manifest { .. } | WorkspaceError::PluginFailed { .. } => {
-            "workspace-packages must never trap; return a workspace-error naming a manifest path it cannot read"
+            return false;
         }
     };
-    report.fail("workspace-packages", format!("{label}: {error}"), hint);
-}
-
-fn check_workspace_roots(
-    report: &mut ConformanceReport,
-    label: &str,
-    packages: &[RepoPath],
-) -> bool {
-    if packages.iter().any(|package| package.as_str().is_empty()) {
+    let validated = match validate_manifest_analysis(&manifests, analysis) {
+        Ok(validated) => validated,
+        Err(error) => {
+            report.fail(
+                "analyze-manifests",
+                format!("{label}: {error}"),
+                "return valid relative paths, non-empty dependency names, and only passed manifest paths in invalid-manifests",
+            );
+            return false;
+        }
+    };
+    if !allow_invalid && !validated.invalid_manifests.is_empty() {
+        let first = &validated.invalid_manifests[0];
         report.fail(
-            "workspace-packages",
-            format!("{label}: workspace-packages returned the repository root"),
+            "analyze-manifests",
+            format!(
+                "{label}: reported invalid manifest {}: {}",
+                first.path, first.message
+            ),
+            "record a manifest in invalid-manifests only when its content cannot be parsed",
+        );
+        return false;
+    }
+    if validated
+        .workspace_packages
+        .iter()
+        .any(|package| package.is_empty())
+    {
+        report.fail(
+            "analyze-manifests",
+            format!(
+                "{label}: analyze-manifests returned the repository root as a workspace package"
+            ),
             "return only member package folders; the root package is implicit",
         );
         return false;
@@ -1394,10 +1515,6 @@ fn check_reference_ranges(
     );
 }
 
-fn is_call_error(error: &LanguagePluginError) -> bool {
-    matches!(error, LanguagePluginError::Call { .. })
-}
-
 struct ImportProbe<'a> {
     repository: &'a [RepoPath],
     importers: &'a [SourceFile],
@@ -1411,28 +1528,51 @@ fn check_imports(
     watch: &mut LimitWatch,
 ) {
     let known = plugin.known_framework_profiles();
-    let mut active_sets: Vec<Vec<String>> = vec![Vec::new()];
-    active_sets.extend(known.iter().map(|profile| vec![profile.clone()]));
+    let mut profile_sets: Vec<Vec<PackageFrameworkProfiles>> = vec![Vec::new()];
+    for profile in &known {
+        profile_sets.push(vec![
+            PackageFrameworkProfiles {
+                package_root: String::new(),
+                active_profiles: vec![profile.clone()],
+            },
+            PackageFrameworkProfiles {
+                package_root: PROBE_PACKAGE.to_owned(),
+                active_profiles: vec![profile.clone()],
+            },
+        ]);
+    }
     if known.len() > 1 {
-        active_sets.push(known);
+        profile_sets.push(vec![
+            PackageFrameworkProfiles {
+                package_root: String::new(),
+                active_profiles: known.clone(),
+            },
+            PackageFrameworkProfiles {
+                package_root: PROBE_PACKAGE.to_owned(),
+                active_profiles: known,
+            },
+        ]);
     }
     let importers: Vec<&SourceFile> = probe.importers.iter().collect();
-    for active in &active_sets {
+    for package_profiles in &profile_sets {
         let outcome = codeint_model::resolve_runtime_imports(
             plugin,
             probe.repository,
             probe.manifests.clone(),
             &importers,
-            active,
+            package_profiles,
         );
         if let Err(error) = outcome {
             if let ResolveError::Plugin(inner) = &error {
                 watch.note_language(inner);
             }
-            let context = if active.is_empty() {
+            let context = if package_profiles.is_empty() {
                 "with no Framework profile active".to_owned()
             } else {
-                format!("with Framework profiles {active:?} active")
+                format!(
+                    "with Framework profiles {:?} active",
+                    package_profiles[0].active_profiles
+                )
             };
             report.fail(
                 "resolve-imports",
@@ -1448,17 +1588,81 @@ fn check_imports(
     );
 }
 
-fn empty_file_model() -> FileModel {
-    FileModel {
-        source_set: codeint_model::SourceSet::Production,
-        source_lines: 0,
-        functions: Vec::new(),
-        tokens: Vec::new(),
-        flagged_lines: Vec::new(),
-        hazard_lines: Vec::new(),
-        runtime_imports: Vec::new(),
-        program_start: false,
+fn check_scope_analysis(
+    report: &mut ConformanceReport,
+    plugin_name: &str,
+    plugin: &WasmLanguagePlugin,
+    dialects: &[String],
+    hazard_rules: &[String],
+    artifacts: CollectedScopeArtifacts,
+    watch: &mut LimitWatch,
+) {
+    if !plugin.has_scope_analysis() {
+        report.skip(
+            "scope-analysis",
+            "has-scope-analysis is false, so codeint never calls analyze-scope",
+        );
+        return;
     }
+    let listed: HashSet<String> = hazard_rules.iter().cloned().collect();
+    let empty_counts = BTreeMap::new();
+    let mut dialect_options: Vec<Option<&str>> = vec![None];
+    dialect_options.extend(
+        dialects
+            .iter()
+            .filter(|dialect| !dialect.trim().is_empty())
+            .map(|dialect| Some(dialect.as_str())),
+    );
+    for dialect in dialect_options {
+        let key = dialect.map(str::to_owned);
+        let dialect_artifacts = artifacts
+            .by_dialect
+            .get(&key)
+            .map_or(&[][..], Vec::as_slice);
+        let line_counts = artifacts.line_counts.get(&key).unwrap_or(&empty_counts);
+        let analysis = match plugin.analyze_scope_checked("", dialect, dialect_artifacts) {
+            Ok(analysis) => analysis,
+            Err(error) => {
+                watch.note_host(&error);
+                report.fail(
+                    "scope-analysis",
+                    error.to_string(),
+                    "analyze-scope must never trap or exceed limits",
+                );
+                return;
+            }
+        };
+        if let Some(problem) = scope_analysis_problem(
+            plugin_name,
+            analysis,
+            dialect_artifacts,
+            line_counts,
+            &listed,
+        ) {
+            report.fail(
+                "scope-analysis",
+                problem,
+                "return valid repository paths from the analyzed artifacts, 1-based line numbers within each file, listed Hazard rules, and non-empty summary kinds and field keys",
+            );
+            return;
+        }
+    }
+    report.pass(
+        "scope-analysis",
+        "analyze-scope returns valid extra Hazard lines and scope summaries",
+    );
+}
+
+fn scope_analysis_problem(
+    plugin_name: &str,
+    analysis: codeint_model::ScopeAnalysis,
+    artifacts: &[FileScopeArtifact],
+    line_counts: &BTreeMap<String, usize>,
+    listed: &HashSet<String>,
+) -> Option<String> {
+    validate_scope_analysis(plugin_name, artifacts, listed, Some(line_counts), analysis)
+        .err()
+        .map(|error| error.to_string())
 }
 
 fn run_metric(
@@ -1677,7 +1881,7 @@ fn probe_file(path: &str, source_set: SourceSet) -> SourceFile {
                 rule: "probe-hazard".to_owned(),
             }],
             runtime_imports: vec!["./util".to_owned(), "left-pad".to_owned(), "fs".to_owned()],
-            program_start: false,
+            ..empty_file_model(source_set)
         },
     }
 }

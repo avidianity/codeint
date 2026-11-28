@@ -43,27 +43,36 @@ fn collect_tree(root: &Path) -> BTreeMap<String, Vec<u8>> {
             Err(error) => panic!("cannot read {}: {error}", dir.display()),
         };
         for entry in entries {
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(error) => panic!("{error}"),
-            };
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else {
-                let relative = match path.strip_prefix(root) {
-                    Ok(relative) => relative.to_string_lossy().replace('\\', "/"),
-                    Err(error) => panic!("{error}"),
-                };
-                let bytes = match fs::read(&path) {
-                    Ok(bytes) => bytes,
-                    Err(error) => panic!("cannot read {}: {error}", path.display()),
-                };
-                files.insert(relative, bytes);
-            }
+            record_tree_entry(root, entry, &mut stack, &mut files);
         }
     }
     files
+}
+
+fn record_tree_entry(
+    root: &Path,
+    entry: std::io::Result<fs::DirEntry>,
+    stack: &mut Vec<PathBuf>,
+    files: &mut BTreeMap<String, Vec<u8>>,
+) {
+    let entry = match entry {
+        Ok(entry) => entry,
+        Err(error) => panic!("{error}"),
+    };
+    let path = entry.path();
+    if path.is_dir() {
+        stack.push(path);
+        return;
+    }
+    let relative = match path.strip_prefix(root) {
+        Ok(relative) => relative.to_string_lossy().replace('\\', "/"),
+        Err(error) => panic!("{error}"),
+    };
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => panic!("cannot read {}: {error}", path.display()),
+    };
+    files.insert(relative, bytes);
 }
 
 #[test]

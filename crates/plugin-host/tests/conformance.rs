@@ -12,9 +12,7 @@ use codeint_lang_shell::Shell;
 use codeint_lang_sql::Sql;
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::{ImportRequest, Resolution};
-use codeint_model::{
-    HazardLine, LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, WorkspaceError,
-};
+use codeint_model::{HazardLine, LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet};
 use codeint_plugin_host::load_language_plugin;
 
 use common::{declaration_for, sample_plugin_wasm, sandbox_probe_wasm};
@@ -108,32 +106,35 @@ fn assert_import_conformance(
         })
         .collect();
     let no_manifests = plugin
-        .workspace_packages(Vec::new())
+        .analyze_manifests(Vec::new())
         .unwrap_or_else(|error| {
-            panic!("{label}: workspace_packages failed on no manifests: {error}")
+            panic!("{label}: analyze_manifests failed on no manifests: {error}")
         });
     assert!(
-        no_manifests.is_empty(),
-        "{label}: workspace_packages returned {no_manifests:?} for no manifests"
+        no_manifests.workspace_packages.is_empty(),
+        "{label}: analyze_manifests returned {:?} for no manifests",
+        no_manifests.workspace_packages
     );
 
-    let packages = plugin
-        .workspace_packages(valid_manifest.clone())
-        .unwrap_or_else(|error| panic!("{label}: workspace_packages failed: {error}"));
+    let analysis = plugin
+        .analyze_manifests(valid_manifest.clone())
+        .unwrap_or_else(|error| panic!("{label}: analyze_manifests failed: {error}"));
     assert_eq!(
-        packages,
-        vec![RepoPath::new(imports.expected_workspace_package).unwrap()],
-        "{label}: workspace_packages"
+        analysis.workspace_packages,
+        vec![imports.expected_workspace_package.to_owned()],
+        "{label}: analyze_manifests workspace_packages"
     );
 
     let invalid_manifest = vec![Manifest {
         path: imports.expected_manifest_path.to_owned(),
         text: imports.invalid_manifest_text.to_owned(),
     }];
-    let bad_workspace = plugin.workspace_packages(invalid_manifest);
+    let bad_workspace = plugin
+        .analyze_manifests(invalid_manifest)
+        .unwrap_or_else(|error| panic!("{label}: analyze_manifests on invalid failed: {error}"));
     assert!(
-        matches!(bad_workspace, Err(WorkspaceError::Manifest { .. })),
-        "{label}: expected WorkspaceError::Manifest, got {bad_workspace:?}"
+        !bad_workspace.invalid_manifests.is_empty(),
+        "{label}: expected invalid_manifests entry, got {bad_workspace:?}"
     );
 
     let requests: Vec<ImportRequest> = imports
@@ -191,9 +192,6 @@ fn assert_import_conformance(
         resolutions[2]
     );
 
-    let _deps = plugin
-        .declared_dependencies(valid_manifest.clone())
-        .unwrap_or_else(|error| panic!("{label}: declared_dependencies failed: {error}"));
     let entry_points = plugin
         .entry_points(&repo_paths, valid_manifest)
         .unwrap_or_else(|error| panic!("{label}: entry_points failed: {error}"));
@@ -280,13 +278,14 @@ fn assert_edge_case_lowers(
     let unsupported = plugin.lower(
         &RepoPath::new(fixture.unsupported_path).unwrap(),
         "plain text\n",
+        None,
     );
     assert!(
         matches!(unsupported, Err(LowerError::UnsupportedFile { .. })),
         "{label}: expected UnsupportedFile, got {unsupported:?}"
     );
     let empty = plugin
-        .lower(&RepoPath::new(fixture.empty_path).unwrap(), "")
+        .lower(&RepoPath::new(fixture.empty_path).unwrap(), "", None)
         .unwrap_or_else(|error| panic!("{label}: empty file failed to lower: {error}"));
     assert_eq!(empty.source_lines, 0, "{label}: empty source_lines");
     assert!(empty.functions.is_empty(), "{label}: empty functions");
@@ -309,7 +308,7 @@ fn assert_edge_case_lowers(
         hazard_rules,
     );
     if let Some((decl_path, decl_source)) = fixture.declaration_only {
-        let decl = plugin.lower(&RepoPath::new(decl_path).unwrap(), decl_source);
+        let decl = plugin.lower(&RepoPath::new(decl_path).unwrap(), decl_source, None);
         assert!(
             matches!(decl, Err(LowerError::DeclarationOnly)),
             "{label}: expected DeclarationOnly, got {decl:?}"
@@ -318,6 +317,7 @@ fn assert_edge_case_lowers(
     let unparsable = plugin.lower(
         &RepoPath::new(fixture.unparsable_path).unwrap(),
         fixture.unparsable_source,
+        None,
     );
     assert!(
         matches!(&unparsable, Err(LowerError::Unparsable { message }) if !message.is_empty()),
@@ -335,7 +335,7 @@ fn assert_production_and_crlf_lower(
     let label = fixture.name;
     let prod_path = RepoPath::new(fixture.production_path).unwrap();
     let prod = plugin
-        .lower(&prod_path, fixture.production_source)
+        .lower(&prod_path, fixture.production_source, None)
         .unwrap_or_else(|error| panic!("{label}: production file failed to lower: {error}"));
     assert_eq!(
         prod.source_set,
@@ -366,7 +366,7 @@ fn assert_production_and_crlf_lower(
         hazard_rules,
     );
     let crlf = plugin
-        .lower(&prod_path, fixture.production_source_crlf)
+        .lower(&prod_path, fixture.production_source_crlf, None)
         .unwrap_or_else(|error| panic!("{label}: CRLF file failed to lower: {error}"));
     assert_eq!(
         crlf.source_lines, prod.source_lines,
@@ -428,6 +428,7 @@ fn assert_test_lower(
         .lower(
             &RepoPath::new(fixture.test_path).unwrap(),
             fixture.test_source,
+            None,
         )
         .unwrap_or_else(|error| panic!("{label}: test file failed to lower: {error}"));
     assert_eq!(
@@ -500,7 +501,7 @@ fn assert_reference_ranges_and_concurrency(
             .map(|_| {
                 scope.spawn(|| {
                     plugin
-                        .lower(&prod_path, fixture.production_source)
+                        .lower(&prod_path, fixture.production_source, None)
                         .expect("concurrent lower succeeds")
                 })
             })

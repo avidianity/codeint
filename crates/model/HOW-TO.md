@@ -4,14 +4,15 @@
 
 ```rust
 use codeint_model::language::{
-    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, ImportRequest,
-    Manifest, ReferenceRange, Resolution, SourceSet, Token, TokenKind,
+    FileModel, FileScopeArtifact, FrameworkProfileResult, FrameworkProfileSelection, ImportRequest,
+    Manifest, ManifestAnalysis, PackageFrameworkProfiles, ReferenceRange, Resolution,
+    ScopeAnalysis, SourceSet, Token, TokenKind,
 };
 use codeint_model::scan::find_manifests;
 use codeint_model::{
-    InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, ReferenceRanges,
-    RepoPath, WorkspaceError, empty_framework_profile_result, token_text_hash,
-    validate_workspace_packages,
+    LanguagePlugin, LanguagePluginError, LowerError, ReferenceRanges, RepoPath,
+    empty_framework_profile_result, empty_manifest_analysis, empty_scope_analysis,
+    token_text_hash,
 };
 
 pub struct Plain;
@@ -21,7 +22,16 @@ impl LanguagePlugin for Plain {
         vec!["txt".to_owned()]
     }
 
-    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
+    fn known_dialects(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn lower(
+        &self,
+        path: &RepoPath,
+        text: &str,
+        _dialect: Option<&str>,
+    ) -> Result<FileModel, LowerError> {
         let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
         let source_set = if path.as_str().starts_with("drafts/") {
             SourceSet::Test
@@ -48,6 +58,9 @@ impl LanguagePlugin for Plain {
             hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
+            is_tooling_file: false,
+            diagnostics: Vec::new(),
+            scope_artifact: None,
         })
     }
 
@@ -58,11 +71,11 @@ impl LanguagePlugin for Plain {
         Ok(find_manifests(repository_paths, "plain.toml"))
     }
 
-    fn workspace_packages(
+    fn analyze_manifests(
         &self,
         _manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        validate_workspace_packages(Vec::new())
+    ) -> Result<ManifestAnalysis, LanguagePluginError> {
+        Ok(empty_manifest_analysis())
     }
 
     fn resolve_imports(
@@ -70,19 +83,12 @@ impl LanguagePlugin for Plain {
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: &[String],
+        _package_profiles: &[PackageFrameworkProfiles],
     ) -> Result<Vec<Resolution>, LanguagePluginError> {
         Ok(requests
             .iter()
             .map(|request| Resolution::External(request.specifier.clone()))
             .collect())
-    }
-
-    fn declared_dependencies(
-        &self,
-        _manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        Ok(Vec::new())
     }
 
     fn entry_points(
@@ -118,6 +124,10 @@ impl LanguagePlugin for Plain {
         Ok(empty_framework_profile_result())
     }
 
+    fn flagged_line_rules(&self) -> Vec<String> {
+        Vec::new()
+    }
+
     fn has_hazard_rules(&self) -> bool {
         false
     }
@@ -129,32 +139,41 @@ impl LanguagePlugin for Plain {
     fn has_imports(&self) -> bool {
         true
     }
+
+    fn has_scope_analysis(&self) -> bool {
+        false
+    }
+
+    fn analyze_scope(
+        &self,
+        _package_root: &str,
+        _dialect: Option<&str>,
+        _artifacts: Vec<FileScopeArtifact>,
+    ) -> Result<ScopeAnalysis, LanguagePluginError> {
+        Ok(empty_scope_analysis())
+    }
 }
 ```
 
-- The interface is defined once, in [wit/language.wit](../../wit/language.wit), as the versioned package `codeint:plugin@0.4.0`.
+- The interface is defined once, in [wit/language.wit](../../wit/language.wit), as the versioned package `codeint:plugin@0.5.0`.
 - `codeint_model::language` holds the Rust types that wit-bindgen generates from that file.
   Never write a second Rust copy of a WIT type.
 - A built-in Language plugin implements `LanguagePlugin` directly and borrows `&RepoPath`, `&str`, and `&[RepoPath]` to avoid per-file clones.
 - External WebAssembly Plugins implement the generated `Guest` trait, which bridges into `LanguagePlugin` through a blanket implementation.
 - `RepoPath` implements `AsRef<str>`, so shared path helpers accept `&[RepoPath]` and `&[String]` without cloning paths.
 - Call `codeint_model::scan::find_manifests<P: AsRef<str>>` to match a manifest filename across any `&[P]` slice, and `codeint_model::scan::paths_with_suffix` to collect paths ending with a suffix into a `HashSet<&str>`.
-- Call `validate_workspace_packages` inside `LanguagePlugin::workspace_packages` to convert raw package root strings into validated `Vec<RepoPath>` values.
+- Call `validate_manifest_analysis` to validate a `ManifestAnalysis` returned by `LanguagePlugin::analyze_manifests`, and `analyze_manifests_single_pass` to wrap legacy workspace discovery and dependency extraction into a single-pass `ManifestAnalysis`.
 - Use `impl_builtin_language_plugin!` to wire a built-in Language plugin's `LanguagePlugin` implementation without repeating validation, framework-profile delegation, or empty default methods.
 - Use `empty_framework_profile_plugin_methods!` in test stubs that implement `LanguagePlugin` directly without Framework profiles.
 - `extensions` returns each file extension without its leading dot.
-- `lower` receives a repository-relative path with forward slashes and the whole file as text.
+- `lower` receives a repository-relative path with forward slashes, the whole file as text, and an optional `dialect` name.
 - Return `LowerError::UnsupportedFile` for a file that no rule of the Language plugin covers.
 - Return `LowerError::Unparsable` with the parser's message, and its line and column when the parser gives them, for a file that does not parse.
 - Return `LowerError::DeclarationOnly` for a file that only declares types, such as a TypeScript `.d.ts`, `.d.mts`, or `.d.cts` file.
   Which files are declaration-only is a rule of the Language plugin, never of the core.
-- `workspace_packages` receives each file that `manifest_paths` chose, as a `Manifest` with its repository-relative path and its text.
-  Ignore the manifests that do not describe workspace packages, such as a `tsconfig.json` file.
-  Return the root folder of each workspace package, never the repository root.
-  Return an empty list when the language has no workspaces.
-  An empty list means the repository is one package.
-- Return a `WorkspaceError` that names the manifest and what is wrong with it when a manifest that decides the packages is invalid.
-  Which manifest decides the packages, and how its patterns match folders, is a rule of the Language plugin, never of the core.
+- `analyze_manifests` receives each file that `manifest_paths` chose, as a `Manifest` with its repository-relative path and its text, and returns a `ManifestAnalysis` in a single pass.
+  It reports `workspace_packages` (member roots, never the repository root), `invalid_manifests` (skipped invalid manifests as `WorkspaceError` records), `dependency_manifests`, `declared_dependencies`, `manifest_used_dependencies`, and `root_dependency_inheritance`.
+  Return empty lists when the language has no workspaces; an empty `workspace_packages` list means the repository is one package.
 - Set `source_set` of each `FileModel` with the rules of the Language plugin, such as the TypeScript `*.test.ts`, `*.spec.ts`, and `__tests__` rules.
   `SourceSet` is the closed set of four Source sets: Production, Test, Generated, and Vendored.
   Return Production for a file that no rule claims.
@@ -167,11 +186,12 @@ impl LanguagePlugin for Plain {
   `low` and `high` are ratios with `0 <= low <= high <= 1`.
   Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
 - `known_framework_profiles` returns the stable names of Framework profiles this Language plugin defines, and `resolve_framework_profiles` resolves active profiles, convention entry points, generated paths, framework Reference ranges, and an optional Reference range note for one Workspace package.
+- `known_dialects` returns the dialect names accepted by `lower` and `analyze_scope` (empty when the language has no dialects).
+- `flagged_line_rules` returns the stable names of Flagged line rules this Language plugin may emit.
 - `has_hazard_rules` states whether this Language plugin defines Hazard line rules, and `hazard_rules` returns their stable names (empty when `has_hazard_rules` is `false`).
-  The five built-in Language plugins return `false` and an empty list.
 - `has_imports` states whether the language has runtime imports, manifests, and entry points.
-  When `has_imports` returns `false`, codeint never calls `manifest_paths`, `workspace_packages`, `resolve_imports`, `declared_dependencies`, or `entry_points`.
-  The five built-in Language plugins return `true`.
+  When `has_imports` returns `false`, codeint never calls `manifest_paths`, `analyze_manifests`, `resolve_imports`, or `entry_points`.
+- `has_scope_analysis` states whether this Language plugin runs a package-level cross-file pass via `analyze_scope`, consuming opaque `scope_artifact` bytes emitted by `lower`.
 - Each `Function` has `line` and `end-line`, the lines where it starts and ends, counted from 1; `end-line` equals `line` for a function on one line.
   The core reads the tokens from `line` to `end-line` as the content of the function's Finding identity.
   Each `Function` also carries `coverage: Option<FunctionCoverage>` with `listed_lines` and `executed_lines`.
@@ -191,16 +211,15 @@ impl LanguagePlugin for Plain {
 - `hazard_lines` lists each Hazard line as `HazardLine { line, rule }`, with `line` counted from 1 and `rule` a stable rule name listed by `hazard_rules`.
   A `HazardLine` never holds source text.
   A line that matches two rules appears once per rule.
-  Return an empty list when `has_hazard_rules` returns `false`; the five built-in Language plugins always return an empty list.
+  Return an empty list when `has_hazard_rules` returns `false`; six of the eight built-in Language plugins always return an empty list (`sql` and `shell` declare Hazard line rules).
 - `runtime_imports` lists the specifier of each import that runs when the file runs, in source order; leave out type-only imports.
 - `program_start` is `false` unless the source text marks the file as a program start, such as a Go `package main` file.
-  The five built-in Language plugins always set `program_start` to `false`.
+  Seven of the eight built-in Language plugins always set `program_start` to `false` (`go` sets it for `package main` files).
 - `manifest_paths` receives every file path of the repository snapshot and returns the paths of the files that finding workspace packages and resolving imports need to read, such as each `package.json` and `tsconfig.json` file.
   Name only paths from `repository_paths`; which files matter is a rule of the Language plugin, never of the core.
   It is the one way a Language plugin asks the host for files, so the host reads each file once.
-- `resolve_imports` receives every file path of the repository snapshot and each file that `manifest_paths` chose as a `Manifest` with its text, because a Plugin cannot read the file system.
+- `resolve_imports` receives every file path of the repository snapshot, each valid `Manifest`, the `ImportRequest` list, and per-package active Framework profiles (`package_profiles: &[PackageFrameworkProfiles]`), because a Plugin cannot read the file system.
   Return one `Resolution` per request, in request order: `Resolved` with a non-empty list of paths from `repository_paths`, `External` with the canonical third-party package name, `Builtin` for a standard-library or runtime built-in module, or `Unresolved` with the reason.
-- `declared_dependencies` extracts external dependencies declared in `manifests`, each with its `package-root`, normalized `name`, and `kind` (`Runtime`, `Dev`, or `Optional`).
 - `entry_points` discovers standard entry-point source files from `repository_paths` and `manifests`, naming only paths from `repository_paths`.
 
 ## Lower files in the core
@@ -210,7 +229,7 @@ use codeint_model::{LanguagePlugin, RepoPath};
 
 let plugins: [&dyn LanguagePlugin; 1] = [&Plain];
 let path = RepoPath::new("notes/todo.txt")?;
-let model = plugins[0].lower(&path, "first\nsecond\n")?;
+let model = plugins[0].lower(&path, "first\nsecond\n", None)?;
 assert_eq!(model.source_lines, 2);
 ```
 
@@ -218,7 +237,7 @@ assert_eq!(model.source_lines, 2);
   Every `Guest` is a `LanguagePlugin`; the WebAssembly Plugin host implements `LanguagePlugin` itself.
 - The core picks the Language plugin of a file from the extensions that the plugins declare, never from its own list.
 - Before lowering, call `choose_manifests(plugin, repository_paths)` once per Language plugin and read each path it returns, once, as `Manifest { path, text }`.
-  Pass those manifests to `workspace_packages`, and after lowering to `resolve_runtime_imports(plugin, repository_paths, manifests, &importers, active_profiles)` with the files the plugin lowered and the active Framework profile names.
+  Pass those manifests to `analyze_manifests`, and after lowering to `resolve_runtime_imports(plugin, repository_paths, manifests, &importers, package_profiles)` with the files the plugin lowered and per-package active Framework profiles.
   `choose_manifests` fails with `ResolveError::UnknownManifest` when the plugin names a path outside the snapshot.
   `resolve_runtime_imports` returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests, returns an empty `Resolved` target list, returns an empty, blank/whitespace-only, invisible, or control-character `External` package name, or names a file outside the snapshot.
 - `codeint_model::LowerError` is the core's error; it converts from the WIT `lower-error` and names the failure in its message.
@@ -241,8 +260,10 @@ let manifests: Vec<Manifest> = choose_manifests(plugins[0], tree.files())?
         path: path.to_string(),
     })
     .collect();
+let analysis = plugins[0].analyze_manifests(manifests.clone())?;
+let packages = codeint_model::validate_workspace_packages(analysis.workspace_packages)?;
 let model = CodeModel {
-    workspace: Workspace::new(plugins[0].workspace_packages(manifests.clone())?),
+    workspace: Workspace::new(packages),
     ..CodeModel::default()
 };
 for package in model.workspace.packages() {
@@ -252,10 +273,10 @@ let package = model.workspace.package_of(&RepoPath::new("packages/app/src/main.t
 ```
 
 - The host reads each file that `choose_manifests` names for a Language plugin and passes them to that plugin; the plugin reads no files itself.
-  The same manifests go to `workspace_packages` and to `resolve_runtime_imports`, so the host reads each file once.
+  The same manifests go to `analyze_manifests` and to `resolve_runtime_imports`, so the host reads each file once.
 - The host decodes a manifest that is not valid UTF-8 lossily, so its folder can still be a package.
-- A `WorkspaceError::Manifest` that names one passed manifest makes the host skip that manifest with a warning and call `workspace_packages` again without it.
-  Any other `WorkspaceError`, including a plugin trap, stops the run with exit code 2, because the package of every file depends on it.
+- Each entry in `ManifestAnalysis::invalid_manifests` that names one passed manifest makes the host skip that manifest with a warning and filter it out before later passes.
+  An invalid manifest path that was not passed, or a plugin trap, stops the run with exit code 2, because the package of every file depends on it.
 - `Workspace::packages` yields `Package::Root` first, then each member package by root folder.
   `Package::Root` holds every file outside all member packages, and displays as `.`.
 - `Workspace::package_of` gives the deepest member package whose root folder holds the file, or `Package::Root`.
@@ -266,7 +287,7 @@ let package = model.workspace.package_of(&RepoPath::new("packages/app/src/main.t
 ```rust
 use codeint_model::settle_source_set;
 
-let mut model = plugins[0].lower(&path, text)?;
+let mut model = plugins[0].lower(&path, text, None)?;
 model.source_set = settle_source_set(&path, text, model.source_set);
 ```
 

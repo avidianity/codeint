@@ -25,10 +25,7 @@ impl Guest for Probe {
     probe_runtime::faulty_import_language! {
         extensions: vec!["a\\b".to_string()],
         manifest_paths: Vec::new(),
-        workspace_packages: |manifests| {
-            let _ = manifests;
-            Ok(Vec::new())
-        },
+        analyze_manifests: |_manifests| probe_runtime::empty_manifest_analysis!(),
         framework_profiles: |selection| {
             let _ = &selection;
         }

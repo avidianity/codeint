@@ -19,7 +19,7 @@ Every other Metric in codeint measures Software entropy, the maintainability cos
 - **No Reference range**: Hazards has no published Reference range.
 
 Currently, the built-in `sql` Language plugin defines 32 Hazard line rules (27 statement rules and 5 schema-backed rules), and the built-in `shell` Language plugin defines 10.
-External WebAssembly Language plugins can also export Hazard line rules through `codeint:plugin@0.4.0`; see [docs/plugins.md](../plugins.md).
+External WebAssembly Language plugins can also export Hazard line rules through `codeint:plugin@0.5.0`; see [docs/plugins.md](../plugins.md).
 See the complete 32-rule SQL list in [docs/reference.md#sql](../reference.md#sql) and the 10-rule Shell list in [docs/reference.md#shell](../reference.md#shell).
 
 ## Configuration

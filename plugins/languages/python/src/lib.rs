@@ -12,7 +12,7 @@ mod source_set;
 mod stdlib;
 mod workspaces;
 
-use codeint_model::language::{FileModel, LowerError, Token, TokenKind};
+use codeint_model::language::{FileModel, Token, TokenKind};
 use codeint_model::scan::CoreReferenceRanges;
 use codeint_model::token_text_hash;
 
@@ -24,25 +24,7 @@ pub use rules::flagged_line_rules;
 
 pub struct Python;
 
-const PYTHON_RANGES: CoreReferenceRanges = CoreReferenceRanges::new(
-    (0.239, 0.717),
-    (0.249, 0.637),
-    (0.000, 0.011),
-    (0.011, 0.220),
-    Some((0.000, 0.446)),
-);
-
-fn lower_python(
-    _plugin: &Python,
-    path: &codeint_model::RepoPath,
-    text: &str,
-) -> Result<FileModel, codeint_model::LowerError> {
-    let path = path.as_str();
-    if !path.ends_with(".py") {
-        return Err(
-            LowerError::UnsupportedFile(format!("{path} is not a Python source file")).into(),
-        );
-    }
+fn lower_python(path: &str, text: &str) -> Result<FileModel, codeint_model::LowerError> {
     let lexed = lexer::scan(text).map_err(codeint_model::LowerError::from)?;
     let (runtime_imports, import_indices) =
         imports::scan_imports(&lexed.tokens, &lexed.logical_lines);
@@ -65,25 +47,32 @@ fn lower_python(
     Ok(FileModel {
         functions: functions::extract(&lexed.tokens, &lexed.logical_lines, &lexed.code_lines),
         flagged_lines: rules::evaluate(&lexed.tokens, &lexed.logical_lines, &lexed.code_lines),
-        hazard_lines: Vec::new(),
-        source_set: source_set::classify(path, &lexed.header_comments),
         runtime_imports,
         tokens,
         source_lines,
-        program_start: false,
+        ..codeint_model::empty_file_model(source_set::classify(path, &lexed.header_comments))
     })
 }
+
+const PYTHON_RANGES: CoreReferenceRanges = CoreReferenceRanges::new(
+    (0.239, 0.717),
+    (0.249, 0.637),
+    (0.000, 0.011),
+    (0.011, 0.220),
+    Some((0.000, 0.446)),
+);
 
 codeint_model::impl_builtin_language_plugin!(
     Python,
     ["py"],
-    lower_python,
+    lower_ext(lower_python, ".py", "Python"),
     PYTHON_RANGES
         .build("codeint stratified panel of 100 Python repositories, ADR 0035, codeint 0.8.0"),
+    flagged_lines(flagged_line_rules()),
     imports(
         find_python_manifests,
         workspaces::discover,
-        resolve_with_profiles,
+        by_profile(resolve_with_profiles),
         extract_declared,
         discover_entry_points,
     ),

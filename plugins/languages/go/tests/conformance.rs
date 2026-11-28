@@ -1,11 +1,9 @@
 use codeint_lang_go::{Go, flagged_line_rules};
 use codeint_model::language::{DeclaredDep, DepKind, Function, ImportRequest, Resolution};
-use codeint_model::{
-    LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind, WorkspaceError,
-};
+use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind};
 
 fn lower_ok(path: &str, src: &str) -> codeint_model::FileModel {
-    Go.lower(&RepoPath::new(path).unwrap(), src)
+    Go.lower(&RepoPath::new(path).unwrap(), src, None)
         .unwrap_or_else(|err| panic!("expected {path} to lower cleanly: {err}"))
 }
 
@@ -77,7 +75,7 @@ fn go_plugin_shell_lexer_literals_comments_and_unparsable_files() {
         ]
     );
 
-    let unsupported = Go.lower(&RepoPath::new("notes.txt").unwrap(), "package main\n");
+    let unsupported = Go.lower(&RepoPath::new("notes.txt").unwrap(), "package main\n", None);
     assert!(matches!(
         unsupported,
         Err(LowerError::UnsupportedFile { .. })
@@ -101,7 +99,7 @@ fn go_plugin_shell_lexer_literals_comments_and_unparsable_files() {
         ("mismatch_delim.go", "package p\nfunc f() { (] }\n"),
         ("illegal_char.go", "package p\nvar x = @1\n"),
     ] {
-        let res = Go.lower(&RepoPath::new(path).unwrap(), src);
+        let res = Go.lower(&RepoPath::new(path).unwrap(), src, None);
         assert!(
             matches!(res, Err(LowerError::Unparsable { .. })),
             "expected Unparsable for {path}, got {res:?}"
@@ -594,14 +592,18 @@ replace (
     ];
 
     assert_eq!(
-        Go.workspace_packages(manifests.clone()).unwrap(),
-        [RepoPath::new("services/sub").unwrap()]
+        Go.analyze_manifests(manifests.clone())
+            .unwrap()
+            .workspace_packages,
+        ["services/sub"]
     );
-    let bad = Go.workspace_packages(vec![Manifest {
-        path: "go.mod".into(),
-        text: "module example.com/root\nrequire (\n".into(),
-    }]);
-    assert!(matches!(bad, Err(WorkspaceError::Manifest { path, .. }) if path == "go.mod"));
+    let bad = Go
+        .analyze_manifests(vec![Manifest {
+            path: "go.mod".into(),
+            text: "module example.com/root\nrequire (\n".into(),
+        }])
+        .unwrap();
+    assert!(bad.invalid_manifests.iter().any(|err| err.path == "go.mod"));
 
     let reqs = make_requests(&[
         ("main.go", "C"),
@@ -671,7 +673,10 @@ replace (
         vec![Resolution::Resolved(vec!["pkg/init/b.go".into()])]
     );
 
-    let deps = Go.declared_dependencies(manifests).unwrap();
+    let deps = Go
+        .analyze_manifests(manifests)
+        .unwrap()
+        .declared_dependencies;
     assert_eq!(
         deps,
         [
@@ -710,7 +715,12 @@ fn go_handles_escaped_utf8_go_mod_parenthesized_receivers_func_type_slices_and_m
         path: "go.mod".into(),
         text: "module \"foo\\é\"\n".into(),
     }];
-    assert!(Go.workspace_packages(utf8_mod).is_ok());
+    assert!(
+        Go.analyze_manifests(utf8_mod)
+            .unwrap()
+            .invalid_manifests
+            .is_empty()
+    );
 
     let src = "\
 package p
@@ -987,7 +997,12 @@ func NumMulFuncLit(a, b, c, d bool) int {
         resolved,
         vec![Resolution::Resolved(vec!["local/lib/lib.go".into()])]
     );
-    assert!(Go.declared_dependencies(manifests).unwrap().is_empty());
+    assert!(
+        Go.analyze_manifests(manifests)
+            .unwrap()
+            .declared_dependencies
+            .is_empty()
+    );
 }
 
 #[test]

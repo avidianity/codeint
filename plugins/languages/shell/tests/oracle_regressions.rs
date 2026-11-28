@@ -3,7 +3,7 @@ use codeint_model::{LanguagePlugin, RepoPath};
 
 fn assert_decisions(path: &str, src: &str, expected: &[(&str, u32)]) {
     let model = Shell
-        .lower(&RepoPath::new(path).unwrap(), src)
+        .lower(&RepoPath::new(path).unwrap(), src, None)
         .unwrap_or_else(|err| panic!("expected {path} to lower cleanly: {err}"));
     let actual: Vec<(&str, u32)> = model
         .functions

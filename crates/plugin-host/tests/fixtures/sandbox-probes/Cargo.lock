@@ -280,6 +280,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "legacy-v0-4-0-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
+name = "legacy-v0-4-0-metric-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "log"
 version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -574,6 +590,14 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "unlisted-hazard-rule-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
+name = "v0-5-0-features-language-plugin"
 version = "0.1.0"
 dependencies = [
  "probe-runtime",

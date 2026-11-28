@@ -285,7 +285,10 @@ fn lower_bytes(
         Some(dialect) => {
             sql::lower_sql_source(path, &text, dialect).map(|(file, details)| (file, Some(details)))
         }
-        None => named.plugin.lower(path, &text).map(|file| (file, None)),
+        None => named
+            .plugin
+            .lower(path, &text, None)
+            .map(|file| (file, None)),
     };
     match lowered {
         Ok((mut file, sql_details)) => {
@@ -318,6 +321,7 @@ fn lower_bytes(
             line_count: recorded_lines,
             sql: None,
         }),
+        Err(LowerError::Contract(error)) => Err(CheckError::language_plugin(config_file, error)),
         Err(reason) => Ok(LoweredOutcome {
             file: LoweredFile::Skipped(SkippedFile {
                 path: path.clone(),

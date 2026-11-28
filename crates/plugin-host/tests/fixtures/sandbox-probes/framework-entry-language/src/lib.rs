@@ -28,7 +28,7 @@ impl Guest for Probe {
         _repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        _package_profiles: Vec<exports::codeint::plugin::language::PackageFrameworkProfiles>,
     ) -> Vec<Resolution> {
         requests
             .iter()

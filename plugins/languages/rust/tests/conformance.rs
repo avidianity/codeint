@@ -9,7 +9,7 @@ fn plugin() -> &'static dyn LanguagePlugin {
 }
 
 fn lower(path: &str, text: &str) -> Result<FileModel, LowerError> {
-    plugin().lower(&RepoPath::new(path).expect("valid path"), text)
+    plugin().lower(&RepoPath::new(path).expect("valid path"), text, None)
 }
 
 #[test]
@@ -370,8 +370,9 @@ fn assert_rust_declared_deps(manifests: &[(&str, &str)], expected: &[(&str, &str
         })
         .collect();
     let actual = plugin()
-        .declared_dependencies(input)
-        .expect("declared dependencies");
+        .analyze_manifests(input)
+        .expect("declared dependencies")
+        .declared_dependencies;
     let expected_deps: Vec<DeclaredDep> = expected
         .iter()
         .map(|(package_root, name, kind)| DeclaredDep {
@@ -609,8 +610,9 @@ fn value_namespace_items_do_not_suppress_external_use_imports() {
         text: "[package]\nname = \"demo\"\n[dependencies]\nregex = \"1\"\n".to_owned(),
     }];
     let declared = plugin()
-        .declared_dependencies(manifests.clone())
-        .expect("declared");
+        .analyze_manifests(manifests.clone())
+        .expect("declared")
+        .declared_dependencies;
     assert_eq!(
         declared,
         vec![DeclaredDep {

@@ -4,12 +4,12 @@ use codeint_config::SqlDialect as ConfigSqlDialect;
 use codeint_lang_sql::schema::{SqlSchema, collect_schema_hazards};
 use codeint_lang_sql::{ParsedSqlStatement, Sql, SqlDialect};
 use codeint_model::language::{
-    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, ImportRequest,
-    Manifest, Resolution,
+    FileModel, FileScopeArtifact, FrameworkProfileResult, FrameworkProfileSelection, ImportRequest,
+    Manifest, ManifestAnalysis, PackageFrameworkProfiles, Resolution, ScopeAnalysis,
 };
 use codeint_model::{
     CodeModel, LanguagePlugin, LanguagePluginError, LowerError, Package, ReferenceRanges, RepoPath,
-    SourceFile, SourceSet, WorkspaceError,
+    SourceFile, SourceSet,
 };
 
 pub(crate) struct BuiltInSql;
@@ -19,8 +19,21 @@ impl LanguagePlugin for BuiltInSql {
         Sql::new().extensions()
     }
 
-    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
-        Sql::new().lower(path, text)
+    fn known_dialects(&self) -> Vec<String> {
+        Sql::new().known_dialects()
+    }
+
+    fn lower(
+        &self,
+        path: &RepoPath,
+        text: &str,
+        dialect: Option<&str>,
+    ) -> Result<FileModel, LowerError> {
+        Sql::new().lower(path, text, dialect)
+    }
+
+    fn flagged_line_rules(&self) -> Vec<String> {
+        Sql::new().flagged_line_rules()
     }
 
     fn manifest_paths(
@@ -30,11 +43,11 @@ impl LanguagePlugin for BuiltInSql {
         Sql::new().manifest_paths(repository_paths)
     }
 
-    fn workspace_packages(
+    fn analyze_manifests(
         &self,
         manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        Sql::new().workspace_packages(manifests)
+    ) -> Result<ManifestAnalysis, LanguagePluginError> {
+        Sql::new().analyze_manifests(manifests)
     }
 
     fn resolve_imports(
@@ -42,16 +55,9 @@ impl LanguagePlugin for BuiltInSql {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        active_profiles: &[String],
+        package_profiles: &[PackageFrameworkProfiles],
     ) -> Result<Vec<Resolution>, LanguagePluginError> {
-        Sql::new().resolve_imports(repository_paths, manifests, requests, active_profiles)
-    }
-
-    fn declared_dependencies(
-        &self,
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        Sql::new().declared_dependencies(manifests)
+        Sql::new().resolve_imports(repository_paths, manifests, requests, package_profiles)
     }
 
     fn entry_points(
@@ -90,6 +96,19 @@ impl LanguagePlugin for BuiltInSql {
 
     fn has_imports(&self) -> bool {
         Sql::new().has_imports()
+    }
+
+    fn has_scope_analysis(&self) -> bool {
+        Sql::new().has_scope_analysis()
+    }
+
+    fn analyze_scope(
+        &self,
+        package_root: &str,
+        dialect: Option<&str>,
+        artifacts: Vec<FileScopeArtifact>,
+    ) -> Result<ScopeAnalysis, LanguagePluginError> {
+        Sql::new().analyze_scope(package_root, dialect, artifacts)
     }
 }
 

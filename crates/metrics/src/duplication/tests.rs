@@ -32,6 +32,9 @@ fn file(path: &str, lines: &[&str]) -> SourceFile {
             hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
+            is_tooling_file: false,
+            diagnostics: Vec::new(),
+            scope_artifact: None,
         },
     }
 }

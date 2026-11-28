@@ -124,14 +124,7 @@ fn resolve_folder_import(repository_paths: &[String], request: ImportRequest) ->
 }
 
 impl Guest for FolderImportLanguagePlugin {
-    fn extensions() -> Vec<String> {
-        vec!["fld".to_string()]
-    }
-
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
-        if !path.ends_with(".fld") {
-            return Err(LowerError::UnsupportedFile("unsupported".to_string()));
-        }
+    probe_runtime::lower_with_extension!("fld", |path, text| {
         let source_set = if path.ends_with("_test.fld") {
             SourceSet::Test
         } else {
@@ -149,38 +142,36 @@ impl Guest for FolderImportLanguagePlugin {
             runtime_imports: acc.runtime_imports,
             program_start: acc.program_start,
         ))
-    }
+    });
 
-    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
-        repository_paths
-            .into_iter()
-            .filter(|path| path == "fld.workspace" || path.ends_with("/fld.workspace"))
-            .collect()
-    }
+    probe_runtime::filter_manifest_paths!("fld.workspace");
 
-    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        let pairs: Vec<(&str, &str)> = manifests
-            .iter()
-            .map(|m| (m.path.as_str(), m.text.as_str()))
-            .collect();
-        probe_runtime::parse_workspace_manifest_lines(&pairs, "entry:")
-            .map_err(|(path, message)| WorkspaceError { path, message })
+    fn analyze_manifests(
+        manifests: Vec<Manifest>,
+    ) -> exports::codeint::plugin::language::ManifestAnalysis {
+        let mut analysis = probe_runtime::empty_manifest_analysis!();
+        for manifest in &manifests {
+            let pairs = [(manifest.path.as_str(), manifest.text.as_str())];
+            match probe_runtime::parse_workspace_manifest_lines(&pairs, "entry:") {
+                Ok(packages) => analysis.workspace_packages.extend(packages),
+                Err((path, message)) => analysis
+                    .invalid_manifests
+                    .push(WorkspaceError { path, message }),
+            }
+        }
+        analysis
     }
 
     fn resolve_imports(
         repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        _package_profiles: Vec<exports::codeint::plugin::language::PackageFrameworkProfiles>,
     ) -> Vec<Resolution> {
         requests
             .into_iter()
             .map(|request| resolve_folder_import(&repository_paths, request))
             .collect()
-    }
-
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
     }
 
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {

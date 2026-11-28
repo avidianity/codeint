@@ -1,14 +1,16 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use codeint_config::PluginLimits;
 use codeint_model::{
-    DeclaredDep, DepKind, FileModel, FrameworkProfileResult, FrameworkProfileSelection,
-    LanguagePluginError, LowerError, Manifest, ReferenceRange, ReferenceRanges, RepoPath,
-    SourceSet, Token, TokenKind, WorkspaceError, language, validate_declared_dependencies,
-    validate_entry_points, validate_framework_profile_result,
+    DeclaredDep, DepKind, DependencyManifestOwner, FileDiagnostic, FileHazards, FileModel,
+    FileScopeArtifact, FrameworkProfileResult, FrameworkProfileSelection, LanguagePluginError,
+    LowerError, Manifest, ManifestAnalysis, PackageDependency, PackageFrameworkProfiles,
+    ReferenceRange, ReferenceRanges, RepoPath, ScopeAnalysis, ScopeSummary, SourceSet,
+    SummaryField, Token, TokenKind, language, validate_entry_points, validate_flagged_lines,
+    validate_framework_profile_result, validate_manifest_analysis, validate_scope_analysis,
 };
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Config, Engine, Store};
@@ -95,7 +97,7 @@ pub(crate) struct ContractSpec {
 
 const LANGUAGE_CONTRACT: ContractSpec = ContractSpec {
     interface_prefix: "codeint:plugin/language@",
-    expected_interface: "codeint:plugin/language@0.4.0",
+    expected_interface: "codeint:plugin/language@0.5.0",
 };
 
 pub(crate) fn check_contract_version(
@@ -190,10 +192,15 @@ impl<Pre> SandboxedComponent<Pre> {
 pub struct WasmLanguagePlugin {
     name: String,
     extensions: Vec<String>,
+    known_dialects: Vec<String>,
+    flagged_line_rules: Vec<String>,
+    flagged_line_rules_set: HashSet<String>,
     known_framework_profiles: Vec<String>,
     has_hazard_rules: bool,
     hazard_rules: Vec<String>,
+    hazard_rules_set: HashSet<String>,
     has_imports: bool,
+    has_scope_analysis: bool,
     component: SandboxedComponent<bindings::LanguagePluginPre<PluginStoreState>>,
 }
 
@@ -388,6 +395,12 @@ impl WasmLanguagePlugin {
         let extensions = init.call_lifted("extensions", |b, s| {
             b.codeint_plugin_language().call_extensions(s)
         })?;
+        let known_dialects = init.call_lifted("known-dialects", |b, s| {
+            b.codeint_plugin_language().call_known_dialects(s)
+        })?;
+        let flagged_line_rules = init.call_lifted("flagged-line-rules", |b, s| {
+            b.codeint_plugin_language().call_flagged_line_rules(s)
+        })?;
         let known_framework_profiles = init.call_lifted("known-framework-profiles", |b, s| {
             b.codeint_plugin_language().call_known_framework_profiles(s)
         })?;
@@ -400,13 +413,23 @@ impl WasmLanguagePlugin {
         let has_imports = init.call("has-imports", |b, s| {
             b.codeint_plugin_language().call_has_imports(s)
         })?;
+        let has_scope_analysis = init.call("has-scope-analysis", |b, s| {
+            b.codeint_plugin_language().call_has_scope_analysis(s)
+        })?;
+        let flagged_line_rules_set: HashSet<String> = flagged_line_rules.iter().cloned().collect();
+        let hazard_rules_set: HashSet<String> = hazard_rules.iter().cloned().collect();
         Ok(WasmLanguagePlugin {
             name,
             extensions,
+            known_dialects,
+            flagged_line_rules,
+            flagged_line_rules_set,
             known_framework_profiles,
             has_hazard_rules,
             hazard_rules,
+            hazard_rules_set,
             has_imports,
+            has_scope_analysis,
             component: SandboxedComponent::from_init(component, limits),
         })
     }
@@ -438,6 +461,14 @@ impl WasmLanguagePlugin {
         self.extensions.clone()
     }
 
+    pub(crate) fn known_dialects_impl(&self) -> Vec<String> {
+        self.known_dialects.clone()
+    }
+
+    pub(crate) fn flagged_line_rules_impl(&self) -> Vec<String> {
+        self.flagged_line_rules.clone()
+    }
+
     pub(crate) fn known_framework_profiles_impl(&self) -> Vec<String> {
         self.known_framework_profiles.clone()
     }
@@ -454,10 +485,19 @@ impl WasmLanguagePlugin {
         self.has_imports
     }
 
-    pub(crate) fn lower_impl(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
+    pub(crate) fn has_scope_analysis_impl(&self) -> bool {
+        self.has_scope_analysis
+    }
+
+    pub(crate) fn lower_impl(
+        &self,
+        path: &RepoPath,
+        text: &str,
+        dialect: Option<&str>,
+    ) -> Result<FileModel, LowerError> {
         let lowered = self
             .call_checked("lower", |api, store| {
-                api.call_lower(store, path.as_str(), text)
+                api.call_lower(store, path.as_str(), text, dialect)
             })
             .map_err(|error| match error {
                 PluginHostError::MemoryLimitExceeded { name, memory_mb } => {
@@ -476,7 +516,18 @@ impl WasmLanguagePlugin {
                     message: other.to_string(),
                 },
             })?;
-        lowered.map(convert_file_model).map_err(convert_lower_error)
+        let model = lowered
+            .map(convert_file_model)
+            .map_err(convert_lower_error)?;
+        validate_flagged_lines(
+            &self.name,
+            path,
+            text.lines().count(),
+            &model.flagged_lines,
+            &self.flagged_line_rules_set,
+        )
+        .map_err(LowerError::Contract)?;
+        Ok(model)
     }
 
     pub(crate) fn manifest_paths_impl(
@@ -497,35 +548,25 @@ impl WasmLanguagePlugin {
         })
     }
 
-    pub(crate) fn workspace_packages_impl(
+    pub(crate) fn analyze_manifests_impl(
         &self,
         manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        self.workspace_packages_checked(manifests)
-            .map_err(|error| WorkspaceError::PluginFailed {
-                plugin: self.name.clone(),
-                message: error.to_string(),
-            })?
+    ) -> Result<ManifestAnalysis, LanguagePluginError> {
+        let analysis = self
+            .analyze_manifests_checked(&manifests)
+            .map_err(map_language_plugin_error)?;
+        validate_manifest_analysis(&manifests, analysis)
     }
 
-    pub fn workspace_packages_checked(
+    pub fn analyze_manifests_checked(
         &self,
-        manifests: Vec<Manifest>,
-    ) -> Result<Result<Vec<RepoPath>, WorkspaceError>, PluginHostError> {
+        manifests: &[Manifest],
+    ) -> Result<ManifestAnalysis, PluginHostError> {
         let host_manifests = to_guest_manifests(manifests);
-        let packages = self.call_checked("workspace-packages", |api, store| {
-            api.call_workspace_packages(store, &host_manifests)
+        let analysis = self.call_checked("analyze-manifests", |api, store| {
+            api.call_analyze_manifests(store, &host_manifests)
         })?;
-        Ok(match packages {
-            Err(error) => Err(WorkspaceError::Manifest {
-                path: error.path,
-                message: error.message,
-            }),
-            Ok(roots) => roots
-                .into_iter()
-                .map(|root| Ok(RepoPath::new(root)?))
-                .collect(),
-        })
+        Ok(convert_manifest_analysis(analysis))
     }
 
     pub(crate) fn resolve_imports_impl(
@@ -533,15 +574,22 @@ impl WasmLanguagePlugin {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
-        active_profiles: &[String],
+        package_profiles: &[PackageFrameworkProfiles],
     ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
         let paths = owned_paths(repository_paths);
-        let host_manifests = to_guest_manifests(manifests);
+        let host_manifests = to_guest_manifests(&manifests);
         let host_requests: Vec<guest::ImportRequest> = requests
             .into_iter()
             .map(|request| guest::ImportRequest {
                 importer: request.importer,
                 specifier: request.specifier,
+            })
+            .collect();
+        let host_profiles: Vec<guest::PackageFrameworkProfiles> = package_profiles
+            .iter()
+            .map(|entry| guest::PackageFrameworkProfiles {
+                package_root: entry.package_root.clone(),
+                active_profiles: entry.active_profiles.clone(),
             })
             .collect();
         let resolutions = self
@@ -551,24 +599,11 @@ impl WasmLanguagePlugin {
                     &paths,
                     &host_manifests,
                     &host_requests,
-                    active_profiles,
+                    &host_profiles,
                 )
             })
             .map_err(map_language_plugin_error)?;
         Ok(resolutions.into_iter().map(convert_resolution).collect())
-    }
-
-    pub(crate) fn declared_dependencies_impl(
-        &self,
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        let host_manifests = to_guest_manifests(manifests);
-        let deps = self
-            .call_checked("declared-dependencies", |api, store| {
-                api.call_declared_dependencies(store, &host_manifests)
-            })
-            .map_err(map_language_plugin_error)?;
-        validate_declared_dependencies(deps.into_iter().map(convert_declared_dep).collect())
     }
 
     pub(crate) fn entry_points_impl(
@@ -577,7 +612,7 @@ impl WasmLanguagePlugin {
         manifests: Vec<Manifest>,
     ) -> Result<Vec<RepoPath>, LanguagePluginError> {
         let paths = owned_paths(repository_paths);
-        let host_manifests = to_guest_manifests(manifests);
+        let host_manifests = to_guest_manifests(&manifests);
         let entries = self
             .call_checked("entry-points", |api, store| {
                 api.call_entry_points(store, &paths, &host_manifests)
@@ -606,7 +641,7 @@ impl WasmLanguagePlugin {
         selection: FrameworkProfileSelection,
     ) -> Result<FrameworkProfileResult, LanguagePluginError> {
         let file_paths = owned_paths(files);
-        let host_manifests = to_guest_manifests(manifests);
+        let host_manifests = to_guest_manifests(&manifests);
         let guest_selection = to_guest_framework_profile_selection(selection);
         let resolved = self
             .call_checked("resolve-framework-profiles", |api, store| {
@@ -625,6 +660,95 @@ impl WasmLanguagePlugin {
             files,
             convert_framework_profile_result(resolved),
         )
+    }
+
+    pub(crate) fn analyze_scope_impl(
+        &self,
+        package_root: &str,
+        dialect: Option<&str>,
+        artifacts: Vec<FileScopeArtifact>,
+    ) -> Result<ScopeAnalysis, LanguagePluginError> {
+        let analysis = self
+            .analyze_scope_checked(package_root, dialect, &artifacts)
+            .map_err(map_language_plugin_error)?;
+        validate_scope_analysis(
+            &self.name,
+            &artifacts,
+            &self.hazard_rules_set,
+            None,
+            analysis,
+        )
+    }
+
+    pub fn analyze_scope_checked(
+        &self,
+        package_root: &str,
+        dialect: Option<&str>,
+        artifacts: &[FileScopeArtifact],
+    ) -> Result<ScopeAnalysis, PluginHostError> {
+        let guest_artifacts: Vec<guest::FileScopeArtifact> = artifacts
+            .iter()
+            .map(|item| guest::FileScopeArtifact {
+                path: item.path.clone(),
+                source_set: to_guest_source_set(item.source_set),
+                artifact: item.artifact.clone(),
+            })
+            .collect();
+        let analysis = self.call_checked("analyze-scope", |api, store| {
+            api.call_analyze_scope(store, package_root, dialect, &guest_artifacts)
+        })?;
+        Ok(convert_scope_analysis(analysis))
+    }
+}
+
+impl LiftedSize for guest::ManifestAnalysis {
+    fn lifted_budget(&self) -> LiftedBudget {
+        let invalid = slice_budget(&self.invalid_manifests, |error| {
+            error.path.len().saturating_add(error.message.len())
+        });
+        let owners = slice_budget(&self.dependency_manifests, |owner| {
+            owner.package_root.len().saturating_add(owner.path.len())
+        });
+        let used = slice_budget(&self.manifest_used_dependencies, |dep| {
+            dep.package_root.len().saturating_add(dep.name.len())
+        });
+        self.workspace_packages
+            .lifted_budget()
+            .saturating_add(invalid)
+            .saturating_add(owners)
+            .saturating_add(self.declared_dependencies.lifted_budget())
+            .saturating_add(used)
+            .saturating_add(self.root_dependency_inheritance.lifted_budget())
+    }
+}
+
+impl LiftedSize for guest::ScopeAnalysis {
+    fn lifted_budget(&self) -> LiftedBudget {
+        let hazards = self
+            .extra_hazards
+            .iter()
+            .fold(LiftedBudget::default(), |acc, file| {
+                let lines = slice_budget(&file.hazard_lines, |hazard| hazard.rule.len());
+                acc.saturating_add(LiftedBudget::new(
+                    1,
+                    size_of::<guest::FileHazards>().saturating_add(file.path.len()),
+                ))
+                .saturating_add(lines)
+            });
+        let summaries = self
+            .summaries
+            .iter()
+            .fold(LiftedBudget::default(), |acc, summary| {
+                let fields = slice_budget(&summary.fields, |field| {
+                    field.key.len().saturating_add(field.value.len())
+                });
+                acc.saturating_add(LiftedBudget::new(
+                    1,
+                    size_of::<guest::ScopeSummary>().saturating_add(summary.kind.len()),
+                ))
+                .saturating_add(fields)
+            });
+        hazards.saturating_add(summaries)
     }
 }
 
@@ -686,17 +810,6 @@ impl LiftedSize for Result<guest::FrameworkProfileResult, String> {
     }
 }
 
-impl LiftedSize for Result<Vec<String>, guest::WorkspaceError> {
-    fn lifted_budget(&self) -> LiftedBudget {
-        match self {
-            Ok(packages) => packages.lifted_budget(),
-            Err(error) => {
-                LiftedBudget::new(1, error.path.len().saturating_add(error.message.len()))
-            }
-        }
-    }
-}
-
 impl LiftedSize for Result<guest::FileModel, guest::LowerError> {
     fn lifted_budget(&self) -> LiftedBudget {
         match self {
@@ -707,11 +820,25 @@ impl LiftedSize for Result<guest::FileModel, guest::LowerError> {
                 let tokens = slice_budget(&model.tokens, |_| 0);
                 let flagged = slice_budget(&model.flagged_lines, |flagged| flagged.rule.len());
                 let hazards = slice_budget(&model.hazard_lines, |hazard| hazard.rule.len());
+                let diagnostics = slice_budget(&model.diagnostics, |diagnostic| {
+                    diagnostic
+                        .kind
+                        .len()
+                        .saturating_add(diagnostic.message.len())
+                });
+                let artifact = model
+                    .scope_artifact
+                    .as_ref()
+                    .map_or(LiftedBudget::default(), |bytes| {
+                        LiftedBudget::new(1, bytes.len())
+                    });
                 functions
                     .saturating_add(tokens)
                     .saturating_add(flagged)
                     .saturating_add(hazards)
                     .saturating_add(model.runtime_imports.lifted_budget())
+                    .saturating_add(diagnostics)
+                    .saturating_add(artifact)
             }
             Err(
                 guest::LowerError::Unparsable(message)
@@ -724,12 +851,12 @@ impl LiftedSize for Result<guest::FileModel, guest::LowerError> {
     }
 }
 
-fn to_guest_manifests(manifests: Vec<Manifest>) -> Vec<guest::Manifest> {
+fn to_guest_manifests(manifests: &[Manifest]) -> Vec<guest::Manifest> {
     manifests
-        .into_iter()
+        .iter()
         .map(|manifest| guest::Manifest {
-            path: manifest.path,
-            text: manifest.text,
+            path: manifest.path.clone(),
+            text: manifest.text.clone(),
         })
         .collect()
 }
@@ -810,13 +937,105 @@ fn convert_file_model(model: guest::FileModel) -> FileModel {
         hazard_lines: model
             .hazard_lines
             .into_iter()
-            .map(|hazard| language::HazardLine {
-                line: hazard.line,
-                rule: hazard.rule,
-            })
+            .map(convert_hazard_line)
             .collect(),
         runtime_imports: model.runtime_imports,
         program_start: model.program_start,
+        is_tooling_file: model.is_tooling_file,
+        diagnostics: model
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| FileDiagnostic {
+                line: diagnostic.line,
+                kind: diagnostic.kind,
+                message: diagnostic.message,
+            })
+            .collect(),
+        scope_artifact: model.scope_artifact,
+    }
+}
+
+fn to_guest_source_set(source_set: SourceSet) -> guest::SourceSet {
+    match source_set {
+        SourceSet::Production => guest::SourceSet::Production,
+        SourceSet::Test => guest::SourceSet::Test,
+        SourceSet::Generated => guest::SourceSet::Generated,
+        SourceSet::Vendored => guest::SourceSet::Vendored,
+    }
+}
+
+fn convert_manifest_analysis(analysis: guest::ManifestAnalysis) -> ManifestAnalysis {
+    ManifestAnalysis {
+        workspace_packages: analysis.workspace_packages,
+        invalid_manifests: analysis
+            .invalid_manifests
+            .into_iter()
+            .map(|error| language::WorkspaceError {
+                path: error.path,
+                message: error.message,
+            })
+            .collect(),
+        dependency_manifests: analysis
+            .dependency_manifests
+            .into_iter()
+            .map(|owner| DependencyManifestOwner {
+                package_root: owner.package_root,
+                path: owner.path,
+            })
+            .collect(),
+        declared_dependencies: analysis
+            .declared_dependencies
+            .into_iter()
+            .map(convert_declared_dep)
+            .collect(),
+        manifest_used_dependencies: analysis
+            .manifest_used_dependencies
+            .into_iter()
+            .map(|dep| PackageDependency {
+                package_root: dep.package_root,
+                name: dep.name,
+            })
+            .collect(),
+        root_dependency_inheritance: analysis.root_dependency_inheritance,
+    }
+}
+
+fn convert_hazard_line(hazard: guest::HazardLine) -> language::HazardLine {
+    language::HazardLine {
+        line: hazard.line,
+        rule: hazard.rule,
+    }
+}
+
+fn convert_scope_analysis(analysis: guest::ScopeAnalysis) -> ScopeAnalysis {
+    ScopeAnalysis {
+        extra_hazards: analysis
+            .extra_hazards
+            .into_iter()
+            .map(|entry| FileHazards {
+                path: entry.path,
+                hazard_lines: entry
+                    .hazard_lines
+                    .into_iter()
+                    .map(convert_hazard_line)
+                    .collect(),
+            })
+            .collect(),
+        summaries: analysis
+            .summaries
+            .into_iter()
+            .map(|summary| ScopeSummary {
+                kind: summary.kind,
+                fields: summary
+                    .fields
+                    .into_iter()
+                    .map(|field| SummaryField {
+                        key: field.key,
+                        value: field.value,
+                    })
+                    .collect(),
+            })
+            .collect(),
     }
 }
 

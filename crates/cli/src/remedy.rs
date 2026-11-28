@@ -791,13 +791,13 @@ fn plugin_load_remedy(error: &PluginHostError, file: ConfigFileKind) -> Option<C
             ))
         }
         PluginHostError::Compile { .. } => Cow::Borrowed(
-            "Build the plugin as a WebAssembly component targeting codeint:plugin@0.4.0.",
+            "Build the plugin as a WebAssembly component targeting codeint:plugin@0.5.0.",
         ),
         PluginHostError::Instantiate { .. } => Cow::Borrowed(
-            "Ensure the plugin exports codeint:plugin/language@0.4.0 or codeint:plugin/metric@0.4.0 and imports no host capabilities.",
+            "Ensure the plugin exports codeint:plugin/language@0.5.0 or codeint:plugin/metric@0.5.0 and imports no host capabilities.",
         ),
         PluginHostError::IncompatibleContractVersion { .. } => Cow::Owned(format!(
-            "Rebuild the plugin against codeint:plugin@0.4.0 and update its sha256 in {file}."
+            "Rebuild the plugin against codeint:plugin@0.5.0 and update its sha256 in {file}."
         )),
         _ => return None,
     })

@@ -1,6 +1,6 @@
 /// The Plugin interface of codeint.
 /// A change that breaks a Plugin built against this version needs a new version.
-package codeint:plugin@0.4.0;
+package codeint:plugin@0.5.0;
 
 /// The interface a Language plugin exports: the file extensions it reads, and the Code model of each such file.
 interface language {
@@ -89,6 +89,16 @@ interface language {
         rule: string,
     }
 
+    /// One non-fatal diagnostic emitted while lowering a source file.
+    record file-diagnostic {
+        /// The 1-based line number where the diagnostic applies.
+        line: u32,
+        /// A stable machine-readable category for the diagnostic, such as `rejected-statement`.
+        kind: string,
+        /// A human-readable description of the diagnostic.
+        message: string,
+    }
+
     /// The Code model of one source file.
     record file-model {
         /// The Source set of the file, chosen by the rules of the Language plugin.
@@ -110,6 +120,14 @@ interface language {
         /// Whether the file starts a program as shown by its source text, such as a Go `package main` file.
         /// False unless the Language plugin sets it.
         program-start: bool,
+        /// Whether the file is a language-specific Tooling file, such as a config or build script.
+        /// False unless the Language plugin sets it.
+        is-tooling-file: bool,
+        /// Non-fatal per-file diagnostics collected while lowering this file.
+        diagnostics: list<file-diagnostic>,
+        /// Optional opaque bytes passed back into `analyze-scope` for cross-file analysis.
+        /// `none` unless `has-scope-analysis` returns true.
+        scope-artifact: option<list<u8>>,
     }
 
     /// One runtime import to resolve: the file that imports, and the specifier it names.
@@ -173,7 +191,7 @@ interface language {
         text: string,
     }
 
-    /// Why a Language plugin cannot find the workspace packages of a repository.
+    /// Why a Language plugin could not parse one manifest.
     record workspace-error {
         /// The path of the manifest that holds the problem, relative to the repository root.
         path: string,
@@ -181,36 +199,121 @@ interface language {
         message: string,
     }
 
+    /// Ownership mapping between a dependency manifest file and its Workspace package root.
+    record dependency-manifest-owner {
+        /// The package root folder relative to the repository root, with forward slashes, or empty for the repository root.
+        package-root: string,
+        /// The manifest path relative to the repository root, with forward slashes.
+        path: string,
+    }
+
+    /// An external dependency referenced inside a manifest or script rather than a source-file import.
+    record package-dependency {
+        /// The package root folder relative to the repository root, with forward slashes, or empty for the repository root.
+        package-root: string,
+        /// The normalized external package name referenced by the manifest.
+        name: string,
+    }
+
+    /// Consolidated manifest analysis for one repository snapshot in a single pass.
+    record manifest-analysis {
+        /// The root folder of each workspace member package, relative to the repository root, with forward slashes.
+        /// The repository root is never in the list; an empty list means the repository is one package.
+        workspace-packages: list<string>,
+        /// Manifests that could not be parsed and were skipped during analysis, with their exact paths and reasons.
+        invalid-manifests: list<workspace-error>,
+        /// Manifest files that own dependencies for a package root.
+        dependency-manifests: list<dependency-manifest-owner>,
+        /// External dependencies declared in the valid manifests.
+        declared-dependencies: list<declared-dep>,
+        /// External dependencies used by manifest scripts or configuration rather than source imports.
+        manifest-used-dependencies: list<package-dependency>,
+        /// Package roots whose dependencies inherit from the repository root package, such as npm workspace hoisting.
+        root-dependency-inheritance: list<string>,
+    }
+
+    /// Active Framework profiles for one Workspace package.
+    record package-framework-profiles {
+        /// The package root folder relative to the repository root, with forward slashes, or empty for the repository root.
+        package-root: string,
+        /// The active Framework profile names for this Workspace package.
+        active-profiles: list<string>,
+    }
+
+    /// One file's opaque scope artifact passed back into `analyze-scope`.
+    record file-scope-artifact {
+        /// The path of the file, relative to the repository root, with forward slashes.
+        path: string,
+        /// The settled Source set of the file.
+        source-set: source-set,
+        /// The opaque byte artifact returned by `lower` for this file.
+        artifact: list<u8>,
+    }
+
+    /// Extra Hazard lines discovered for one file during cross-file scope analysis.
+    record file-hazards {
+        /// The path of the file, relative to the repository root, with forward slashes.
+        path: string,
+        /// Additional Hazard lines for this file, each naming a rule in `hazard-rules`.
+        hazard-lines: list<hazard-line>,
+    }
+
+    /// One key-value field in a language-neutral scope summary.
+    record summary-field {
+        /// The stable machine-readable field key, such as `tables`.
+        key: string,
+        /// The string-encoded field value.
+        value: string,
+    }
+
+    /// A language-neutral summary emitted by cross-file scope analysis.
+    record scope-summary {
+        /// A stable kind identifier for this summary, such as `sql-schema`.
+        kind: string,
+        /// Key-value metadata fields for this summary.
+        fields: list<summary-field>,
+    }
+
+    /// Result of cross-file scope analysis for one `(package-root, dialect)` group.
+    record scope-analysis {
+        /// Additional Hazard lines discovered across files in the scope.
+        extra-hazards: list<file-hazards>,
+        /// Language-neutral summaries for this scope.
+        summaries: list<scope-summary>,
+    }
+
     /// The file extensions the Language plugin reads, each without its leading dot, such as `ts`.
     extensions: func() -> list<string>;
+
+    /// The stable names of Dialects this Language plugin accepts in `lower`, such as `postgresql` or `sqlite`.
+    /// Empty when the Language plugin has no selectable Dialects.
+    known-dialects: func() -> list<string>;
 
     /// Lowers one file into its Code model.
     /// `path` is relative to the repository root and uses forward slashes.
     /// `text` is the whole file.
-    lower: func(path: string, text: string) -> result<file-model, lower-error>;
+    /// `dialect` is an optional Dialect name from `known-dialects`, or `none` for the plugin's default Dialect.
+    lower: func(path: string, text: string, dialect: option<string>) -> result<file-model, lower-error>;
 
-    /// Chooses the files of one repository snapshot that the host reads once and passes to `workspace-packages`, `resolve-imports`, `declared-dependencies`, and `entry-points`, because a Plugin cannot read files.
+    /// The stable names of the Flagged line rules this Language plugin may emit.
+    flagged-line-rules: func() -> list<string>;
+
+    /// Chooses the files of one repository snapshot that the host reads once and passes to `analyze-manifests`, `resolve-imports`, and `entry-points`, because a Plugin cannot read files.
     /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.
     /// The result names only paths from `repository-paths`, such as each `package.json` and `tsconfig.json` file.
     manifest-paths: func(repository-paths: list<string>) -> list<string>;
 
-    /// Finds the workspace packages of a repository.
+    /// Analyzes the selected manifests in a single pass to discover workspace packages, skipped invalid manifests, dependency ownership, declared dependencies, manifest-used dependencies, and root-dependency inheritance.
     /// `manifests` holds each file that `manifest-paths` chose, with its text.
-    /// Returns the root folder of each workspace package, relative to the repository root, with forward slashes.
-    /// The repository root is never in the list; an empty list means the repository is one package.
-    workspace-packages: func(manifests: list<manifest>) -> result<list<string>, workspace-error>;
+    analyze-manifests: func(manifests: list<manifest>) -> manifest-analysis;
 
     /// Resolves runtime imports against the files of one repository snapshot.
     /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.
     /// `manifests` holds each file that `manifest-paths` chose, with its text.
     /// `requests` lists the runtime imports to resolve.
-    /// `active-profiles` lists the active Framework profile names for this Language plugin, so fallback import-resolution hints share detection without recomputing it.
+    /// `package-profiles` lists the active Framework profile names per Workspace package, so monorepos resolve imports in one pass.
     /// The result holds one resolution per request, in request order.
-    resolve-imports: func(repository-paths: list<string>, manifests: list<manifest>, requests: list<import-request>, active-profiles: list<string>) -> list<resolution>;
-
-    /// Extracts external dependencies declared in the selected manifests.
-    /// `manifests` holds each file that `manifest-paths` chose, with its text.
-    declared-dependencies: func(manifests: list<manifest>) -> list<declared-dep>;
+    resolve-imports: func(repository-paths: list<string>, manifests: list<manifest>, requests: list<import-request>, package-profiles: list<package-framework-profiles>) -> list<resolution>;
 
     /// Discovers standard entry-point source files from the repository paths and selected manifests.
     /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.
@@ -283,9 +386,18 @@ interface language {
     hazard-rules: func() -> list<string>;
 
     /// Whether this language has runtime imports, manifests, and entry points.
-    /// When false, codeint never calls `manifest-paths`, `workspace-packages`, `resolve-imports`,
-    /// `declared-dependencies`, or `entry-points`, and import Metrics are absent for this language.
+    /// When false, codeint never calls `manifest-paths`, `analyze-manifests`, `resolve-imports`,
+    /// or `entry-points`, and import Metrics are absent for this language.
     has-imports: func() -> bool;
+
+    /// Whether this Language plugin performs cross-file scope analysis over opaque `scope-artifact` bytes.
+    has-scope-analysis: func() -> bool;
+
+    /// Runs cross-file scope analysis over one `(package-root, dialect)` group of lowered files.
+    /// `package-root` is the package root folder relative to the repository root, with forward slashes, or empty for the repository root.
+    /// `dialect` is the optional Dialect name active for this group.
+    /// `artifacts` holds each file's path, settled Source set, and opaque artifact bytes from `lower`.
+    analyze-scope: func(package-root: string, dialect: option<string>, artifacts: list<file-scope-artifact>) -> scope-analysis;
 }
 
 /// A Language plugin exports `language` and imports nothing.

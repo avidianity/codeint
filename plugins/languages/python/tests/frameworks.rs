@@ -53,7 +53,15 @@ fn assert_import_fallback(case: &ImportCase<'_>) {
         }]
     };
     let active = Python
-        .resolve_imports(&repo, docs.clone(), req(), &[case.profile.into()])
+        .resolve_imports(
+            &repo,
+            docs.clone(),
+            req(),
+            &[codeint_model::PackageFrameworkProfiles {
+                package_root: String::new(),
+                active_profiles: vec![case.profile.into()],
+            }],
+        )
         .unwrap();
     assert_eq!(
         active,

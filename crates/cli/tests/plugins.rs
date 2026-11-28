@@ -1222,26 +1222,26 @@ fn assert_legacy_plugin_stops_check(
             && lines[0].contains(found_interface)
             && lines[0].contains(found_version)
             && lines[0].contains(expected_interface)
-            && lines[0].contains("0.4.0"),
+            && lines[0].contains("0.5.0"),
         "expected stderr line 1 to name plugin and both versions, got: {}",
         lines[0]
     );
     assert!(
-        lines[1].to_ascii_lowercase().contains("rebuild") && lines[1].contains("0.4.0"),
-        "expected stderr line 2 to instruct rebuilding against 0.4.0, got: {}",
+        lines[1].to_ascii_lowercase().contains("rebuild") && lines[1].contains("0.5.0"),
+        "expected stderr line 2 to instruct rebuilding against 0.5.0, got: {}",
         lines[1]
     );
 }
 
 #[test]
-fn v0_2_0_and_v0_3_0_language_plugins_stop_check_with_exit_2_and_rebuild_remedy() {
+fn v0_2_0_through_v0_4_0_language_plugins_stop_check_with_exit_2_and_rebuild_remedy() {
     assert_legacy_plugin_stops_check(
         "legacy-v02-lang",
         "language",
         "legacy_v0_2_0_language_plugin.wasm",
         "codeint:plugin/language@0.2.0",
         "0.2.0",
-        "codeint:plugin/language@0.4.0",
+        "codeint:plugin/language@0.5.0",
     );
     assert_legacy_plugin_stops_check(
         "legacy-v03-lang",
@@ -1249,19 +1249,27 @@ fn v0_2_0_and_v0_3_0_language_plugins_stop_check_with_exit_2_and_rebuild_remedy(
         "legacy_v0_3_0_language_plugin.wasm",
         "codeint:plugin/language@0.3.0",
         "0.3.0",
+        "codeint:plugin/language@0.5.0",
+    );
+    assert_legacy_plugin_stops_check(
+        "legacy-v04-lang",
+        "language",
+        "legacy_v0_4_0_language_plugin.wasm",
         "codeint:plugin/language@0.4.0",
+        "0.4.0",
+        "codeint:plugin/language@0.5.0",
     );
 }
 
 #[test]
-fn v0_2_0_and_v0_3_0_metric_plugins_stop_check_with_exit_2_and_rebuild_remedy() {
+fn v0_2_0_through_v0_4_0_metric_plugins_stop_check_with_exit_2_and_rebuild_remedy() {
     assert_legacy_plugin_stops_check(
         "legacy-v02-metric",
         "metric",
         "legacy_v0_2_0_metric_plugin.wasm",
         "codeint:plugin/metric@0.2.0",
         "0.2.0",
-        "codeint:plugin/metric@0.4.0",
+        "codeint:plugin/metric@0.5.0",
     );
     assert_legacy_plugin_stops_check(
         "legacy-v03-metric",
@@ -1269,7 +1277,15 @@ fn v0_2_0_and_v0_3_0_metric_plugins_stop_check_with_exit_2_and_rebuild_remedy() 
         "legacy_v0_3_0_metric_plugin.wasm",
         "codeint:plugin/metric@0.3.0",
         "0.3.0",
+        "codeint:plugin/metric@0.5.0",
+    );
+    assert_legacy_plugin_stops_check(
+        "legacy-v04-metric",
+        "metric",
+        "legacy_v0_4_0_metric_plugin.wasm",
         "codeint:plugin/metric@0.4.0",
+        "0.4.0",
+        "codeint:plugin/metric@0.5.0",
     );
 }
 
@@ -2246,7 +2262,7 @@ fn plugin_trap_in_workspace_packages_stays_fatal_for_every_plugin_name() {
         assert_eq!(output.status.code(), Some(2), "{plugin_name}: {stderr}");
         assert!(
             stderr.contains(&format!(
-                "Plugin \"{plugin_name}\" failed during workspace-packages"
+                "Language plugin \"{plugin_name}\" failed during analyze-manifests"
             )),
             "{plugin_name}: {stderr}"
         );

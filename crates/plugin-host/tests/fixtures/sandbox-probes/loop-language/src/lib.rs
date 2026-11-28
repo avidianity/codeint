@@ -39,7 +39,11 @@ impl Guest for LoopLanguagePlugin {
         vec!["loop".to_string()]
     }
 
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+    fn lower(
+        _path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
         if text.contains("LOOP_FOREVER") {
             loop {
                 core::hint::spin_loop();
@@ -66,27 +70,26 @@ impl Guest for LoopLanguagePlugin {
             .collect()
     }
 
-    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+    fn analyze_manifests(
+        manifests: Vec<Manifest>,
+    ) -> exports::codeint::plugin::language::ManifestAnalysis {
         trigger_loop_or_trap(&manifests);
-        Ok(Vec::new())
+        let mut analysis = probe_runtime::empty_manifest_analysis!();
+        analysis.declared_dependencies = vec![DeclaredDep {
+            package_root: String::new(),
+            name: "healthy-dep".to_string(),
+            kind: DepKind::Runtime,
+        }];
+        analysis
     }
 
     fn resolve_imports(
         _repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         _requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        _package_profiles: Vec<exports::codeint::plugin::language::PackageFrameworkProfiles>,
     ) -> Vec<Resolution> {
         Vec::new()
-    }
-
-    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        trigger_loop_or_trap(&manifests);
-        vec![DeclaredDep {
-            package_root: String::new(),
-            name: "healthy-dep".to_string(),
-            kind: DepKind::Runtime,
-        }]
     }
 
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
@@ -111,4 +114,6 @@ impl Guest for LoopLanguagePlugin {
     fn has_imports() -> bool {
         true
     }
+
+    probe_runtime::v05_extra_language_stubs!();
 }

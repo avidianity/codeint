@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 
 use codeint_config::{PluginDeclaration, PluginHostConfig, PluginKind, PluginLimits, PluginSource};
 use codeint_model::{
-    CodeModel, DeclaredDep, ExternalMetricMeasurement, FileModel, FrameworkProfileResult,
+    CodeModel, ExternalMetricMeasurement, FileModel, FileScopeArtifact, FrameworkProfileResult,
     FrameworkProfileSelection, LanguagePlugin, LanguagePluginError, LowerError, Manifest,
-    MetricPlugin, MetricPluginError, ReferenceRanges, RepoPath, WorkspaceError, language,
+    ManifestAnalysis, MetricPlugin, MetricPluginError, PackageFrameworkProfiles, ReferenceRanges,
+    RepoPath, ScopeAnalysis, language,
 };
 
 mod builtins;
@@ -38,7 +39,7 @@ pub use sql::{
 pub use wasm::WasmLanguagePlugin;
 pub use wasm_metric::{WasmMetricPlugin, validate_metric_key, validate_metric_version};
 
-pub const PLUGIN_INTERFACE_VERSION: &str = "0.4.0";
+pub const PLUGIN_INTERFACE_VERSION: &str = "0.5.0";
 
 #[derive(Debug, thiserror::Error)]
 pub enum PluginHostError {
@@ -72,7 +73,7 @@ pub enum PluginHostError {
         reason: String,
     },
     #[error(
-        "Plugin {name:?} at {} targets incompatible WIT contract {found}, but this version of codeint requires {expected}; rebuild the Plugin against {expected} and update its sha256 in codeint.json",
+        "Plugin {name:?} at {} targets incompatible WIT contract {found}, but this version of codeint requires {expected}; rebuild the Plugin against {expected} and update its sha256 in your codeint configuration",
         path.display()
     )]
     IncompatibleContractVersion {
@@ -298,8 +299,21 @@ impl LanguagePlugin for WasmLanguagePlugin {
         self.extensions_impl()
     }
 
-    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
-        self.lower_impl(path, text)
+    fn known_dialects(&self) -> Vec<String> {
+        self.known_dialects_impl()
+    }
+
+    fn lower(
+        &self,
+        path: &RepoPath,
+        text: &str,
+        dialect: Option<&str>,
+    ) -> Result<FileModel, LowerError> {
+        self.lower_impl(path, text, dialect)
+    }
+
+    fn flagged_line_rules(&self) -> Vec<String> {
+        self.flagged_line_rules_impl()
     }
 
     fn manifest_paths(
@@ -309,11 +323,11 @@ impl LanguagePlugin for WasmLanguagePlugin {
         self.manifest_paths_impl(repository_paths)
     }
 
-    fn workspace_packages(
+    fn analyze_manifests(
         &self,
         manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        self.workspace_packages_impl(manifests)
+    ) -> Result<ManifestAnalysis, LanguagePluginError> {
+        self.analyze_manifests_impl(manifests)
     }
 
     fn resolve_imports(
@@ -321,16 +335,9 @@ impl LanguagePlugin for WasmLanguagePlugin {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
-        active_profiles: &[String],
+        package_profiles: &[PackageFrameworkProfiles],
     ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
-        self.resolve_imports_impl(repository_paths, manifests, requests, active_profiles)
-    }
-
-    fn declared_dependencies(
-        &self,
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        self.declared_dependencies_impl(manifests)
+        self.resolve_imports_impl(repository_paths, manifests, requests, package_profiles)
     }
 
     fn entry_points(
@@ -369,6 +376,19 @@ impl LanguagePlugin for WasmLanguagePlugin {
 
     fn has_imports(&self) -> bool {
         self.has_imports_impl()
+    }
+
+    fn has_scope_analysis(&self) -> bool {
+        self.has_scope_analysis_impl()
+    }
+
+    fn analyze_scope(
+        &self,
+        package_root: &str,
+        dialect: Option<&str>,
+        artifacts: Vec<FileScopeArtifact>,
+    ) -> Result<ScopeAnalysis, LanguagePluginError> {
+        self.analyze_scope_impl(package_root, dialect, artifacts)
     }
 }
 
