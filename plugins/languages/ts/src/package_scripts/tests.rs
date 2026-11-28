@@ -1,16 +1,16 @@
 use std::collections::HashSet;
 
-use codeint_model::{DeclaredDep, DepKind, Manifest, ManifestUsedDep, RepoPath};
+use codeint_model::language::{DeclaredDep, DepKind, PackageDependency};
+use serde_json::Value;
 
 use super::{
     extract_commands_from_script, extract_manifest_used_dependencies, normalize_command_token,
 };
 
-fn manifest(path: &str, text: &str) -> Manifest {
-    Manifest {
-        path: path.to_owned(),
-        text: text.to_owned(),
-    }
+fn parsed_manifest<'a>(path: &'a str, text: &str) -> (&'a str, &'a str, Value) {
+    let root = crate::workspaces::package_manifest_root(path).expect("valid package manifest");
+    let doc: Value = serde_json::from_str(text).expect("valid json");
+    (root, path, doc)
 }
 
 fn dep(package_root: &str, name: &str, kind: DepKind) -> DeclaredDep {
@@ -21,8 +21,8 @@ fn dep(package_root: &str, name: &str, kind: DepKind) -> DeclaredDep {
     }
 }
 
-fn used(package_root: &str, name: &str) -> ManifestUsedDep {
-    ManifestUsedDep {
+fn used(package_root: &str, name: &str) -> PackageDependency {
+    PackageDependency {
         package_root: package_root.to_owned(),
         name: name.to_owned(),
     }
@@ -137,7 +137,7 @@ fn normalizes_node_modules_bin_prefixes_and_valid_package_versions_only() {
 #[test]
 fn matches_dev_dependencies_across_root_and_workspace_members_only() {
     let manifests = [
-        manifest(
+        parsed_manifest(
             "package.json",
             r#"{
               "name": "mono-root",
@@ -149,7 +149,7 @@ fn matches_dev_dependencies_across_root_and_workspace_members_only() {
               }
             }"#,
         ),
-        manifest(
+        parsed_manifest(
             "packages/core/package.json",
             r#"{
               "name": "@mono/core",
@@ -159,7 +159,7 @@ fn matches_dev_dependencies_across_root_and_workspace_members_only() {
               }
             }"#,
         ),
-        manifest(
+        parsed_manifest(
             "examples/standalone/package.json",
             r#"{
               "name": "standalone",
@@ -169,7 +169,7 @@ fn matches_dev_dependencies_across_root_and_workspace_members_only() {
             }"#,
         ),
     ];
-    let members = [RepoPath::new("packages/core").expect("valid root")];
+    let members = ["packages/core".to_owned()];
     let declared = [
         dep("", "zod", DepKind::Runtime),
         dep("", "eslint", DepKind::Runtime),

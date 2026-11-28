@@ -95,6 +95,41 @@ fn normalizes_composer_namespaces_and_vendor_requires() {
 }
 
 #[test]
+fn single_pass_resolve_imports_isolates_heterogeneous_monorepo_profiles() {
+    use codeint_model::PackageFrameworkProfiles;
+
+    let files = [
+        "packages/laravel-app/app/Models/User.php",
+        "packages/laravel-app/app/Http/Controller.php",
+        "packages/plain/app/Models/User.php",
+        "packages/plain/app/Http/Controller.php",
+    ];
+    let manifests = [
+        "packages/laravel-app/composer.json",
+        "packages/plain/composer.json",
+    ]
+    .map(|path| Manifest {
+        path: path.into(),
+        text: "{}".into(),
+    });
+    let reqs = [files[1], files[3]].map(|importer| ImportRequest {
+        importer: importer.into(),
+        specifier: "use:App\\Models\\User".into(),
+    });
+    let profiles = [PackageFrameworkProfiles {
+        package_root: "packages/laravel-app".into(),
+        active_profiles: vec!["laravel".into()],
+    }];
+    assert_eq!(
+        super::resolve_batch_with_profiles(&files, &manifests, &reqs, &profiles),
+        vec![
+            Resolution::Resolved(vec![files[0].into()]),
+            Resolution::External("app/models".into()),
+        ]
+    );
+}
+
+#[test]
 fn psr4_collision_resolves_declared_composer_subpackages_and_globals_are_never_external() {
     let files = vec![
         "composer.json".into(),

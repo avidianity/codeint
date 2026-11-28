@@ -1,28 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use codeint_model::language::{DeclaredDep, DepKind, Manifest};
+use codeint_model::language::{DeclaredDep, DepKind};
 use codeint_model::scan::normalize_relative_path;
 
-use crate::go_mod::{GoMod, is_go_mod_path, manifest_dir, parse};
+use crate::go_mod::GoMod;
 use crate::resolution::strip_module_prefix;
 
-pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
-    let parsed: Vec<(String, GoMod)> = manifests
-        .iter()
-        .filter(|m| is_go_mod_path(&m.path))
-        .filter_map(|m| {
-            parse(&m.path, &m.text)
-                .ok()
-                .map(|doc| (manifest_dir(&m.path).to_owned(), doc))
-        })
-        .collect();
+pub(crate) fn extract_declared_from_parsed(parsed: &[(String, GoMod)]) -> Vec<DeclaredDep> {
     let local_modules: HashSet<&str> = parsed
         .iter()
         .map(|(_, doc)| doc.module_path.as_str())
         .collect();
 
     let mut collected = Vec::new();
-    for (root, doc) in &parsed {
+    for (root, doc) in parsed {
         collect_go_mod_deps(root, doc, &local_modules, &mut collected);
     }
     collected.sort_by(|a, b| {

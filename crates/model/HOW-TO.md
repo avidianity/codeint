@@ -162,7 +162,7 @@ impl LanguagePlugin for Plain {
 - External WebAssembly Plugins implement the generated `Guest` trait, which bridges into `LanguagePlugin` through a blanket implementation.
 - `RepoPath` implements `AsRef<str>`, so shared path helpers accept `&[RepoPath]` and `&[String]` without cloning paths.
 - Call `codeint_model::scan::find_manifests<P: AsRef<str>>` to match a manifest filename across any `&[P]` slice, and `codeint_model::scan::paths_with_suffix` to collect paths ending with a suffix into a `HashSet<&str>`.
-- Call `validate_manifest_analysis` to validate a `ManifestAnalysis` returned by `LanguagePlugin::analyze_manifests`, and `analyze_manifests_single_pass` to wrap legacy workspace discovery and dependency extraction into a single-pass `ManifestAnalysis`.
+- Call `validate_manifest_analysis` to validate a `ManifestAnalysis` returned by `LanguagePlugin::analyze_manifests`.
 - Use `impl_builtin_language_plugin!` to wire a built-in Language plugin's `LanguagePlugin` implementation without repeating validation, framework-profile delegation, or empty default methods.
 - Use `empty_framework_profile_plugin_methods!` in test stubs that implement `LanguagePlugin` directly without Framework profiles.
 - `extensions` returns each file extension without its leading dot.
@@ -352,7 +352,7 @@ use codeint_model::CodeModel;
 let total = CodeModel::merge([typescript_model, python_model]);
 ```
 
-- `merge` joins the files, skipped files, declaration-only files, runtime imports, declared dependencies, dependency manifests, manifest-used dependencies, workspace packages, and per-language facts (`languages`) of every model.
+- `merge` joins the files, skipped files, declaration-only files, runtime imports, declared dependencies, dependency manifests, manifest-used dependencies, root-dependency inheritance, workspace packages, and per-language facts (`languages`) of every model.
 - Give each Language plugin's `CodeModel` the whole `workspace` that every plugin found, so each per-language section lists the same workspace packages as the total.
 - It orders files, skipped files, declaration-only files, and `languages` deterministically by path or language name, so the total does not depend on the order of the plugins.
 

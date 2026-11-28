@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use codeint_model::language::{ImportRequest, Manifest, Resolution};
+use codeint_model::language::{ImportRequest, Manifest, PackageFrameworkProfiles, Resolution};
 use codeint_model::scan::{RelativeFileResolution, find_manifests, resolve_relative_file};
 use serde::Deserialize;
 
@@ -24,13 +24,16 @@ pub(crate) fn resolve_dart_imports<P: AsRef<str>>(
     paths: &[P],
     manifests: &[Manifest],
     requests: &[ImportRequest],
-    profiles: &[String],
+    package_profiles: &[PackageFrameworkProfiles],
 ) -> Vec<Resolution> {
     let files: HashSet<String> = paths.iter().map(|path| path.as_ref().to_owned()).collect();
     let packages = collect_package_roots(manifests);
     requests
         .iter()
-        .map(|req| resolve_one(&files, &packages, req, profiles))
+        .map(|req| {
+            let active = codeint_model::active_profiles_for_path(package_profiles, &req.importer);
+            resolve_one(&files, &packages, req, active)
+        })
         .collect()
 }
 

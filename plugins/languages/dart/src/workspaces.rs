@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
-use codeint_model::language::{Manifest, WorkspaceError};
+use codeint_model::language::{Manifest, ManifestAnalysis, WorkspaceError};
+use codeint_model::scan::{analyze_parsed_manifests, manifest_root_excluding};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
@@ -12,6 +13,38 @@ pub(crate) const PUBSPEC_MANIFEST: &str = "pubspec.yaml";
 #[derive(Deserialize)]
 struct PubspecWorkspace {
     workspace: Option<Vec<String>>,
+}
+
+pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
+    analyze_parsed_manifests(
+        manifests,
+        PUBSPEC_MANIFEST,
+        |manifest| {
+            let root = manifest_root_excluding(
+                &manifest.path,
+                PUBSPEC_MANIFEST,
+                &["vendor", ".dart_tool"],
+            )?;
+            Some(
+                serde_saphyr::from_str::<Option<crate::dependencies::PubspecManifest>>(
+                    &manifest.text,
+                )
+                .map(|doc| (root.to_owned(), doc))
+                .map_err(|err| WorkspaceError {
+                    path: manifest.path.clone(),
+                    message: format!("is not valid YAML: {err}"),
+                }),
+            )
+        },
+        |all, _| discover(all),
+        |_| true,
+        crate::dependencies::extract_declared_from_parsed,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn is_pubspec_path(path: &str) -> bool {
+    manifest_root_excluding(path, PUBSPEC_MANIFEST, &["vendor", ".dart_tool"]).is_some()
 }
 
 fn pubspec_error(message: String) -> WorkspaceError {

@@ -1,9 +1,9 @@
 use std::collections::{BTreeSet, HashSet};
 
-use codeint_model::language::{DeclaredDep, DepKind, Manifest};
+#[cfg(test)]
+use codeint_model::language::Manifest;
+use codeint_model::language::{DeclaredDep, DepKind};
 use toml::Value;
-
-use crate::workspaces::CARGO_MANIFEST;
 
 #[cfg(test)]
 mod tests;
@@ -14,12 +14,17 @@ pub(crate) fn normalize_crate_name(raw: &str) -> String {
     stripped.replace('-', "_")
 }
 
+#[cfg(test)]
 pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
     let docs = load_active_manifests(manifests);
-    let local_crates = collect_local_crates(&docs);
+    extract_declared_from_docs(&docs)
+}
+
+pub(crate) fn extract_declared_from_docs(docs: &[(String, String, Value)]) -> Vec<DeclaredDep> {
+    let local_crates = collect_local_crates(docs);
 
     let mut collected: BTreeSet<(String, u8, String)> = BTreeSet::new();
-    for (root, doc) in &docs {
+    for (root, _, doc) in docs {
         if doc.get("package").is_some() {
             collect_manifest_tables(root, doc, &local_crates, &mut collected);
         }
@@ -39,26 +44,23 @@ pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
         .collect()
 }
 
-fn load_active_manifests(manifests: &[Manifest]) -> Vec<(String, Value)> {
+#[cfg(test)]
+fn load_active_manifests(manifests: &[Manifest]) -> Vec<(String, String, Value)> {
     let mut docs = Vec::new();
     for manifest in manifests {
-        let root = match manifest.path.as_str() {
-            CARGO_MANIFEST => "",
-            path => match path.strip_suffix("/Cargo.toml") {
-                Some(dir) if !dir.split('/').any(|seg| seg == "target") => dir,
-                _ => continue,
-            },
+        let Some(root) = crate::workspaces::cargo_manifest_root(&manifest.path) else {
+            continue;
         };
         if let Ok(doc) = toml::from_str::<Value>(&manifest.text) {
-            docs.push((root.to_owned(), doc));
+            docs.push((root.to_owned(), manifest.path.clone(), doc));
         }
     }
     docs
 }
 
-fn collect_local_crates(docs: &[(String, Value)]) -> HashSet<String> {
+fn collect_local_crates(docs: &[(String, String, Value)]) -> HashSet<String> {
     let mut local = HashSet::new();
-    for (_, doc) in docs {
+    for (_, _, doc) in docs {
         for (section, key) in [("package", "name"), ("lib", "name")] {
             if let Some(name) = table_str(doc, section, key) {
                 insert_normalized(&mut local, name);

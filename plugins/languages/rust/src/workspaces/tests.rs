@@ -53,3 +53,45 @@ fn invalid_root_cargo_toml_returns_workspace_error() {
     assert_eq!(error.path, "Cargo.toml");
     assert!(error.message.contains("is not valid TOML"));
 }
+
+#[test]
+fn analyze_manifests_filters_virtual_workspace_and_preserves_vendor_members() {
+    let analysis = super::analyze_manifests(&[
+        manifest(
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"crates/*\", \"vendor/*\"]\n",
+        ),
+        manifest(
+            "crates/api/Cargo.toml",
+            "[package]\nname = \"api\"\n[dependencies]\nserde = \"1\"\n",
+        ),
+        manifest(
+            "target/tmp/Cargo.toml",
+            "[package]\nname = \"tmp\"\n[dependencies]\nanyhow = \"1\"\n",
+        ),
+        manifest(
+            "vendor/lib/Cargo.toml",
+            "[package]\nname = \"lib\"\n[dependencies]\nlog = \"0.4\"\n",
+        ),
+        manifest("crates/broken/Cargo.toml", "[package\nname = "),
+    ]);
+    assert_eq!(analysis.invalid_manifests.len(), 1);
+    assert_eq!(
+        analysis.invalid_manifests[0].path,
+        "crates/broken/Cargo.toml"
+    );
+    assert_eq!(
+        analysis.workspace_packages,
+        ["crates/api", "crates/broken", "vendor/lib"]
+    );
+    assert_eq!(analysis.dependency_manifests.len(), 2);
+    assert_eq!(
+        analysis.dependency_manifests[0].path,
+        "crates/api/Cargo.toml"
+    );
+    assert_eq!(
+        analysis.dependency_manifests[1].path,
+        "vendor/lib/Cargo.toml"
+    );
+    assert_eq!(analysis.declared_dependencies.len(), 2);
+}

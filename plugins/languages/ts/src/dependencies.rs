@@ -3,10 +3,10 @@ mod tests;
 
 use std::collections::{BTreeSet, HashSet};
 
-use codeint_model::language::{DeclaredDep, DepKind, Manifest};
+#[cfg(test)]
+use codeint_model::language::Manifest;
+use codeint_model::language::{DeclaredDep, DepKind};
 use serde_json::Value;
-
-use crate::workspaces::PACKAGE_MANIFEST;
 
 const RUNTIME_ORDER: u8 = 0;
 const DEV_ORDER: u8 = 1;
@@ -19,12 +19,18 @@ const DEP_SECTIONS: [(&str, u8); 4] = [
     ("peerDependencies", OPTIONAL_ORDER),
 ];
 
+#[cfg(test)]
 pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
-    let active: Vec<(&str, Value)> = manifests.iter().filter_map(parse_active_package).collect();
-    let local_names = collect_local_names(&active);
+    let active: Vec<(&str, &str, Value)> =
+        manifests.iter().filter_map(parse_active_package).collect();
+    extract_declared_from_active(&active)
+}
+
+pub(crate) fn extract_declared_from_active(active: &[(&str, &str, Value)]) -> Vec<DeclaredDep> {
+    let local_names = collect_local_names(active);
 
     let mut collected = BTreeSet::new();
-    for (root, doc) in &active {
+    for (root, _, doc) in active {
         collect_package_deps(root, doc, &local_names, &mut collected);
     }
 
@@ -38,10 +44,10 @@ pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
         .collect()
 }
 
-fn collect_local_names(active: &[(&str, Value)]) -> HashSet<String> {
+fn collect_local_names(active: &[(&str, &str, Value)]) -> HashSet<String> {
     active
         .iter()
-        .filter_map(|(_, doc)| doc.get("name").and_then(Value::as_str))
+        .filter_map(|(_, _, doc)| doc.get("name").and_then(Value::as_str))
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .map(str::to_owned)
@@ -52,18 +58,11 @@ fn is_ambient_types_package(name: &str) -> bool {
     name.starts_with("@types/")
 }
 
-fn parse_active_package(manifest: &Manifest) -> Option<(&str, Value)> {
-    let root = if manifest.path == PACKAGE_MANIFEST {
-        ""
-    } else {
-        let dir = manifest.path.strip_suffix("/package.json")?;
-        if dir.split('/').any(|segment| segment == "node_modules") {
-            return None;
-        }
-        dir
-    };
+#[cfg(test)]
+fn parse_active_package(manifest: &Manifest) -> Option<(&str, &str, Value)> {
+    let root = crate::workspaces::package_manifest_root(&manifest.path)?;
     let doc = serde_json::from_str::<Value>(&manifest.text).ok()?;
-    Some((root, doc))
+    Some((root, manifest.path.as_str(), doc))
 }
 
 fn collect_package_deps(

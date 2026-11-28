@@ -16,7 +16,6 @@ use codeint_model::language::{FileModel, Token, TokenKind};
 use codeint_model::scan::CoreReferenceRanges;
 use codeint_model::token_text_hash;
 
-use crate::dependencies::extract_declared;
 use crate::entry_points::discover as discover_entry_points;
 use crate::resolution::{find_python_manifests, resolve_with_profiles};
 
@@ -73,9 +72,8 @@ codeint_model::impl_builtin_language_plugin!(
     flagged_lines(flagged_line_rules()),
     imports(
         find_python_manifests,
-        workspaces::discover,
-        by_profile(resolve_with_profiles),
-        extract_declared,
+        workspaces::analyze_manifests,
+        resolve_with_profiles,
         discover_entry_points,
     ),
     frameworks(frameworks),

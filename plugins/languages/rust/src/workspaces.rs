@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
-use codeint_model::language::{Manifest, WorkspaceError};
+use codeint_model::language::{Manifest, ManifestAnalysis, WorkspaceError};
+use codeint_model::scan::{analyze_parsed_manifests, manifest_root_excluding};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
@@ -20,6 +21,35 @@ struct WorkspaceSection {
     members: Vec<String>,
     #[serde(default)]
     exclude: Vec<String>,
+}
+
+pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
+    analyze_parsed_manifests(
+        manifests,
+        CARGO_MANIFEST,
+        |manifest| {
+            let root = cargo_manifest_root(&manifest.path)?;
+            Some(
+                toml::from_str::<toml::Value>(&manifest.text)
+                    .map(|doc| (root.to_owned(), doc))
+                    .map_err(|error| WorkspaceError {
+                        path: manifest.path.clone(),
+                        message: format!("is not valid TOML: {error}"),
+                    }),
+            )
+        },
+        |all, _| workspace_packages(all),
+        |doc| !is_virtual_cargo_workspace(doc),
+        crate::dependencies::extract_declared_from_docs,
+    )
+}
+
+pub(crate) fn cargo_manifest_root(path: &str) -> Option<&str> {
+    manifest_root_excluding(path, CARGO_MANIFEST, &["target"])
+}
+
+fn is_virtual_cargo_workspace(doc: &toml::Value) -> bool {
+    doc.get("workspace").is_some() && doc.get("package").is_none()
 }
 
 pub(crate) fn workspace_packages(manifests: &[Manifest]) -> Result<Vec<String>, WorkspaceError> {

@@ -18,7 +18,6 @@ use std::collections::BTreeSet;
 use codeint_model::scan::CoreReferenceRanges;
 use codeint_model::{FileModel, Token, TokenKind, token_text_hash};
 
-use crate::dependencies::extract_declared;
 use crate::entry_points::extract as extract_entry_points;
 use crate::lexer::{RawKind, RawToken};
 use crate::resolution::{manifest_paths as find_manifest_paths, resolve_batch_with_profiles};
@@ -80,9 +79,8 @@ codeint_model::impl_builtin_language_plugin!(
     flagged_lines(flagged_line_rules()),
     imports(
         find_manifest_paths,
-        workspaces::workspace_packages,
-        by_profile(resolve_batch_with_profiles),
-        extract_declared,
+        workspaces::analyze_manifests,
+        resolve_batch_with_profiles,
         extract_entry_points,
     ),
     frameworks(frameworks),

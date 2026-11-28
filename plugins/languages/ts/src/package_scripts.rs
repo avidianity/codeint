@@ -1,22 +1,14 @@
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::iter::Peekable;
 use std::str::Chars;
 
-use codeint_model::{DeclaredDep, DepKind, Manifest, ManifestUsedDep, RepoPath};
-use serde::Deserialize;
+use codeint_model::language::{DeclaredDep, DepKind, PackageDependency};
 use serde_json::Value;
 
-const PACKAGE_MANIFEST: &str = "package.json";
 const MAX_RUNNER_DEPTH: u8 = 4;
-
-#[derive(Deserialize)]
-struct PackageScriptsManifest {
-    #[serde(default)]
-    scripts: BTreeMap<String, Value>,
-}
 
 const PACKAGE_BIN_ALIASES: &[(&str, &[&str])] = &[
     ("typescript", &["tsc", "tsserver"]),
@@ -96,11 +88,11 @@ const GENERIC_SCOPED_TAILS: &[&str] = &[
 const DIST_TAGS: &[&str] = &["latest", "next", "beta", "alpha", "canary", "rc"];
 
 pub(crate) fn extract_manifest_used_dependencies(
-    manifests: &[Manifest],
-    plugin_members: &[RepoPath],
+    parsed_manifests: &[(&str, &str, Value)],
+    workspace_members: &[String],
     declared: &[DeclaredDep],
-) -> Vec<ManifestUsedDep> {
-    let tokens_by_root = collect_tokens_by_root(manifests, plugin_members);
+) -> Vec<PackageDependency> {
+    let tokens_by_root = collect_tokens_by_root(parsed_manifests, workspace_members);
     if tokens_by_root.is_empty() {
         return Vec::new();
     }
@@ -112,34 +104,30 @@ pub(crate) fn extract_manifest_used_dependencies(
         if let Some(tokens) = tokens_by_root.get(dep.package_root.as_str())
             && is_invoked_in_scripts(&dep.name, tokens)
         {
-            used.insert(ManifestUsedDep {
-                package_root: dep.package_root.clone(),
-                name: dep.name.clone(),
-            });
+            used.insert((dep.package_root.clone(), dep.name.clone()));
         }
     }
-    used.into_iter().collect()
+    used.into_iter()
+        .map(|(package_root, name)| PackageDependency { package_root, name })
+        .collect()
 }
 
 fn collect_tokens_by_root<'a>(
-    manifests: &'a [Manifest],
-    plugin_members: &[RepoPath],
+    parsed_manifests: &[(&'a str, &'a str, Value)],
+    workspace_members: &[String],
 ) -> HashMap<&'a str, HashSet<String>> {
     let mut per_package: HashMap<&'a str, HashSet<String>> = HashMap::new();
-    for manifest in manifests {
-        let Some(root) = package_json_root(&manifest.path) else {
+    for (root, _, doc) in parsed_manifests {
+        let Some(scripts) = doc.get("scripts").and_then(Value::as_object) else {
             continue;
         };
-        let Ok(parsed) = serde_json::from_str::<PackageScriptsManifest>(&manifest.text) else {
-            continue;
-        };
-        let entry = per_package.entry(root).or_default();
-        for command in parsed.scripts.values().filter_map(Value::as_str) {
+        let entry = per_package.entry(*root).or_default();
+        for command in scripts.values().filter_map(Value::as_str) {
             extract_commands_from_script(command, entry, 0);
         }
     }
     if per_package.contains_key("") {
-        let member_roots: HashSet<&str> = plugin_members.iter().map(RepoPath::as_str).collect();
+        let member_roots: HashSet<&str> = workspace_members.iter().map(String::as_str).collect();
         let member_tokens: Vec<String> = per_package
             .iter()
             .filter(|(root, _)| !root.is_empty() && member_roots.contains(*root))
@@ -150,14 +138,6 @@ fn collect_tokens_by_root<'a>(
         }
     }
     per_package
-}
-
-fn package_json_root(path: &str) -> Option<&str> {
-    if path == PACKAGE_MANIFEST {
-        return Some("");
-    }
-    let dir = path.strip_suffix("/package.json")?;
-    (!dir.split('/').any(|segment| segment == "node_modules")).then_some(dir)
 }
 
 fn extract_commands_from_script(script: &str, out: &mut HashSet<String>, depth: u8) {
