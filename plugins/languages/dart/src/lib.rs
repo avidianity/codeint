@@ -73,6 +73,7 @@ fn lower_dart(path: &str, text: &str) -> Result<FileModel, codeint_model::LowerE
         tokens,
         functions,
         source_lines,
+        is_tooling_file: source_set::is_tooling_file(path),
         ..codeint_model::empty_file_model(source_set)
     })
 }
