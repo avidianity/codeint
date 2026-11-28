@@ -82,25 +82,29 @@ class CodeintClient {
 
   Future<TrendReport> trend([
     TrendOptions options = const TrendOptions(),
-  ]) async {
+  ]) {
     if (options.last != null && options.last! <= 0) {
-      throw const CodeintError('TrendOptions.last must be at least 1');
+      return Future<TrendReport>.error(
+        const CodeintError('TrendOptions.last must be at least 1'),
+      );
     }
     if (options.since != null && options.last != null) {
-      throw const CodeintError(
-        'TrendOptions.since and TrendOptions.last cannot be set together',
+      return Future<TrendReport>.error(
+        const CodeintError(
+          'TrendOptions.since and TrendOptions.last cannot be set together',
+        ),
       );
     }
     final args = <String>['trend'];
     _addOpt(args, '--since', options.since);
+    _addOpt(args, '--commits', options.last);
     args.addAll(const <String>['--format', 'json']);
-    final report = await runJsonCommand(
+    return runJsonCommand(
       args,
       _common,
       TrendReport.fromJson,
       extraEnv: _resultCacheEnv(options.resultCache),
     );
-    return options.last == null ? report : report.limitLast(options.last!);
   }
 
   Future<ImpactReport> impact([
@@ -177,7 +181,7 @@ class CodeintClient {
     }
     _addOpt(args, '--format', options.format?.cliValue);
     _addOpt(args, '--output', options.output);
-    return runTextCommand(args, _common);
+    return runTextCommand(args, _common, outputPath: options.output);
   }
 
   Future<GatedOutcome<DoctorReport>> doctor([

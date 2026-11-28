@@ -96,26 +96,6 @@ class TrendReport extends JsonModel {
           warnings: readStringList(m, 'warnings'),
         ),
       );
-
-  TrendReport limitLast(int count) {
-    final setsMap = requireJsonMap(json['source_sets'], 'source_sets');
-    final trimmedSets = <String, Object?>{};
-    var maxRows = 0;
-    for (final entry in setsMap.entries) {
-      final rows = readTyped<List<Object?>>(setsMap, entry.key, 'trend rows');
-      final kept =
-          rows.length > count ? rows.sublist(rows.length - count) : rows;
-      trimmedSets[entry.key] = kept;
-      if (kept.length > maxRows) {
-        maxRows = kept.length;
-      }
-    }
-    return TrendReport.fromJson(<String, Object?>{
-      ...json,
-      'commits': commits < count ? commits : maxRows,
-      'source_sets': trimmedSets,
-    });
-  }
 }
 
 class TrendRow extends JsonModel {
