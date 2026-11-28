@@ -62,7 +62,6 @@ Map repository-relative folders or file globs to a **Dialect** under `dialects.s
 | `mysql` | MySQL and MariaDB |
 | `sqlite` | SQLite |
 | `duckdb` | DuckDB |
-| `generic` | Generic SQL |
 
 Files matching no `dialects.sql` entry stay generic SQL.
 ClickHouse, SQL Server, Oracle, BigQuery, and Snowflake stay generic SQL.
