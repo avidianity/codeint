@@ -14,9 +14,9 @@ use codeint_report::{
     BaseCommit, CommitMeasurement, DiffReport, FileDiagnosticEntry, Head, MeasuredLanguage,
     OwnershipOptions, Report, ReportExtras, ReportOptions, ReportSchemaKind, ScopeSummaryEntry,
     TrendPoint, TrendReport, all_report_schemas, report_schema, schema_for,
-    validate_json_against_schema,
+    validate_json_against_schema, validate_report_json,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -408,8 +408,7 @@ fn parse_and_validate(kind: ReportSchemaKind, rendered: String) -> Value {
     value
 }
 
-#[test]
-fn diff_and_trend_schemas_validate_reports_with_external_metrics() {
+fn sample_diff_with_external_metric() -> DiffReport {
     let plugin = VersionedExternalMetricPlugin;
     let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
     let budgets = Budgets::default();
@@ -420,7 +419,7 @@ fn diff_and_trend_schemas_validate_reports_with_external_metrics() {
     let head_measurement =
         CommitMeasurement::of_with_metrics(sample_model(false, true), &metric_plugins)
             .expect("head measurement");
-    let diff = DiffReport::compare(
+    DiffReport::compare(
         BaseCommit {
             git_ref: "main".to_owned(),
             merge_base: "abc1234".to_owned(),
@@ -431,7 +430,14 @@ fn diff_and_trend_schemas_validate_reports_with_external_metrics() {
         FindingsShown::default(),
         &budgets,
         &limits,
-    );
+    )
+}
+
+#[test]
+fn diff_and_trend_schemas_validate_reports_with_external_metrics() {
+    let plugin = VersionedExternalMetricPlugin;
+    let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
+    let diff = sample_diff_with_external_metric();
     let diff_json = parse_and_validate(
         ReportSchemaKind::Diff,
         diff.render(ReportFormat::Json).expect("diff json"),
@@ -454,4 +460,62 @@ fn diff_and_trend_schemas_validate_reports_with_external_metrics() {
         trend.render(TrendFormat::Json).expect("trend json"),
     );
     assert_eq!(trend_json["metric_versions"]["custom_depth"], 3);
+}
+
+#[test]
+fn report_schemas_and_validator_reject_malformed_payloads_and_invalid_schemas() {
+    assert!(validate_json_against_schema(&json!({"a": 1}), &Value::Null).is_err());
+    assert!(validate_json_against_schema(&json!({"a": 1}), &json!(42)).is_err());
+    assert!(validate_json_against_schema(&json!({"a": 1}), &json!("object")).is_err());
+    assert!(validate_json_against_schema(&json!({"a": 1}), &json!([])).is_err());
+    assert!(validate_json_against_schema(&json!({"a": 1}), &json!(false)).is_err());
+    assert!(validate_json_against_schema(&json!({"a": 1}), &json!(true)).is_ok());
+
+    let plugin = VersionedExternalMetricPlugin;
+    let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
+    let budgets = Budgets::default();
+    let report = Report::summarize_with_metrics(
+        vec![MeasuredLanguage::new(
+            "typescript-javascript",
+            sample_model(true, true),
+            ReferenceRanges::default(),
+            true,
+        )],
+        Vec::new(),
+        FindingsShown::default(),
+        &budgets,
+        &metric_plugins,
+    )
+    .expect("report");
+    let valid_check: Value =
+        serde_json::from_str(&report.render(ReportFormat::Json).expect("json")).expect("json");
+    validate_report_json(ReportSchemaKind::Check, &valid_check).expect("valid check report");
+
+    let mut bad_erosion_findings = valid_check.clone();
+    bad_erosion_findings["source_sets"]["production"]["erosion"]["findings"] =
+        json!("not-an-array");
+    assert!(validate_report_json(ReportSchemaKind::Check, &bad_erosion_findings).is_err());
+
+    let mut bad_external_findings = valid_check.clone();
+    bad_external_findings["source_sets"]["production"]["custom_depth"]["findings"] =
+        json!([123, false]);
+    assert!(validate_report_json(ReportSchemaKind::Check, &bad_external_findings).is_err());
+
+    let mut bad_external_key = valid_check.clone();
+    bad_external_key["source_sets"]["production"]["custom_depth"]["bogus"] = json!("anything");
+    assert!(validate_report_json(ReportSchemaKind::Check, &bad_external_key).is_err());
+
+    let mut unknown_top_level = valid_check.clone();
+    unknown_top_level["unknown_top_level_key"] = json!(true);
+    assert!(validate_report_json(ReportSchemaKind::Check, &unknown_top_level).is_err());
+
+    let mut empty_package_erosion = valid_check.clone();
+    empty_package_erosion["source_sets"]["production"]["packages"][0]["erosion"] = json!({});
+    assert!(validate_report_json(ReportSchemaKind::Check, &empty_package_erosion).is_err());
+
+    let diff = sample_diff_with_external_metric();
+    let mut bad_diff: Value =
+        serde_json::from_str(&diff.render(ReportFormat::Json).expect("diff json")).expect("json");
+    bad_diff["source_sets"]["production"]["erosion"]["new"] = json!([{"completely_bogus": 42}]);
+    assert!(validate_report_json(ReportSchemaKind::Diff, &bad_diff).is_err());
 }

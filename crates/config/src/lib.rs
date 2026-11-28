@@ -53,7 +53,8 @@ pub use config_error::{
 pub use config_file::{
     Budget, Budgets, Configuration, ConfigurationInspection, DEPENDENCY_METRIC_KEYS,
     DetectedLanguage, DiscoveredConfigFile, DuplicationConfig, EntryPoints, HAZARDS_METRIC_KEY,
-    LanguageCoverage, Languages, MinSimilarity, OutputFormat, PluginDeclaration, PluginKind,
+    LanguageCoverage, Languages, MAX_PLUGIN_MEMORY_MB, MAX_PLUGIN_TIMEOUT_MS, MIN_PLUGIN_MEMORY_MB,
+    MIN_PLUGIN_TIMEOUT_MS, MinSimilarity, OutputFormat, PluginDeclaration, PluginKind,
     PluginLimits, PluginSource, RewrittenSchema, RewrittenSchemaForm, SchemaValueSpan,
     SchemaVersionStatus, Sha256Digest, SourceSetOverrides, StarterBoundaries, StarterBoundaryZone,
     StarterConfigurationError, TEST_GAP_METRIC_KEY, configuration_schema, discover_config_file,

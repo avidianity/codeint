@@ -4,13 +4,13 @@ use std::process::Command;
 
 use codeint_cli::{
     AgentClient, AgentFormat, BaselineFormat, BaselineUpdateOptions, CheckOptions, ChurnFormat,
-    ChurnOptions, ConfigFormat, ConfigOverrides, CouplingOptions, DiffOptions, DoctorFormat,
-    GuardFormat, ImpactFormat, ImpactOptions, InitFormat, InitOptions, PluginHostConfig,
-    PluginKind, PluginTestFormat, PluginTestOptions, RatchetFormat, RatchetUpdateOptions,
-    ReportFormat, ReportRenderFormat, RerenderReportOptions, SchemaFormat, TraceFormat,
-    TraceOptions, TrendFormat, TrendOptions, agent_install, agent_status, baseline_update, check,
-    churn, coupling, diff, doctor, guard, impact, init, plugin_test, ratchet_update,
-    render_baseline_update, rerender_report, resolved_config, schema, trace, trend,
+    ChurnOptions, ChurnWindow, ConfigFormat, ConfigOverrides, CouplingOptions, CouplingSettings,
+    DiffOptions, DoctorFormat, GuardFormat, ImpactFormat, ImpactOptions, InitFormat, InitOptions,
+    PluginHostConfig, PluginKind, PluginTestFormat, PluginTestOptions, RatchetFormat,
+    RatchetUpdateOptions, ReportFormat, ReportRenderFormat, RerenderReportOptions, SchemaFormat,
+    TraceFormat, TraceOptions, TrendFormat, TrendOptions, TrendRange, agent_install, agent_status,
+    baseline_update, check, churn, coupling, diff, doctor, guard, impact, init, plugin_test,
+    ratchet_update, render_baseline_update, rerender_report, resolved_config, schema, trace, trend,
 };
 use tempfile::TempDir;
 
@@ -293,4 +293,102 @@ fn rust_sdk_supports_remaining_operations_and_gated_outcomes() {
         )
         .is_err()
     );
+    assert_eq!(
+        PluginTestOptions::default(),
+        PluginTestOptions::new(PluginKind::Language)
+    );
+}
+
+#[test]
+fn rust_sdk_reports_doctor_gated_failures_and_validates_option_bounds() {
+    let dir = setup_repo();
+    fs::write(dir.path().join("codeint.json"), "{\"unknown_key\": 1}\n").expect("bad config");
+    let doctor_failed =
+        doctor(dir.path(), &PluginHostConfig::default()).expect("doctor returns gated outcome");
+    assert!(!doctor_failed.passed);
+    assert!(!doctor_failed.failures.is_empty());
+
+    let zero_trend = trend(
+        dir.path(),
+        &TrendOptions {
+            range: TrendRange::Latest(0),
+            ..TrendOptions::default()
+        },
+    )
+    .expect_err("rejects TrendRange::Latest(0)");
+    assert!(!zero_trend.message().is_empty());
+    assert!(!zero_trend.remedy().is_empty());
+
+    for invalid_window in [ChurnWindow::Days(0), ChurnWindow::Commits(0)] {
+        let churn_err = churn(
+            dir.path(),
+            &ChurnOptions {
+                window: invalid_window,
+                ..ChurnOptions::default()
+            },
+        )
+        .expect_err("rejects zero churn window");
+        assert!(!churn_err.message().is_empty());
+
+        let coupling_err = coupling(
+            dir.path(),
+            &CouplingOptions {
+                settings: CouplingSettings {
+                    window: invalid_window,
+                    ..CouplingSettings::default()
+                },
+                ..CouplingOptions::default()
+            },
+        )
+        .expect_err("rejects zero coupling window");
+        assert!(!coupling_err.message().is_empty());
+    }
+
+    assert!(
+        coupling(
+            dir.path(),
+            &CouplingOptions {
+                settings: CouplingSettings {
+                    max_commit_files: 0,
+                    ..CouplingSettings::default()
+                },
+                ..CouplingOptions::default()
+            },
+        )
+        .is_err()
+    );
+    assert!(
+        coupling(
+            dir.path(),
+            &CouplingOptions {
+                settings: CouplingSettings {
+                    min_co_changes: 0,
+                    ..CouplingSettings::default()
+                },
+                ..CouplingOptions::default()
+            },
+        )
+        .is_err()
+    );
+
+    for invalid_overrides in [
+        ConfigOverrides {
+            plugin_memory_mb: Some(0),
+            ..ConfigOverrides::default()
+        },
+        ConfigOverrides {
+            plugin_memory_mb: Some(4097),
+            ..ConfigOverrides::default()
+        },
+        ConfigOverrides {
+            plugin_timeout_ms: Some(0),
+            ..ConfigOverrides::default()
+        },
+        ConfigOverrides {
+            plugin_timeout_ms: Some(300_001),
+            ..ConfigOverrides::default()
+        },
+    ] {
+        assert!(resolved_config(dir.path(), &invalid_overrides).is_err());
+    }
 }

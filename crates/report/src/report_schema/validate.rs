@@ -15,6 +15,11 @@ fn validate_value(value: &Value, schema: &Value, root: &Value, path: &str) -> Re
     if let Some(allowed) = schema.as_bool() {
         return check_bool_schema(allowed, value, path);
     }
+    if !schema.is_object() {
+        return Err(format!(
+            "invalid schema at {path}: expected object or boolean, got {schema}"
+        ));
+    }
     if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
         return check_ref(value, reference, root, path);
     }

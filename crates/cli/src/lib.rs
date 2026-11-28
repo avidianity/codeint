@@ -29,6 +29,7 @@ use std::process::ExitCode;
 
 use codeint_config::{
     AgentCommand, BaselineCommand, Command, ConfigError, ConfigFileKind, DEFAULT_MAX_TRACE_PATHS,
+    MAX_PLUGIN_MEMORY_MB, MAX_PLUGIN_TIMEOUT_MS, MIN_PLUGIN_MEMORY_MB, MIN_PLUGIN_TIMEOUT_MS,
     OutputFormat, PluginCommand, RatchetCommand, ReportDestination, ReportInput, cli_schema,
     read_configuration, read_invocation,
 };
@@ -162,7 +163,7 @@ pub struct RerenderReportOptions {
     pub all: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PluginTestOptions {
     pub kind: PluginKind,
     pub sources: Vec<PathBuf>,
@@ -228,6 +229,15 @@ impl CodeintError {
             mcp_remedy: remedy::mcp_remedy(&error).into_owned(),
         }
     }
+
+    fn invalid_option(message: impl Into<String>, remedy: impl Into<String>) -> CodeintError {
+        let remedy = remedy.into();
+        CodeintError {
+            message: message.into(),
+            mcp_remedy: remedy.clone(),
+            remedy,
+        }
+    }
 }
 
 impl fmt::Display for CodeintError {
@@ -278,6 +288,7 @@ fn measure_diff(
 }
 
 pub fn trend(folder: &Path, options: &TrendOptions) -> Result<TrendReport, CodeintError> {
+    validate_trend_range(options.range)?;
     let cache = options.result_cache.clone().map(ResultCache::in_folder);
     trend::trend(folder, options.range, cache.as_ref(), &options.plugin_host)
         .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
@@ -349,6 +360,7 @@ pub fn resolved_config(
     folder: &Path,
     overrides: &ConfigOverrides,
 ) -> Result<ConfigReport, CodeintError> {
+    validate_config_overrides(overrides)?;
     config::resolved_config(folder, overrides)
         .map_err(|err| CodeintError::from_cli_error(CliError::ConfigCommand(err)))
 }
@@ -406,6 +418,7 @@ pub fn agent_install(
 }
 
 pub fn churn(folder: &Path, options: &ChurnOptions) -> Result<ChurnReport, CodeintError> {
+    validate_churn_window(options.window)?;
     churn::churn(
         folder,
         options.window,
@@ -416,6 +429,7 @@ pub fn churn(folder: &Path, options: &ChurnOptions) -> Result<ChurnReport, Codei
 }
 
 pub fn coupling(folder: &Path, options: &CouplingOptions) -> Result<CouplingReport, CodeintError> {
+    validate_coupling_settings(options.settings)?;
     coupling::coupling(
         folder,
         options.settings,
@@ -423,6 +437,75 @@ pub fn coupling(folder: &Path, options: &CouplingOptions) -> Result<CouplingRepo
         &options.plugin_host,
     )
     .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
+}
+
+fn validate_trend_range(range: TrendRange) -> Result<(), CodeintError> {
+    if matches!(range, TrendRange::Latest(0)) {
+        return Err(CodeintError::invalid_option(
+            "trend range must include at least 1 commit",
+            "Pass TrendRange::Latest with a positive commit count (at least 1) or TrendRange::Since.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_churn_window(window: ChurnWindow) -> Result<(), CodeintError> {
+    match window {
+        ChurnWindow::Days(0) => Err(CodeintError::invalid_option(
+            "history window days must be at least 1",
+            "Pass ChurnWindow::Days with a positive day count (at least 1).",
+        )),
+        ChurnWindow::Commits(0) => Err(CodeintError::invalid_option(
+            "history window commits must be at least 1",
+            "Pass ChurnWindow::Commits with a positive commit count (at least 1).",
+        )),
+        ChurnWindow::Days(_) | ChurnWindow::Commits(_) | ChurnWindow::Since(_) => Ok(()),
+    }
+}
+
+fn validate_coupling_settings(settings: CouplingSettings) -> Result<(), CodeintError> {
+    validate_churn_window(settings.window)?;
+    if settings.max_commit_files == 0 {
+        return Err(CodeintError::invalid_option(
+            "coupling max_commit_files must be at least 1",
+            "Set CouplingSettings::max_commit_files to a positive integer (at least 1).",
+        ));
+    }
+    if settings.min_co_changes == 0 {
+        return Err(CodeintError::invalid_option(
+            "coupling min_co_changes must be at least 1",
+            "Set CouplingSettings::min_co_changes to a positive integer (at least 1).",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_config_overrides(overrides: &ConfigOverrides) -> Result<(), CodeintError> {
+    if let Some(memory_mb) = overrides.plugin_memory_mb
+        && !(MIN_PLUGIN_MEMORY_MB..=MAX_PLUGIN_MEMORY_MB).contains(&memory_mb)
+    {
+        return Err(CodeintError::invalid_option(
+            format!(
+                "plugin_memory_mb {memory_mb} is out of range ({MIN_PLUGIN_MEMORY_MB}..={MAX_PLUGIN_MEMORY_MB})"
+            ),
+            format!(
+                "Set ConfigOverrides::plugin_memory_mb to a value from {MIN_PLUGIN_MEMORY_MB} to {MAX_PLUGIN_MEMORY_MB} MiB."
+            ),
+        ));
+    }
+    if let Some(timeout_ms) = overrides.plugin_timeout_ms
+        && !(MIN_PLUGIN_TIMEOUT_MS..=MAX_PLUGIN_TIMEOUT_MS).contains(&timeout_ms)
+    {
+        return Err(CodeintError::invalid_option(
+            format!(
+                "plugin_timeout_ms {timeout_ms} is out of range ({MIN_PLUGIN_TIMEOUT_MS}..={MAX_PLUGIN_TIMEOUT_MS})"
+            ),
+            format!(
+                "Set ConfigOverrides::plugin_timeout_ms to a value from {MIN_PLUGIN_TIMEOUT_MS} to {MAX_PLUGIN_TIMEOUT_MS} milliseconds."
+            ),
+        ));
+    }
+    Ok(())
 }
 
 pub fn ratchet_update(

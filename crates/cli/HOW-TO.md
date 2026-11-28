@@ -19,7 +19,12 @@ if !outcome.passed {
 - `crates/cli` (`codeint-cli`) is both the binary entry point (`src/main.rs` calls `codeint_cli::run_cli()`) and the Rust library crate backing programmatic callers ([ADR 0038](../../docs/adr/0038-programmatic-sdks.md)).
 - User-facing CLI flags, exit codes, and configuration keys live in [docs/reference.md](../../docs/reference.md).
 - `run_cli` returns exit code `0` on pass, `1` when any Budget, Ratchet, Regression, `doctor` blocking error, or `plugin test` check fails, and `2` on operational errors.
-- Library entry points in `src/lib.rs` (`check`, `diff`, `trend`, `impact`, `trace`, `init`, `guard`, `schema`, `resolved_config`, `doctor`, `agent_status`, `agent_install`, `churn`, `coupling`) return `Result<_, CodeintError>` (except `schema` and `doctor`), where `CodeintError` pairs `message()` with an actionable `remedy()`.
+- Library entry points in `src/lib.rs` (`check`, `diff`, `trend`, `impact`, `trace`, `init`, `guard`, `schema`, `resolved_config`, `doctor`, `agent_status`, `agent_install`, `churn`, `coupling`, `ratchet_update`, `baseline_update`, `rerender_report`, `plugin_test`) return `Result<_, CodeintError>` (except `schema`), where `CodeintError` pairs `message()` with an actionable `remedy()`.
+- Gated operations (`check`, `diff`, `doctor`, and `plugin_test`) return `GatedOutcome<T>` (aliased as `CheckOutcome`, `DiffOutcome`, `DoctorOutcome`, and `PluginTestOutcome`), which pairs `passed`, `failures`, and `report`.
+- `init` takes `InitOptions` (`format`, `adopt`, `plugin_host`) and returns `InitOutcome` (`configuration` plus optional `AdoptedFiles` when `adopt` is `true`).
+- `ratchet_update` and `baseline_update` accept `RatchetUpdateOptions` and `BaselineUpdateOptions` (both aliases of `StateUpdateOptions` with `reset`, `coverage_reports`, and `plugin_host`).
+- `rerender_report` accepts `RerenderReportOptions` (`format`, `all`) to re-render a saved JSON report file, while `SavedReport::from_json` supports in-memory re-rendering without touching disk.
+- `plugin_test` accepts `PluginTestOptions` (`kind`, `sources`, `limits`) and returns `Result<PluginTestOutcome, CodeintError>`.
 
 ## Check and measurement orchestration
 
