@@ -133,12 +133,12 @@ impl DependencyHygiene {
             return DependencyHygiene::default();
         }
         let declared = collect_declared(&model.declared_dependencies, ignored);
-        let js_workspace_members = collect_js_workspace_members(model, &manifests);
-        let imports = collect_imports(model, &manifests, &declared, &js_workspace_members, ignored);
+        let inherited_members = collect_inherited_members(model, &manifests);
+        let imports = collect_imports(model, &manifests, &declared, &inherited_members, ignored);
         let tables = DependencyTables {
             manifests: &manifests,
             declared: &declared,
-            js_workspace_members: &js_workspace_members,
+            inherited_members: &inherited_members,
             imports: &imports,
         };
         let (declared_count, unused) = tables.build_unused(&include_package);
@@ -305,35 +305,28 @@ fn collect_declared(
     by_package
 }
 
-fn collect_js_workspace_members(
+fn collect_inherited_members(
     model: &CodeModel,
     manifests: &BTreeMap<String, RepoPath>,
 ) -> BTreeSet<String> {
-    if !is_package_json(manifests, "") {
+    if !manifests.contains_key("") {
         return BTreeSet::new();
     }
     model
-        .workspace
-        .member_roots()
-        .map(RepoPath::as_str)
-        .filter(|owner| !owner.is_empty() && is_package_json(manifests, owner))
-        .map(str::to_owned)
+        .root_dependency_inheritance
+        .iter()
+        .filter(|owner| !owner.is_empty() && manifests.contains_key(owner.as_str()))
+        .cloned()
         .collect()
-}
-
-fn is_package_json(manifests: &BTreeMap<String, RepoPath>, root: &str) -> bool {
-    manifests
-        .get(root)
-        .is_some_and(|path| path.file_name() == "package.json")
 }
 
 fn is_hoisted_from_root(
     owner: &str,
     package_name: &str,
     declared: &BTreeMap<String, BTreeMap<String, DeclaredKinds>>,
-    js_workspace_members: &BTreeSet<String>,
+    inherited_members: &BTreeSet<String>,
 ) -> bool {
-    js_workspace_members.contains(owner)
+    inherited_members.contains(owner)
         && !declared
             .get(owner)
             .is_some_and(|deps| deps.contains_key(package_name))
@@ -346,7 +339,7 @@ fn collect_imports(
     model: &CodeModel,
     manifests: &BTreeMap<String, RepoPath>,
     declared: &BTreeMap<String, BTreeMap<String, DeclaredKinds>>,
-    js_workspace_members: &BTreeSet<String>,
+    inherited_members: &BTreeSet<String>,
     ignored: &BTreeSet<String>,
 ) -> BTreeMap<String, PackageImports> {
     let tooling = ToolingPaths::from_model(model);
@@ -379,7 +372,7 @@ fn collect_imports(
             &import.importer,
             &tooling,
         );
-        if is_hoisted_from_root(owner, package_name, declared, js_workspace_members) {
+        if is_hoisted_from_root(owner, package_name, declared, inherited_members) {
             by_package
                 .entry(String::new())
                 .or_default()
@@ -463,7 +456,7 @@ fn dependency_finding_identity(
 struct DependencyTables<'a> {
     manifests: &'a BTreeMap<String, RepoPath>,
     declared: &'a BTreeMap<String, BTreeMap<String, DeclaredKinds>>,
-    js_workspace_members: &'a BTreeSet<String>,
+    inherited_members: &'a BTreeSet<String>,
     imports: &'a BTreeMap<String, PackageImports>,
 }
 
@@ -476,7 +469,7 @@ impl DependencyTables<'_> {
         {
             return Some(*kinds);
         }
-        if self.js_workspace_members.contains(package_root) {
+        if self.inherited_members.contains(package_root) {
             return self
                 .declared
                 .get("")

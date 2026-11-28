@@ -1,6 +1,9 @@
 use std::collections::{BTreeSet, HashSet};
 
-use crate::language::{FlaggedLine, Function, LowerError, ReferenceRange};
+use crate::language::{
+    DeclaredDep, DependencyManifestOwner, FlaggedLine, Function, LowerError, Manifest,
+    ManifestAnalysis, ReferenceRange, WorkspaceError,
+};
 
 #[cfg(test)]
 mod tests;
@@ -402,4 +405,52 @@ pub fn build_reference_ranges<const N: usize>(
             source: source.to_owned(),
         })
         .collect()
+}
+
+pub fn manifest_root_excluding<'a>(
+    path: &'a str,
+    file_name: &str,
+    ignored_dirs: &[&str],
+) -> Option<&'a str> {
+    if path == file_name {
+        return Some("");
+    }
+    let dir = path.strip_suffix(file_name)?.strip_suffix('/')?;
+    (!dir.split('/').any(|seg| ignored_dirs.contains(&seg))).then_some(dir)
+}
+
+pub fn simple_manifest_analysis(
+    manifests: &[Manifest],
+    root_manifest_path: &str,
+    discover: impl FnOnce(&[Manifest]) -> Result<Vec<String>, WorkspaceError>,
+    extract: impl FnOnce(&[&Manifest]) -> (Vec<DependencyManifestOwner>, Vec<DeclaredDep>),
+) -> ManifestAnalysis {
+    let mut invalid_manifests = Vec::new();
+    let mut workspace_packages = Vec::new();
+    let mut root_invalid = false;
+    if manifests
+        .iter()
+        .any(|manifest| manifest.path == root_manifest_path)
+    {
+        match discover(manifests) {
+            Ok(packages) => workspace_packages = packages,
+            Err(error) => {
+                invalid_manifests.push(error);
+                root_invalid = true;
+            }
+        }
+    }
+    let valid: Vec<&Manifest> = manifests
+        .iter()
+        .filter(|manifest| !(root_invalid && manifest.path == root_manifest_path))
+        .collect();
+    let (dependency_manifests, declared_dependencies) = extract(&valid);
+    ManifestAnalysis {
+        workspace_packages,
+        invalid_manifests,
+        dependency_manifests,
+        declared_dependencies,
+        manifest_used_dependencies: Vec::new(),
+        root_dependency_inheritance: Vec::new(),
+    }
 }

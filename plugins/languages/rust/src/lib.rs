@@ -76,7 +76,7 @@ codeint_model::impl_builtin_language_plugin!(
     flagged_lines(flagged_line_rules()),
     imports(
         manifest_paths,
-        workspaces::workspace_packages,
+        workspaces::analyze_manifests,
         |paths, manifests, requests, _| {
             let resolver = RustResolver::new(paths, manifests, requests);
             requests
@@ -84,7 +84,6 @@ codeint_model::impl_builtin_language_plugin!(
                 .map(|request| resolver.resolve(request))
                 .collect()
         },
-        dependencies::extract_declared,
         discover_entry_points,
     ),
     frameworks(none),

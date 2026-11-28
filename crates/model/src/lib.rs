@@ -180,6 +180,7 @@ pub struct CodeModel {
     pub declared_dependencies: Vec<DeclaredDep>,
     pub dependency_manifests: Vec<DependencyManifest>,
     pub manifest_used_dependencies: Vec<ManifestUsedDep>,
+    pub root_dependency_inheritance: Vec<String>,
     pub languages: Vec<LanguageFacts>,
 }
 
@@ -210,6 +211,9 @@ impl CodeModel {
             merged
                 .manifest_used_dependencies
                 .extend(model.manifest_used_dependencies);
+            merged
+                .root_dependency_inheritance
+                .extend(model.root_dependency_inheritance);
             for facts in model.languages {
                 languages
                     .entry(facts.language.clone())
@@ -232,6 +236,8 @@ impl CodeModel {
         merged.dependency_manifests.dedup();
         merged.manifest_used_dependencies.sort();
         merged.manifest_used_dependencies.dedup();
+        merged.root_dependency_inheritance.sort();
+        merged.root_dependency_inheritance.dedup();
         merged.languages = languages.into_values().collect();
         merged
     }
@@ -421,6 +427,8 @@ pub enum LanguagePluginError {
     DuplicateInvalidManifest { path: String },
     #[error("the Language plugin returned an invalid dependency manifest path {path:?}")]
     InvalidDependencyManifestPath { path: String },
+    #[error("the Language plugin returned dependency manifest {path:?}, which was not passed in")]
+    UnknownDependencyManifest { path: String },
     #[error(
         "the Language plugin returned an invalid root-dependency inheritance package root {package_root:?}"
     )]
@@ -893,7 +901,7 @@ pub fn validate_manifest_analysis(
             });
         }
     }
-    validate_dependency_owners(&analysis.dependency_manifests)?;
+    validate_dependency_owners(&analysis.dependency_manifests, &passed_paths)?;
     let _ = validate_declared_dependencies(analysis.declared_dependencies.clone())?;
     validate_package_dependencies(&analysis.manifest_used_dependencies)?;
     validate_inheritance_roots(&analysis.root_dependency_inheritance)?;
@@ -911,11 +919,17 @@ fn validate_optional_package_root(package_root: &str) -> Result<(), LanguagePlug
 
 fn validate_dependency_owners(
     owners: &[DependencyManifestOwner],
+    passed_paths: &HashSet<&str>,
 ) -> Result<(), LanguagePluginError> {
     for owner in owners {
         validate_optional_package_root(&owner.package_root)?;
         if RepoPath::new(owner.path.as_str()).is_err() {
             return Err(LanguagePluginError::InvalidDependencyManifestPath {
+                path: owner.path.clone(),
+            });
+        }
+        if !passed_paths.contains(owner.path.as_str()) {
+            return Err(LanguagePluginError::UnknownDependencyManifest {
                 path: owner.path.clone(),
             });
         }
@@ -944,46 +958,6 @@ fn validate_inheritance_roots(roots: &[String]) -> Result<(), LanguagePluginErro
         }
     }
     Ok(())
-}
-
-pub fn analyze_manifests_single_pass<E: Into<WorkspaceError>>(
-    manifests: Vec<Manifest>,
-    discover_packages: impl Fn(&[Manifest]) -> Result<Vec<String>, E>,
-    extract_declared: impl Fn(&[Manifest]) -> Vec<DeclaredDep>,
-) -> Result<ManifestAnalysis, LanguagePluginError> {
-    let mut remaining = manifests.clone();
-    let mut invalid_manifests = Vec::new();
-    let workspace_packages = loop {
-        match discover_packages(&remaining).map_err(Into::into) {
-            Ok(packages) => break packages,
-            Err(WorkspaceError::Manifest { path, message }) => {
-                let Some(pos) = remaining.iter().position(|m| m.path == path) else {
-                    return Err(LanguagePluginError::UnknownInvalidManifest { path, message });
-                };
-                remaining.remove(pos);
-                invalid_manifests.push(language::WorkspaceError { path, message });
-            }
-            Err(error) => {
-                return Err(LanguagePluginError::Call {
-                    plugin: String::new(),
-                    call: "analyze-manifests",
-                    reason: error.to_string(),
-                });
-            }
-        }
-    };
-    let declared_dependencies = extract_declared(&remaining);
-    validate_manifest_analysis(
-        &manifests,
-        ManifestAnalysis {
-            workspace_packages,
-            invalid_manifests,
-            dependency_manifests: Vec::new(),
-            declared_dependencies,
-            manifest_used_dependencies: Vec::new(),
-            root_dependency_inheritance: Vec::new(),
-        },
-    )
 }
 
 pub fn empty_framework_profile_result() -> FrameworkProfileResult {
@@ -1134,11 +1108,11 @@ macro_rules! impl_builtin_language_plugin {
         }
     };
     (@imports none) => {};
-    (@imports $manifest_paths:path, $workspace_packages:path, by_profile($resolve_batch:path), $declared_dependencies:path, $entry_points:path $(,)?) => {
+    (@imports $manifest_paths:path, $analyze_manifests:path, by_profile($resolve_batch:path), $entry_points:path $(,)?) => {
         $crate::impl_builtin_language_plugin!(
             @imports
             $manifest_paths,
-            $workspace_packages,
+            $analyze_manifests,
             |paths, manifests, requests, package_profiles| {
                 $crate::resolve_imports_by_package_profiles(
                     paths,
@@ -1148,11 +1122,10 @@ macro_rules! impl_builtin_language_plugin {
                     $resolve_batch,
                 )
             },
-            $declared_dependencies,
             $entry_points,
         );
     };
-    (@imports $manifest_paths:path, $workspace_packages:path, $resolve_imports:expr, $declared_dependencies:path, $entry_points:path $(,)?) => {
+    (@imports $manifest_paths:path, $analyze_manifests:path, $resolve_imports:expr, $entry_points:path $(,)?) => {
         fn has_imports(&self) -> bool {
             true
         }
@@ -1169,11 +1142,8 @@ macro_rules! impl_builtin_language_plugin {
             &self,
             manifests: ::std::vec::Vec<$crate::Manifest>,
         ) -> ::std::result::Result<$crate::ManifestAnalysis, $crate::LanguagePluginError> {
-            $crate::analyze_manifests_single_pass(
-                manifests,
-                $workspace_packages,
-                $declared_dependencies,
-            )
+            let analysis = $analyze_manifests(&manifests);
+            $crate::validate_manifest_analysis(&manifests, analysis)
         }
 
         fn resolve_imports(

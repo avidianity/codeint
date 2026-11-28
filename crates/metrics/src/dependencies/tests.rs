@@ -351,6 +351,7 @@ fn js_workspace_hoisting_model() -> CodeModel {
         ]),
     );
     js_model.workspace = Workspace::new([RepoPath::new("packages/app").expect("valid root")]);
+    js_model.root_dependency_inheritance = vec!["packages/app".to_owned()];
     js_model
 }
 

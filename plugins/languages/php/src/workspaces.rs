@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use codeint_model::language::{Manifest, WorkspaceError};
+use codeint_model::language::{
+    DependencyManifestOwner, Manifest, ManifestAnalysis, WorkspaceError,
+};
+use codeint_model::scan::{manifest_root_excluding, simple_manifest_analysis};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 
@@ -8,6 +11,28 @@ use serde_json::Value;
 mod tests;
 
 pub(crate) const COMPOSER_MANIFEST: &str = "composer.json";
+
+pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
+    simple_manifest_analysis(manifests, COMPOSER_MANIFEST, workspace_packages, |valid| {
+        let parsed: Vec<(String, String, Value)> = valid
+            .iter()
+            .filter_map(|manifest| {
+                let root = manifest_root_excluding(&manifest.path, COMPOSER_MANIFEST, &["vendor"])?;
+                let doc = serde_json::from_str::<Value>(&manifest.text).ok()?;
+                Some((root.to_owned(), manifest.path.clone(), doc))
+            })
+            .collect();
+        let owners = parsed
+            .iter()
+            .map(|(package_root, path, _)| DependencyManifestOwner {
+                package_root: package_root.clone(),
+                path: path.clone(),
+            })
+            .collect();
+        let declared = crate::dependencies::extract_declared_from_parsed(&parsed);
+        (owners, declared)
+    })
+}
 
 fn composer_error(message: String) -> WorkspaceError {
     WorkspaceError {

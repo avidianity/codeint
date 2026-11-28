@@ -171,7 +171,24 @@ fn extract_pipfile_section(text: &str, section: &str) -> Vec<String> {
         .collect()
 }
 
+pub(crate) fn is_python_dependency_manifest(path: &str) -> bool {
+    if has_ignored_manifest_dir(path) {
+        return false;
+    }
+    let (_, file_name) = split_manifest_path(path);
+    file_name == "pyproject.toml"
+        || file_name == "setup.cfg"
+        || file_name == "Pipfile"
+        || is_requirements_file(file_name)
+}
+
+#[cfg(test)]
 pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
+    let refs: Vec<&Manifest> = manifests.iter().collect();
+    extract_declared_refs(&refs)
+}
+
+pub(crate) fn extract_declared_refs(manifests: &[&Manifest]) -> Vec<DeclaredDep> {
     let parsed_pyprojects: Vec<(String, Value)> = manifests
         .iter()
         .filter(|m| is_pyproject_manifest(&m.path))

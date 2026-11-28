@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use codeint_model::language::{Manifest, WorkspaceError};
+use codeint_model::language::{
+    DependencyManifestOwner, Manifest, ManifestAnalysis, WorkspaceError,
+};
+use codeint_model::scan::{manifest_root_excluding, simple_manifest_analysis};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
@@ -20,6 +23,37 @@ struct WorkspaceSection {
     members: Vec<String>,
     #[serde(default)]
     exclude: Vec<String>,
+}
+
+pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
+    simple_manifest_analysis(manifests, CARGO_MANIFEST, workspace_packages, |valid| {
+        let parsed_docs: Vec<(String, String, toml::Value)> = valid
+            .iter()
+            .filter_map(|manifest| {
+                let root = cargo_manifest_root(&manifest.path)?;
+                let doc = toml::from_str::<toml::Value>(&manifest.text).ok()?;
+                Some((root.to_owned(), manifest.path.clone(), doc))
+            })
+            .collect();
+        let owners = parsed_docs
+            .iter()
+            .filter(|(_, _, doc)| !is_virtual_cargo_workspace(doc))
+            .map(|(package_root, path, _)| DependencyManifestOwner {
+                package_root: package_root.clone(),
+                path: path.clone(),
+            })
+            .collect();
+        let declared = crate::dependencies::extract_declared_from_docs(&parsed_docs);
+        (owners, declared)
+    })
+}
+
+pub(crate) fn cargo_manifest_root(path: &str) -> Option<&str> {
+    manifest_root_excluding(path, CARGO_MANIFEST, &["target", "vendor"])
+}
+
+fn is_virtual_cargo_workspace(doc: &toml::Value) -> bool {
+    doc.get("workspace").is_some() && doc.get("package").is_none()
 }
 
 pub(crate) fn workspace_packages(manifests: &[Manifest]) -> Result<Vec<String>, WorkspaceError> {
@@ -44,7 +78,11 @@ pub(crate) fn workspace_packages(manifests: &[Manifest]) -> Result<Vec<String>, 
     let packages: BTreeSet<String> = manifests
         .iter()
         .filter_map(|manifest| manifest.path.strip_suffix(&format!("/{CARGO_MANIFEST}")))
-        .filter(|folder| !folder.split('/').any(|segment| segment == "target"))
+        .filter(|folder| {
+            !folder
+                .split('/')
+                .any(|segment| matches!(segment, "target" | "vendor"))
+        })
         .filter(|folder| included.is_match(folder) && !excluded.is_match(folder))
         .map(str::to_owned)
         .collect();

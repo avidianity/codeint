@@ -110,6 +110,9 @@ pub(super) fn filter_model_to_package(model: &mut CodeModel, selected: &Selected
         retained_roots.contains(&dep.package_root)
             || matches_selected_package_root(selected, &dep.package_root)
     });
+    model.root_dependency_inheritance.retain(|root| {
+        retained_roots.contains(root) || matches_selected_package_root(selected, root)
+    });
 }
 
 fn matches_selected_package_root(selected: &SelectedPackage, package_root: &str) -> bool {

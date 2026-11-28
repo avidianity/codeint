@@ -17,8 +17,8 @@ use exports::codeint::plugin::language::{
     DeclaredDep, DepKind, DependencyManifestOwner, FileDiagnostic, FileHazards, FileModel,
     FileScopeArtifact, FlaggedLine, FrameworkProfileResult, FrameworkProfileSelection, Guest,
     HazardLine, ImportRequest, LowerError, Manifest, ManifestAnalysis, PackageDependency,
-    ReferenceRange, Resolution, ScopeAnalysis, ScopeSummary, SourceSet, SummaryField,
-    WorkspaceError,
+    PackageFrameworkProfiles, ReferenceRange, Resolution, ScopeAnalysis, ScopeSummary, SourceSet,
+    SummaryField, WorkspaceError,
 };
 
 struct V05FeaturesLanguagePlugin;
@@ -73,6 +73,31 @@ fn build_scope_artifact(text: &str, dialect: Option<&str>) -> Vec<u8> {
     format!("DIALECT:{}", dialect.unwrap_or("none")).into_bytes()
 }
 
+fn collect_runtime_imports(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| line.trim().strip_prefix("import "))
+        .map(|spec| spec.trim().to_string())
+        .filter(|spec| !spec.is_empty())
+        .collect()
+}
+
+fn active_profiles_for_importer<'a>(
+    package_profiles: &'a [PackageFrameworkProfiles],
+    importer: &str,
+) -> &'a [String] {
+    package_profiles
+        .iter()
+        .filter(|entry| {
+            entry.package_root.is_empty()
+                || importer == entry.package_root
+                || importer
+                    .strip_prefix(entry.package_root.as_str())
+                    .is_some_and(|rest| rest.starts_with('/'))
+        })
+        .max_by_key(|entry| entry.package_root.len())
+        .map_or(&[], |entry| entry.active_profiles.as_slice())
+}
+
 fn analyze_one_manifest(manifest: Manifest, analysis: &mut ManifestAnalysis) {
     if manifest.text.starts_with("not a valid manifest") {
         analysis.invalid_manifests.push(WorkspaceError {
@@ -101,6 +126,20 @@ fn analyze_one_manifest(manifest: Manifest, analysis: &mut ManifestAnalysis) {
         name: "v05-dep".to_string(),
         kind: DepKind::Runtime,
     });
+    if manifest.text.contains("UNUSED_DEP") {
+        analysis.declared_dependencies.push(DeclaredDep {
+            package_root: package_root.clone(),
+            name: "unused-v05-dep".to_string(),
+            kind: DepKind::Runtime,
+        });
+    }
+    if manifest.text.contains("HOISTED_DEP") {
+        analysis.declared_dependencies.push(DeclaredDep {
+            package_root: package_root.clone(),
+            name: "hoisted-v05-dep".to_string(),
+            kind: DepKind::Runtime,
+        });
+    }
     analysis.manifest_used_dependencies.push(PackageDependency {
         package_root,
         name: "v05-dep".to_string(),
@@ -167,11 +206,13 @@ impl Guest for V05FeaturesLanguagePlugin {
         let source_lines = probe_runtime::count_non_empty_lines(&text);
         let flagged_lines = collect_flagged_lines(&text);
         let diagnostics = collect_diagnostics(&text);
+        let runtime_imports = collect_runtime_imports(&text);
         let scope_artifact = Some(build_scope_artifact(&text, dialect.as_deref()));
         Ok(probe_runtime::blank_file_model!(
             SourceSet::Production,
             source_lines,
             flagged_lines: flagged_lines,
+            runtime_imports: runtime_imports,
             is_tooling_file: path.ends_with(".config.v05"),
             diagnostics: diagnostics,
             scope_artifact: scope_artifact,
@@ -188,11 +229,68 @@ impl Guest for V05FeaturesLanguagePlugin {
         analysis
     }
 
-    probe_runtime::unresolved_imports_stub!();
+    fn resolve_imports(
+        _repository_paths: Vec<String>,
+        _manifests: Vec<Manifest>,
+        requests: Vec<ImportRequest>,
+        package_profiles: Vec<PackageFrameworkProfiles>,
+    ) -> Vec<Resolution> {
+        requests
+            .into_iter()
+            .map(|request| {
+                if request.specifier == "profile-dep" {
+                    let active = active_profiles_for_importer(&package_profiles, &request.importer);
+                    if active.iter().any(|profile| profile == "v05-profile") {
+                        return Resolution::Builtin;
+                    }
+                }
+                Resolution::External(request.specifier)
+            })
+            .collect()
+    }
 
     probe_runtime::empty_entry_points_and_ranges!();
 
-    probe_runtime::empty_framework_profile_stubs!();
+    fn known_framework_profiles() -> Vec<String> {
+        vec!["v05-profile".to_string()]
+    }
+
+    fn resolve_framework_profiles(
+        _package_root: String,
+        files: Vec<String>,
+        _manifests: Vec<Manifest>,
+        selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, String> {
+        let detected = files.iter().any(|path| path.ends_with(".profiled.v05"));
+        let active_profiles = match selection {
+            FrameworkProfileSelection::Disabled => Vec::new(),
+            FrameworkProfileSelection::Auto => {
+                if detected {
+                    vec!["v05-profile".to_string()]
+                } else {
+                    Vec::new()
+                }
+            }
+            FrameworkProfileSelection::Exclude(excluded) => {
+                if detected && !excluded.iter().any(|name| name == "v05-profile") {
+                    vec!["v05-profile".to_string()]
+                } else {
+                    Vec::new()
+                }
+            }
+            FrameworkProfileSelection::Only(only) => only
+                .into_iter()
+                .filter(|name| name == "v05-profile")
+                .collect(),
+        };
+        Ok(FrameworkProfileResult {
+            active_profiles,
+            entry_points: Vec::new(),
+            generated_paths: Vec::new(),
+            reference_ranges: Vec::new(),
+            reference_range_note: None,
+        })
+    }
 
     fn has_hazard_rules() -> bool {
         true

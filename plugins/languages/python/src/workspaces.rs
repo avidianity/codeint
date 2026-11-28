@@ -1,7 +1,35 @@
 use std::collections::BTreeSet;
 
-use codeint_model::language::{Manifest, WorkspaceError};
+use codeint_model::language::{
+    DependencyManifestOwner, Manifest, ManifestAnalysis, WorkspaceError,
+};
+use codeint_model::scan::simple_manifest_analysis;
 use globset::{Glob, GlobSet, GlobSetBuilder};
+
+pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
+    simple_manifest_analysis(manifests, "pyproject.toml", discover, |valid| {
+        let active: Vec<&Manifest> = valid
+            .iter()
+            .copied()
+            .filter(|manifest| crate::dependencies::is_python_dependency_manifest(&manifest.path))
+            .collect();
+        let owners = active
+            .iter()
+            .map(|manifest| {
+                let (root, _) = manifest
+                    .path
+                    .rsplit_once('/')
+                    .unwrap_or(("", &manifest.path));
+                DependencyManifestOwner {
+                    package_root: root.to_owned(),
+                    path: manifest.path.clone(),
+                }
+            })
+            .collect();
+        let declared = crate::dependencies::extract_declared_refs(&active);
+        (owners, declared)
+    })
+}
 
 pub(crate) fn discover(manifests: &[Manifest]) -> Result<Vec<String>, WorkspaceError> {
     let Some(root) = manifests.iter().find(|m| m.path == "pyproject.toml") else {

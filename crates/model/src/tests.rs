@@ -725,6 +725,52 @@ fn validate_manifest_analysis_rejects_duplicate_invalid_manifests() {
     ));
 }
 
+#[test]
+fn validate_manifest_analysis_rejects_unknown_dependency_manifest_and_accepts_known() {
+    let manifests = vec![Manifest {
+        path: "package.json".to_owned(),
+        text: "{}".to_owned(),
+    }];
+    let unknown = ManifestAnalysis {
+        dependency_manifests: vec![crate::DependencyManifestOwner {
+            package_root: "packages/a".to_owned(),
+            path: "packages/a/package.json".to_owned(),
+        }],
+        ..empty_manifest_analysis()
+    };
+    assert!(matches!(
+        validate_manifest_analysis(&manifests, unknown),
+        Err(LanguagePluginError::UnknownDependencyManifest { ref path })
+            if path == "packages/a/package.json"
+    ));
+
+    let valid = ManifestAnalysis {
+        dependency_manifests: vec![crate::DependencyManifestOwner {
+            package_root: String::new(),
+            path: "package.json".to_owned(),
+        }],
+        ..empty_manifest_analysis()
+    };
+    assert!(validate_manifest_analysis(&manifests, valid).is_ok());
+}
+
+#[test]
+fn code_model_merge_sorts_and_deduplicates_root_dependency_inheritance() {
+    let first = CodeModel {
+        root_dependency_inheritance: vec!["packages/b".to_owned(), "packages/a".to_owned()],
+        ..CodeModel::default()
+    };
+    let second = CodeModel {
+        root_dependency_inheritance: vec!["packages/a".to_owned(), "packages/c".to_owned()],
+        ..CodeModel::default()
+    };
+    let merged = CodeModel::merge([first, second]);
+    assert_eq!(
+        merged.root_dependency_inheritance,
+        vec!["packages/a", "packages/b", "packages/c"]
+    );
+}
+
 fn scope_with_hazard(path: &str, line: u32) -> ScopeAnalysis {
     ScopeAnalysis {
         extra_hazards: vec![FileHazards {

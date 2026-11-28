@@ -20,12 +20,18 @@ pub(crate) fn normalize_pub_name(raw: &str) -> String {
     raw.trim().to_ascii_lowercase()
 }
 
+#[cfg(test)]
 pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
+    let refs: Vec<&Manifest> = manifests.iter().collect();
+    extract_declared_refs(&refs)
+}
+
+pub(crate) fn extract_declared_refs(manifests: &[&Manifest]) -> Vec<DeclaredDep> {
     let suffix = format!("/{PUBSPEC_MANIFEST}");
     let mut parsed = Vec::new();
     let mut local_packages = HashSet::new();
     for manifest in manifests {
-        if !is_pubspec_path(&manifest.path, &suffix) {
+        if !crate::workspaces::is_pubspec_path(&manifest.path, &suffix) {
             continue;
         }
         let Ok(Some(doc)) = serde_saphyr::from_str::<Option<PubspecManifest>>(&manifest.text)
@@ -77,12 +83,4 @@ fn collect_pubspec_deps(
             }
         }
     }
-}
-
-fn is_pubspec_path(path: &str, suffix: &str) -> bool {
-    let matches_name = path == PUBSPEC_MANIFEST || path.ends_with(suffix);
-    let ignored_dir = path
-        .split('/')
-        .any(|seg| matches!(seg, "vendor" | ".dart_tool"));
-    matches_name && !ignored_dir
 }

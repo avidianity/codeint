@@ -17,7 +17,6 @@ use codeint_model::language::{FileModel, Token, TokenKind};
 use codeint_model::scan::CoreReferenceRanges;
 use codeint_model::token_text_hash;
 
-use crate::dependencies::extract_declared;
 use crate::entry_points::discover as discover_entry_points;
 use crate::lexer::{DartKind, DartToken};
 
@@ -85,9 +84,8 @@ codeint_model::impl_builtin_language_plugin!(
     flagged_lines(flagged_line_rules()),
     imports(
         resolution::find_pubspecs,
-        workspaces::discover,
+        workspaces::analyze_manifests,
         by_profile(resolution::resolve_dart_imports),
-        extract_declared,
         discover_entry_points,
     ),
     frameworks(frameworks),

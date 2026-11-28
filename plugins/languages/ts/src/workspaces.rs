@@ -1,4 +1,8 @@
-use codeint_model::language::{Manifest, WorkspaceError};
+use std::collections::HashSet;
+
+use codeint_model::language::{
+    DependencyManifestOwner, Manifest, ManifestAnalysis, WorkspaceError,
+};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 
@@ -11,6 +15,102 @@ pub(crate) use pnpm::PNPM_WORKSPACE_MANIFEST;
 pub(crate) const PACKAGE_MANIFEST: &str = "package.json";
 
 const WRONG_SHAPE: &str = "the workspaces field must be an array of folder patterns, or an object whose packages field is one";
+
+pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
+    let mut invalid_manifests = Vec::new();
+    let (workspace_packages, root_invalid) =
+        discover_workspace_packages_single_pass(manifests, &mut invalid_manifests);
+    let active_manifests: Vec<&Manifest> = manifests
+        .iter()
+        .filter(|manifest| !(root_invalid && manifest.path == PACKAGE_MANIFEST))
+        .filter(|manifest| package_manifest_root(&manifest.path).is_some())
+        .collect();
+    let active_parsed: Vec<(&str, &str, Value)> = active_manifests
+        .iter()
+        .filter_map(|manifest| {
+            let root = package_manifest_root(&manifest.path)?;
+            let doc = serde_json::from_str::<Value>(&manifest.text).ok()?;
+            Some((root, manifest.path.as_str(), doc))
+        })
+        .collect();
+    let dependency_manifests: Vec<DependencyManifestOwner> = active_parsed
+        .iter()
+        .map(|(root, path, _)| DependencyManifestOwner {
+            package_root: (*root).to_owned(),
+            path: (*path).to_owned(),
+        })
+        .collect();
+    let declared_dependencies = crate::dependencies::extract_declared_from_active(&active_parsed);
+    let manifest_used_dependencies = crate::package_scripts::extract_manifest_used_dependencies(
+        &active_manifests,
+        &workspace_packages,
+        &declared_dependencies,
+    );
+    let root_dependency_inheritance =
+        collect_root_inheritance(&workspace_packages, &dependency_manifests);
+    ManifestAnalysis {
+        workspace_packages,
+        invalid_manifests,
+        dependency_manifests,
+        declared_dependencies,
+        manifest_used_dependencies,
+        root_dependency_inheritance,
+    }
+}
+
+fn discover_workspace_packages_single_pass(
+    manifests: &[Manifest],
+    invalid_manifests: &mut Vec<WorkspaceError>,
+) -> (Vec<String>, bool) {
+    if let Some(pnpm_manifest) = manifests
+        .iter()
+        .find(|manifest| manifest.path == PNPM_WORKSPACE_MANIFEST)
+    {
+        match pnpm::pnpm_package_patterns(&pnpm_manifest.text)
+            .map_err(|message| WorkspaceError {
+                path: PNPM_WORKSPACE_MANIFEST.to_owned(),
+                message,
+            })
+            .and_then(|patterns| pnpm::pnpm_workspace_packages(manifests, &patterns))
+        {
+            Ok(packages) => return (packages, false),
+            Err(error) => invalid_manifests.push(error),
+        }
+    }
+    match package_json_workspace_packages(manifests) {
+        Ok(packages) => (packages, false),
+        Err(error) => {
+            invalid_manifests.push(error);
+            (Vec::new(), true)
+        }
+    }
+}
+
+fn collect_root_inheritance(
+    workspace_packages: &[String],
+    dependency_manifests: &[DependencyManifestOwner],
+) -> Vec<String> {
+    let manifest_roots: HashSet<&str> = dependency_manifests
+        .iter()
+        .map(|owner| owner.package_root.as_str())
+        .collect();
+    if !manifest_roots.contains("") {
+        return Vec::new();
+    }
+    workspace_packages
+        .iter()
+        .filter(|root| !root.is_empty() && manifest_roots.contains(root.as_str()))
+        .cloned()
+        .collect()
+}
+
+pub(crate) fn package_manifest_root(path: &str) -> Option<&str> {
+    codeint_model::scan::manifest_root_excluding(
+        path,
+        PACKAGE_MANIFEST,
+        &["node_modules", "vendor"],
+    )
+}
 
 pub(crate) fn workspace_packages(manifests: &[Manifest]) -> Result<Vec<String>, WorkspaceError> {
     let Some(pnpm_workspace_manifest) = manifests

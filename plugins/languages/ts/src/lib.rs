@@ -5,6 +5,7 @@ mod entry_points;
 mod frameworks;
 mod functions;
 mod nesting;
+mod package_scripts;
 mod resolution;
 mod rules;
 mod runtime_imports;
@@ -22,7 +23,6 @@ use oxc_parser::Parser;
 use oxc_parser::config::TokensParserConfig;
 use oxc_span::SourceType;
 
-use crate::dependencies::extract_declared;
 use crate::entry_points::entry_points as discover_entry_points;
 use crate::functions::{CodeLines, functions};
 use crate::resolution::{ProjectResolver, manifest_paths};
@@ -92,9 +92,8 @@ codeint_model::impl_builtin_language_plugin!(
     flagged_lines(flagged_line_rules()),
     imports(
         manifest_paths,
-        workspaces::workspace_packages,
+        workspaces::analyze_manifests,
         by_profile(resolve_ts_batch),
-        extract_declared,
         ts_entry_points,
     ),
     frameworks(frameworks),

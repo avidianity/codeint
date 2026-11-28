@@ -2277,3 +2277,89 @@ fn plugin_trap_in_workspace_packages_stays_fatal_for_every_plugin_name() {
         );
     }
 }
+
+#[test]
+fn v05_wasm_plugin_achieves_full_manifest_flagged_lines_and_profile_parity_in_codeint_check() {
+    let (repo, _hash) = init_single_probe_repo(
+        "v05-features",
+        Some("language"),
+        "v0_5_0_features_language_plugin.wasm",
+        "",
+    );
+    write_file(repo.path(), "package.json", "HOISTED_DEP UNUSED_DEP\n");
+    write_file(repo.path(), "packages/web/package.json", "{}\n");
+    write_file(
+        repo.path(),
+        "packages/web/src/app.profiled.v05",
+        "NOOP_FLAG\nimport hoisted-v05-dep\nimport profile-dep\n",
+    );
+    write_file(repo.path(), "packages/plain/package.json", "{}\n");
+    write_file(
+        repo.path(),
+        "packages/plain/src/index.v05",
+        "import profile-dep\n",
+    );
+    write_file(
+        repo.path(),
+        "packages/broken/package.json",
+        "not a valid manifest\n",
+    );
+
+    let report = run_check_json_report(repo.path());
+
+    assert_eq!(
+        report["source_sets"]["production"]["verbosity"]["flagged_lines"], 1,
+        "report: {report}"
+    );
+    assert_eq!(
+        report["source_sets"]["production"]["verbosity"]["findings"][0]["rule"], "redundant-noop",
+        "report: {report}"
+    );
+
+    let warnings = report["manifest_warnings"]
+        .as_array()
+        .expect("manifest_warnings array");
+    assert!(
+        warnings.iter().any(|warning| {
+            warning
+                .as_str()
+                .is_some_and(|text| text.contains("packages/broken/package.json"))
+        }),
+        "expected malformed manifest warning, got: {warnings:?}"
+    );
+
+    let package_names: Vec<&str> = report["source_sets"]["production"]["packages"]
+        .as_array()
+        .expect("workspace packages")
+        .iter()
+        .filter_map(|pkg| pkg["path"].as_str())
+        .collect();
+    assert!(
+        package_names.contains(&"packages/web") && package_names.contains(&"packages/plain"),
+        "expected discovered workspace packages, got: {package_names:?}"
+    );
+
+    let unused: Vec<(&str, &str)> = report["dependencies"]["unused_dependencies"]["findings"]
+        .as_array()
+        .expect("unused findings")
+        .iter()
+        .filter_map(|item| Some((item["package"].as_str()?, item["dependency"].as_str()?)))
+        .collect();
+    assert_eq!(
+        unused,
+        vec![(".", "unused-v05-dep")],
+        "expected only unused-v05-dep unused (v05-dep credited by manifest_used_dependencies and hoisted-v05-dep credited via root_dependency_inheritance), got: {unused:?}"
+    );
+
+    let unlisted: Vec<(&str, &str)> = report["dependencies"]["unlisted_dependencies"]["findings"]
+        .as_array()
+        .expect("unlisted findings")
+        .iter()
+        .filter_map(|item| Some((item["package"].as_str()?, item["dependency"].as_str()?)))
+        .collect();
+    assert_eq!(
+        unlisted,
+        vec![("packages/plain", "profile-dep")],
+        "expected profile-dep resolved as builtin in packages/web (v05-profile active) and unlisted only in packages/plain, got: {unlisted:?}"
+    );
+}

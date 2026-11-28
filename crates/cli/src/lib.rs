@@ -13,7 +13,6 @@ mod guard;
 mod impact;
 mod init;
 mod mcp;
-mod package_scripts;
 mod plugin_test;
 mod ratchet;
 mod remedy;

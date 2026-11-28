@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use codeint_model::language::{Manifest, WorkspaceError};
+use codeint_model::language::{
+    DependencyManifestOwner, Manifest, ManifestAnalysis, WorkspaceError,
+};
+use codeint_model::scan::{manifest_root_excluding, simple_manifest_analysis};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
@@ -12,6 +15,33 @@ pub(crate) const PUBSPEC_MANIFEST: &str = "pubspec.yaml";
 #[derive(Deserialize)]
 struct PubspecWorkspace {
     workspace: Option<Vec<String>>,
+}
+
+pub(crate) fn analyze_manifests(manifests: &[Manifest]) -> ManifestAnalysis {
+    simple_manifest_analysis(manifests, PUBSPEC_MANIFEST, discover, |valid| {
+        let mut active = Vec::new();
+        let mut owners = Vec::new();
+        for manifest in valid {
+            let Some(root) = manifest_root_excluding(
+                &manifest.path,
+                PUBSPEC_MANIFEST,
+                &["vendor", ".dart_tool"],
+            ) else {
+                continue;
+            };
+            active.push(*manifest);
+            owners.push(DependencyManifestOwner {
+                package_root: root.to_owned(),
+                path: manifest.path.clone(),
+            });
+        }
+        let declared = crate::dependencies::extract_declared_refs(&active);
+        (owners, declared)
+    })
+}
+
+pub(crate) fn is_pubspec_path(path: &str, _suffix: &str) -> bool {
+    manifest_root_excluding(path, PUBSPEC_MANIFEST, &["vendor", ".dart_tool"]).is_some()
 }
 
 fn pubspec_error(message: String) -> WorkspaceError {

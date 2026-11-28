@@ -98,9 +98,8 @@ codeint_model::impl_builtin_language_plugin!(
     flagged_lines(flagged_line_rules()),
     imports(
         resolution::find_go_mods,
-        workspaces::discover,
+        workspaces::analyze_manifests,
         |paths, manifests, requests, _| resolution::resolve_all(paths, manifests, requests, &[]),
-        dependencies::extract_declared,
         entry_points::discover,
     ),
     frameworks(none),
