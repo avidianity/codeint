@@ -32,10 +32,10 @@ jobs:
 | ----- | ------- | ----------- |
 | `base-ref` | `origin/<github.base_ref>` | Base Git ref to diff against. |
 | `path` | `.` | Folder inside the Git repository to run codeint from; codeint measures that whole repository. |
-| `version` | `latest` | Release tag (for example `v0.9.0`) or `latest`. |
+| `version` | `latest` | Release tag (for example `v0.9.0`) or `latest`. Pinned tags download that tag's installer, checksums, and archive via `CODEINT_VERSION` and verify `codeint --version` matches the tag. |
 | `comment` | `true` | Post or update one sticky pull-request summary comment. |
-| `upload-sarif` | `false` | Upload `codeint.sarif` to GitHub code scanning (requires `security-events: write`). |
-| `fail-on-regression` | `true` | Fail the step when `codeint diff` exits `1`. |
+| `upload-sarif` | `false` | Upload `codeint.sarif` to GitHub code scanning (requires `security-events: write`). Unexpected SARIF pass exit codes always fail the Action. |
+| `fail-on-regression` | `true` | Fail the step when `codeint diff` exits `1`. Exit code `0` always passes, exit code `1` passes only when `false`, and every other exit status (including crashes, missing values, or non-numeric values) always fails. |
 | `token` | `${{ github.token }}` | Token used to post or update the pull-request comment. |
 
 ## Single-scan multi-format workflow with `codeint report`

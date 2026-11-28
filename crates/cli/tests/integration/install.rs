@@ -6,6 +6,8 @@ use std::sync::OnceLock;
 
 use tempfile::TempDir;
 
+use crate::common::{host_target, sha256_of};
+
 struct ReleaseArtifacts {
     folder: TempDir,
     archive_name: String,
@@ -77,34 +79,6 @@ impl ReleaseArtifacts {
 
 fn install_script() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../install.sh")
-}
-
-fn host_target() -> &'static str {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => "aarch64-apple-darwin",
-        ("macos", "x86_64") => "x86_64-apple-darwin",
-        ("linux", "x86_64") => "x86_64-unknown-linux-musl",
-        ("linux", "aarch64") => "aarch64-unknown-linux-musl",
-        (os, arch) => panic!("unsupported test host {os}/{arch}"),
-    }
-}
-
-fn sha256_of(path: &Path) -> String {
-    let output = Command::new("sh")
-        .args([
-            "-c",
-            r#"if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{ print tolower($1) }'"#,
-            "_",
-        ])
-        .arg(path)
-        .output()
-        .expect("compute sha256");
-    assert!(
-        output.status.success(),
-        "sha256 command failed: {}",
-        text(&output.stderr)
-    );
-    text(&output.stdout).trim().to_owned()
 }
 
 fn text(bytes: &[u8]) -> String {
