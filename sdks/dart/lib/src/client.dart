@@ -29,13 +29,13 @@ class CodeintClient {
   final Map<String, String>? environment;
 
   CommonOptions get _common => CommonOptions(
-        cwd: cwd,
-        binaryPath: binaryPath,
-        allowDownload: allowDownload,
-        releaseBaseUrl: releaseBaseUrl,
-        cacheDir: cacheDir,
-        environment: environment,
-      );
+    cwd: cwd,
+    binaryPath: binaryPath,
+    allowDownload: allowDownload,
+    releaseBaseUrl: releaseBaseUrl,
+    cacheDir: cacheDir,
+    environment: environment,
+  );
 
   Future<String> ensureBinary([BinaryResolverOptions? options]) =>
       ensureBinaryResolved(options ?? _common.toResolverOptions());
@@ -80,9 +80,7 @@ class CodeintClient {
     );
   }
 
-  Future<TrendReport> trend([
-    TrendOptions options = const TrendOptions(),
-  ]) {
+  Future<TrendReport> trend([TrendOptions options = const TrendOptions()]) {
     if (options.last != null && options.last! <= 0) {
       return Future<TrendReport>.error(
         const CodeintError('TrendOptions.last must be at least 1'),
@@ -107,9 +105,7 @@ class CodeintClient {
     );
   }
 
-  Future<ImpactReport> impact([
-    ImpactOptions options = const ImpactOptions(),
-  ]) {
+  Future<ImpactReport> impact([ImpactOptions options = const ImpactOptions()]) {
     final args = <String>['impact', ...options.paths];
     _addOpt(args, '--changed', options.changed);
     _addOpt(args, '--depth', options.depth);
@@ -133,9 +129,7 @@ class CodeintClient {
     return runJsonCommand(args, _common, TraceReport.fromJson);
   }
 
-  Future<InitResult> init([
-    InitOptions options = const InitOptions(),
-  ]) async {
+  Future<InitResult> init([InitOptions options = const InitOptions()]) async {
     final args = <String>['init', '--format', options.format.cliValue];
     if (options.adopt) {
       args.add('--adopt');
@@ -145,20 +139,18 @@ class CodeintClient {
   }
 
   Future<GuardReport> guard(String path) => runJsonCommand(
-        <String>['guard', path, '--format', 'json'],
-        _common,
-        GuardReport.fromJson,
-      );
+    <String>['guard', path, '--format', 'json'],
+    _common,
+    GuardReport.fromJson,
+  );
 
   Future<SchemaReport> schema() => runJsonCommand(
-        const <String>['schema', '--format', 'json'],
-        _common,
-        SchemaReport.fromJson,
-      );
+    const <String>['schema', '--format', 'json'],
+    _common,
+    SchemaReport.fromJson,
+  );
 
-  Future<ConfigReport> config([
-    ConfigOptions options = const ConfigOptions(),
-  ]) {
+  Future<ConfigReport> config([ConfigOptions options = const ConfigOptions()]) {
     final args = <String>['config'];
     if (options.path != null) {
       args.add(options.path!);
@@ -222,9 +214,7 @@ class CodeintClient {
     return runJsonCommand(args, _common, parseAgentInstallReport);
   }
 
-  Future<ChurnReport> churn([
-    ChurnOptions options = const ChurnOptions(),
-  ]) {
+  Future<ChurnReport> churn([ChurnOptions options = const ChurnOptions()]) {
     final args = <String>['churn'];
     _appendHistoryArgs(
       args,
@@ -256,21 +246,19 @@ class CodeintClient {
 
   Future<RatchetUpdateReport> ratchetUpdate([
     RatchetUpdateOptions options = const RatchetUpdateOptions(),
-  ]) =>
-      runJsonCommand(
-        _stateUpdateArgs('ratchet', options),
-        _common,
-        parseRatchetUpdateReport,
-      );
+  ]) => runJsonCommand(
+    _stateUpdateArgs('ratchet', options),
+    _common,
+    parseRatchetUpdateReport,
+  );
 
   Future<BaselineUpdateReport> baselineUpdate([
     BaselineUpdateOptions options = const BaselineUpdateOptions(),
-  ]) =>
-      runJsonCommand(
-        _stateUpdateArgs('baseline', options),
-        _common,
-        parseBaselineUpdateReport,
-      );
+  ]) => runJsonCommand(
+    _stateUpdateArgs('baseline', options),
+    _common,
+    parseBaselineUpdateReport,
+  );
 
   Future<GatedOutcome<PluginTestReport>> pluginTest(
     String wasmPath, [
@@ -294,8 +282,7 @@ class CodeintClient {
 
 Future<String> ensureBinaryResolved([
   BinaryResolverOptions options = const BinaryResolverOptions(),
-]) =>
-    ensureBinary(options);
+]) => ensureBinary(options);
 
 void _addOpt(List<String> args, String flag, Object? value) {
   if (value != null) {
@@ -360,8 +347,9 @@ List<String> _stateUpdateArgs(String command, StateUpdateOptions options) {
   return args;
 }
 
-Map<String, String>? _resultCacheEnv(String? resultCache) =>
-    resultCache == null ? null : <String, String>{'CODEINT_CACHE_DIR': resultCache};
+Map<String, String>? _resultCacheEnv(String? resultCache) => resultCache == null
+    ? null
+    : <String, String>{'CODEINT_CACHE_DIR': resultCache};
 
 InitResult _parseInitOutput(String stdout, bool adopt) {
   final lines = const LineSplitter().convert(stdout);

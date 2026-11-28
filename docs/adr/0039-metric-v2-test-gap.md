@@ -15,7 +15,7 @@ In Test gap version 1, however, coverage attribution scanned every listed line a
 This mismatch distorted per-function Findings and repository Test gap ratios across all languages:
 
 - An executed outer function containing an untested nested function or closure inherited the inner function's zero-hit lines, penalizing both the inner function and the outer function.
-- A parent function whose only executable lines lived inside nested functions was scored on its children's lines instead of being treated as a function with zero listed lines.
+- A parent function whose only executable lines lived inside nested functions was measured on its children's lines instead of being treated as a function with zero listed lines.
 - A Shell top-level `<script>` function wrapping named functions inherited every untested line of those named functions.
 
 Per [ADR 0023](./0023-metric-versioning.md), changing a Metric's calculation rules increments its positive integer Metric version.

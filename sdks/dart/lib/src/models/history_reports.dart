@@ -84,18 +84,19 @@ class TrendReport extends JsonModel {
   Map<String, List<TrendRow>> get sourceSets {
     final setsMap = requireJsonMap(json['source_sets'], 'source_sets');
     return setsMap.map(
-      (key, _) => MapEntry(key, readObjectList(setsMap, key, TrendRow.fromJson)),
+      (key, _) =>
+          MapEntry(key, readObjectList(setsMap, key, TrendRow.fromJson)),
     );
   }
 
   String? get testGapNote => optStr('test_gap_note');
   List<CommitManifestWarnings> get manifestWarnings => optList(
-        'manifest_warnings',
-        (m) => (
-          commit: readString(m, 'commit'),
-          warnings: readStringList(m, 'warnings'),
-        ),
-      );
+    'manifest_warnings',
+    (m) => (
+      commit: readString(m, 'commit'),
+      warnings: readStringList(m, 'warnings'),
+    ),
+  );
 }
 
 class TrendRow extends JsonModel {
@@ -127,12 +128,12 @@ class TrendRow extends JsonModel {
 }
 
 ChurnReport parseChurnReport(Map<String, Object?> j) => (
-      window: readString(j, 'window'),
-      commitsAnalyzed: readInt(j, 'commits_analyzed'),
-      shallow: readBool(j, 'shallow'),
-      warning: readOptionalString(j, 'warning'),
-      sourceSets: readObjectMap(j, 'source_sets', _parseSourceSetChurn),
-    );
+  window: readString(j, 'window'),
+  commitsAnalyzed: readInt(j, 'commits_analyzed'),
+  shallow: readBool(j, 'shallow'),
+  warning: readOptionalString(j, 'warning'),
+  sourceSets: readObjectMap(j, 'source_sets', _parseSourceSetChurn),
+);
 
 SourceSetChurn _parseSourceSetChurn(Map<String, Object?> j) {
   final er = requireJsonMap(j['erosion'], 'erosion');
@@ -175,27 +176,27 @@ SourceSetChurn _parseSourceSetChurn(Map<String, Object?> j) {
 }
 
 CouplingReport parseCouplingReport(Map<String, Object?> j) => (
-      window: readString(j, 'window'),
-      commitsAnalyzed: readInt(j, 'commits_analyzed'),
-      commitsExcludedByBulkLimit: readInt(j, 'commits_excluded_by_bulk_limit'),
-      maxCommitFiles: readInt(j, 'max_commit_files'),
-      minCoChanges: readInt(j, 'min_co_changes'),
-      minRatio: readDouble(j, 'min_ratio'),
-      sourceSets: readStringList(j, 'source_sets'),
-      shallow: readBool(j, 'shallow'),
-      warning: readOptionalString(j, 'warning'),
-      pairsLeftOut: readOptionalInt(j, 'pairs_left_out'),
-      pairs: readObjectList(
-        j,
-        'pairs',
-        (m) => (
-          fileA: readString(m, 'file_a'),
-          fileB: readString(m, 'file_b'),
-          coChangeCount: readInt(m, 'co_change_count'),
-          fileACommits: readInt(m, 'file_a_commits'),
-          fileBCommits: readInt(m, 'file_b_commits'),
-          couplingRatio: readDouble(m, 'coupling_ratio'),
-          hasDirectImport: readBool(m, 'has_direct_import'),
-        ),
-      ),
-    );
+  window: readString(j, 'window'),
+  commitsAnalyzed: readInt(j, 'commits_analyzed'),
+  commitsExcludedByBulkLimit: readInt(j, 'commits_excluded_by_bulk_limit'),
+  maxCommitFiles: readInt(j, 'max_commit_files'),
+  minCoChanges: readInt(j, 'min_co_changes'),
+  minRatio: readDouble(j, 'min_ratio'),
+  sourceSets: readStringList(j, 'source_sets'),
+  shallow: readBool(j, 'shallow'),
+  warning: readOptionalString(j, 'warning'),
+  pairsLeftOut: readOptionalInt(j, 'pairs_left_out'),
+  pairs: readObjectList(
+    j,
+    'pairs',
+    (m) => (
+      fileA: readString(m, 'file_a'),
+      fileB: readString(m, 'file_b'),
+      coChangeCount: readInt(m, 'co_change_count'),
+      fileACommits: readInt(m, 'file_a_commits'),
+      fileBCommits: readInt(m, 'file_b_commits'),
+      couplingRatio: readDouble(m, 'coupling_ratio'),
+      hasDirectImport: readBool(m, 'has_direct_import'),
+    ),
+  ),
+);

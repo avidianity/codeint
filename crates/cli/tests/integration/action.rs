@@ -152,10 +152,13 @@ fn run_action_diff_with_stub_codeint(
     let workspace = init_git_repo(&[("pkg/src/tidy.ts", "export const tidy = 1;\n")]);
     let tools = TempDir::new().expect("tool folder");
     let stub = tools.path().join("codeint");
+    let invocations_log = tools.path().join("invocations.log");
+    fs::write(&invocations_log, "").expect("create invocations log");
     write_executable(
         &stub,
         &format!(
-            "#!/usr/bin/env bash\nset -euo pipefail\nFORMAT=\"\"\nOUTPUT=\"\"\nwhile [ \"$#\" -gt 0 ]; do\n  case \"$1\" in\n    --format) FORMAT=\"$2\"; shift 2 ;;\n    --output) OUTPUT=\"$2\"; shift 2 ;;\n    *) shift ;;\n  esac\ndone\nif [ \"$FORMAT\" = \"sarif\" ]; then\n  if [ {sarif_exit} -eq 0 ] || [ {sarif_exit} -eq 1 ]; then\n    printf '{{}}' > \"$OUTPUT\"\n  fi\n  exit {sarif_exit}\nfi\nif [ -n \"$OUTPUT\" ]; then\n  printf '# report\\n' > \"$OUTPUT\"\nfi\nexit {markdown_exit}\n"
+            "#!/usr/bin/env bash\nset -euo pipefail\nFORMAT=\"\"\nOUTPUT=\"\"\nwhile [ \"$#\" -gt 0 ]; do\n  case \"$1\" in\n    --format) FORMAT=\"$2\"; shift 2 ;;\n    --output) OUTPUT=\"$2\"; shift 2 ;;\n    *) shift ;;\n  esac\ndone\nprintf '%s\\n' \"$FORMAT\" >> '{log}'\nif [ \"$FORMAT\" = \"sarif\" ]; then\n  if [ {sarif_exit} -eq 0 ] || [ {sarif_exit} -eq 1 ]; then\n    printf '{{}}' > \"$OUTPUT\"\n  fi\n  exit {sarif_exit}\nfi\nif [ -n \"$OUTPUT\" ]; then\n  printf '# report\\n' > \"$OUTPUT\"\nfi\nexit {markdown_exit}\n",
+            log = invocations_log.display(),
         ),
     );
     let github_output = tools.path().join("github-output");
@@ -176,9 +179,15 @@ fn run_action_diff_with_stub_codeint(
         .output()
         .expect("run scripts/action-diff.sh");
     let outputs = fs::read_to_string(&github_output).expect("read GITHUB_OUTPUT");
+    let invocations = fs::read_to_string(&invocations_log)
+        .expect("read invocations log")
+        .lines()
+        .map(str::to_owned)
+        .collect();
     ActionRun {
         output,
         outputs,
+        invocations,
         workspace,
         _tools: tools,
     }
@@ -187,6 +196,7 @@ fn run_action_diff_with_stub_codeint(
 struct ActionRun {
     output: Output,
     outputs: String,
+    invocations: Vec<String>,
     workspace: TempDir,
     _tools: TempDir,
 }
@@ -226,6 +236,7 @@ fn run_action_diff(path_input: &str, upload_sarif: bool, edit: impl FnOnce(&Path
     ActionRun {
         output,
         outputs,
+        invocations: Vec::new(),
         workspace,
         _tools: tools,
     }
@@ -363,22 +374,49 @@ fn sarif_pass_unexpected_exit_code_fails_diff_wrapper_and_exit_enforcement() {
 
     for bad_sarif in [2, 101, 137] {
         let run = run_action_diff_with_stub_codeint(0, bad_sarif, true);
-        assert_eq!(
-            run.output.status.code(),
-            Some(bad_sarif),
-            "expected action-diff.sh to fail with {bad_sarif} on unexpected SARIF exit, got {:?}, stderr={}",
+        assert!(
+            run.output.status.success(),
+            "action-diff.sh should exit 0 so PR comment and exit enforcement run, got {:?}, stderr={}",
             run.output.status.code(),
             String::from_utf8_lossy(&run.output.stderr)
+        );
+        assert_eq!(run.invocations, vec!["markdown", "sarif"]);
+        assert!(
+            run.outputs
+                .contains(&format!("sarif-exit-code={bad_sarif}\n")),
+            "missing sarif-exit-code={bad_sarif} output: {}",
+            run.outputs
         );
         assert!(
             !run.outputs.contains("sarif-file="),
             "broken SARIF pass must not emit sarif-file output: {}",
             run.outputs
         );
+        assert!(!run.workspace.path().join("codeint.sarif").exists());
 
         let enforced = run_enforce_exit(Some("0"), "false", true, Some(&bad_sarif.to_string()));
         assert_eq!(enforced.status.code(), Some(bad_sarif));
     }
+
+    let md_crash = run_action_diff_with_stub_codeint(137, 0, true);
+    assert!(
+        md_crash.output.status.success(),
+        "action-diff.sh should exit 0 and defer enforcement when markdown exits 137"
+    );
+    assert_eq!(
+        md_crash.invocations,
+        vec!["markdown"],
+        "unexpected markdown exit must skip invoking SARIF pass"
+    );
+    assert!(md_crash.outputs.contains("exit-code=137\n"));
+    assert!(!md_crash.outputs.contains("sarif-exit-code="));
+    assert!(!md_crash.outputs.contains("sarif-file="));
+    assert_eq!(
+        run_enforce_exit(Some("137"), "false", true, None)
+            .status
+            .code(),
+        Some(137)
+    );
 
     assert!(
         !run_enforce_exit(Some("0"), "false", true, None)
@@ -441,7 +479,7 @@ fn action_install_fails_when_installed_binary_version_mismatches_requested_tag()
     let releases = TempDir::new().expect("create stub releases");
     build_stub_release_dir(&releases.path().join("download/v0.8.0"), "0.9.0");
 
-    let (output, _curl_log, _github_path, _sandbox) =
+    let (output, _curl_log, github_path, _sandbox) =
         run_action_install_with_stub_releases("v0.8.0", releases.path(), None);
     assert!(
         !output.status.success(),
@@ -452,6 +490,11 @@ fn action_install_fails_when_installed_binary_version_mismatches_requested_tag()
     assert!(
         stderr.contains("0.8.0") && stderr.contains("0.9.0"),
         "expected version mismatch diagnostic in stderr, got: {stderr}"
+    );
+    let path_entries = fs::read_to_string(&github_path).expect("read GITHUB_PATH");
+    assert!(
+        path_entries.trim().is_empty(),
+        "mismatched binary must not be added to GITHUB_PATH, got: {path_entries}"
     );
 }
 

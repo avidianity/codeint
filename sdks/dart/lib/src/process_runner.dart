@@ -171,9 +171,5 @@ CodeintError _errorFromRawResult(List<String> args, RawCommandResult raw) {
   final message = trimmedStderr.isNotEmpty
       ? trimmedStderr
       : 'codeint ${args.join(' ')} failed with exit code ${raw.exitCode}';
-  return CodeintError(
-    message,
-    exitCode: raw.exitCode,
-    stderr: raw.stderr,
-  );
+  return CodeintError(message, exitCode: raw.exitCode, stderr: raw.stderr);
 }

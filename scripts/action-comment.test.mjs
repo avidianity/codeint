@@ -5,6 +5,7 @@ import {
   STICKY_MARKER,
   buildCommentBody,
   findStickyCommentId,
+  parseExitCode,
 } from "./action-comment.mjs";
 
 test("buildCommentBody includes sticky marker and status", () => {
@@ -33,4 +34,22 @@ test("findStickyCommentId finds existing marker or returns null", () => {
     42
   );
   assert.equal(findStickyCommentId([{ id: 10, body: "plain" }]), null);
+});
+
+test("parseExitCode rejects empty or non-numeric values instead of treating them as 0", () => {
+  assert.equal(parseExitCode("0"), 0);
+  assert.equal(parseExitCode("1"), 1);
+  assert.equal(parseExitCode("137"), 137);
+  assert.equal(parseExitCode(""), null);
+  assert.equal(parseExitCode("   "), null);
+  assert.equal(parseExitCode(undefined), null);
+  assert.equal(parseExitCode("abc"), null);
+  assert.equal(parseExitCode("-1"), null);
+
+  const missingBody = buildCommentBody("partial report", parseExitCode(""));
+  assert.ok(missingBody.includes("Error (missing or invalid exit code)"));
+  assert.ok(!missingBody.includes("Passed"));
+
+  const crashBody = buildCommentBody("partial report", parseExitCode("137"));
+  assert.ok(crashBody.includes("Error (exit code 137)"));
 });
