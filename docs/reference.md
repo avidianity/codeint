@@ -560,6 +560,7 @@ With no failure, the report has no `over_budget` or `regressions` key, and codei
 | Option | Meaning |
 | ------ | ------- |
 | `--since <YYYY-MM-DD>` | Measure every main-line commit committed on or after this day, in UTC, instead of the latest 20 |
+| `--commits <COUNT>` | Measure at most this many latest main-line commits from HEAD instead of the latest 20 |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, or `markdown`; overrides `format` in the configuration file |
 | `-h, --help` | Print the help of `codeint trend` |
@@ -586,7 +587,14 @@ source_sets:
 ```
 
 The main line is the first-parent history of HEAD: a merge commit is a row, and the commits of the branch it merged are not.
-Without `--since`, codeint measures the latest 20 commits of the main line.
+Without `--since` or `--commits`, codeint measures the latest 20 commits of the main line.
+`--commits <COUNT>` measures at most `<COUNT>` latest main-line commits from HEAD (for counts below, equal to, or above 20):
+
+```sh exit=0
+codeint trend --commits 2
+```
+
+Passing `--commits 0` or combining `--since` and `--commits` stops the run with exit code 2.
 `--since {YYYY-MM-DD}` measures every main-line commit committed on or after the start of that day in UTC, with no limit on the count:
 
 ```sh exit=0

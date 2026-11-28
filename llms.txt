@@ -22,7 +22,7 @@
 
 ## Reference and APIs
 
-- [CLI and Configuration Reference](docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and schema key.
+- [CLI and Configuration Reference](docs/reference.md): tested reference for every command, flag (including `trend --commits` and `--since`), exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and schema key.
 - [Programmatic API](docs/programmatic.md): Wave 1 client SDKs for JavaScript/TypeScript (`codeint` npm package), Rust (`codeint-cli`), and Dart (`codeint` pub.dev package and `dart run codeint`) across all 18 non-interactive operations.
 - [Plugins](docs/plugins.md): build external WebAssembly Language and Metric plugins against `codeint:plugin@0.5.0` using `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`, zero WASI imports), pin SHA-256 digests, declare in config, and test.
 - [Plugin SDK HOW-TO](crates/plugin-sdk/HOW-TO.md): call contract and Cargo features for `codeint-plugin-sdk`.

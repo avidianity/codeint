@@ -1,6 +1,6 @@
 # Feature map: `codeint trend`
 
-Verifies multi-commit main-line history measurement, `--since` date filtering, report formats, result cache population, and operational errors.
+Verifies multi-commit main-line history measurement, `--commits` commit-count windows, `--since` date filtering, report formats, result cache population, and operational errors.
 See [codeint trend](../../reference.md#codeint-trend) for the command specification.
 
 ## Preconditions

@@ -212,7 +212,8 @@ let unix_seconds = match range {
 let shown_day = CalendarDay::containing(committed_at_unix_seconds).to_string();
 ```
 
-- Without `--since`, the range is `TrendRange::Latest(20)`.
+- Without `--since` or `--commits`, the range is `TrendRange::Latest(20)`.
+- `--commits` takes a positive integer (`NonZeroUsize`) and resolves to `TrendRange::Latest(count)`; `--commits 0` and combining `--since` with `--commits` both fail with exit code 2.
 - `--since` takes a plain `YYYY-MM-DD` day; codeint parses it itself, with no date-time library, and rejects a day that does not exist, such as `2026-02-30`, with exit code 2.
 - A `CalendarDay` is a day in UTC: `start_unix_seconds` is its first second, and `containing` gives the UTC day of a Unix time.
 - `TrendFormat` lists the formats `codeint trend` supports: TOON, Text, JSON, and Markdown.
