@@ -319,32 +319,6 @@ impl CodeModel {
         merged
     }
 
-    pub fn for_source_set(&self, source_set: SourceSet) -> SourceSetModel {
-        let matching_importers: HashSet<&RepoPath> = self
-            .files
-            .iter()
-            .filter(|file| file.model.source_set == source_set)
-            .map(|file| &file.path)
-            .collect();
-        SourceSetModel {
-            source_set,
-            files: self
-                .files
-                .iter()
-                .filter(|file| file.model.source_set == source_set)
-                .cloned()
-                .collect(),
-            workspace: self.workspace.clone(),
-            runtime_imports: self
-                .runtime_imports
-                .iter()
-                .filter(|import| matching_importers.contains(&import.importer))
-                .cloned()
-                .collect(),
-            languages: self.languages.clone(),
-        }
-    }
-
     pub fn into_source_sets(self) -> SourceSets {
         let source_set_of_importer: BTreeMap<RepoPath, SourceSet> = self
             .files
@@ -402,15 +376,6 @@ impl SourceSets {
             SourceSet::Test => &mut self.test,
             SourceSet::Generated => &mut self.generated,
             SourceSet::Vendored => &mut self.vendored,
-        }
-    }
-
-    pub fn into_source_set(self, source_set: SourceSet) -> SourceSetModel {
-        match source_set {
-            SourceSet::Production => self.production,
-            SourceSet::Test => self.test,
-            SourceSet::Generated => self.generated,
-            SourceSet::Vendored => self.vendored,
         }
     }
 

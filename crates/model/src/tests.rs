@@ -537,7 +537,7 @@ fn into_source_sets_preserves_language_facts_in_every_source_set() {
 }
 
 #[test]
-fn for_source_set_and_source_sets_merge_preserve_files_and_imports() {
+fn source_sets_merge_preserves_files_and_imports() {
     let prod = path("src/app.rs");
     let test = path("tests/app_test.rs");
     let first = CodeModel {
@@ -559,7 +559,8 @@ fn for_source_set_and_source_sets_merge_preserve_files_and_imports() {
         ],
         ..CodeModel::default()
     };
-    let projected = first.for_source_set(SourceSet::Production);
+    let first_sets = first.into_source_sets();
+    let projected = first_sets.get(SourceSet::Production);
     assert_eq!(projected.source_set, SourceSet::Production);
     assert_eq!(projected.files.len(), 1);
     assert_eq!(projected.runtime_imports.len(), 1);
@@ -569,9 +570,14 @@ fn for_source_set_and_source_sets_merge_preserve_files_and_imports() {
         files: vec![file_in("src/b.rs", SourceSet::Production)],
         ..CodeModel::default()
     };
-    let merged = crate::SourceSets::merge([first.into_source_sets(), second.into_source_sets()]);
+    let merged = crate::SourceSets::merge([first_sets, second.into_source_sets()]);
     assert_eq!(merged.get(SourceSet::Production).files.len(), 2);
     assert_eq!(merged.get(SourceSet::Test).files.len(), 1);
+    assert_eq!(merged.get(SourceSet::Production).runtime_imports.len(), 1);
+    assert_eq!(
+        merged.get(SourceSet::Production).runtime_imports[0].importer,
+        prod
+    );
 }
 
 #[test]

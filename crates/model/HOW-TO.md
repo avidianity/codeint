@@ -317,7 +317,7 @@ for (source_set, files) in source_sets.iter() {
 }
 ```
 
-- `into_source_sets` moves each file into the focused `SourceSetModel` of its Source set, and `CodeModel::for_source_set(source_set)` projects one Source set without consuming the repository-wide `CodeModel`.
+- `into_source_sets` moves each file into the focused `SourceSetModel` of its Source set.
 - `SourceSetModel` holds only the per-Source-set fields (`source_set`, `files`, `workspace`, `runtime_imports`, and `languages`), leaving out repository-wide fields such as `skipped`, `declaration_only`, `declared_dependencies`, `dependency_manifests`, `manifest_used_dependencies`, and `root_dependency_inheritance`.
 - It moves each `RuntimeImport` into the `SourceSetModel` of its importer's Source set, so an import of a file in another Source set adds no edge there.
 - Every Source set gets a `SourceSetModel`, empty when no file belongs to it.
