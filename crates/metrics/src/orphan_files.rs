@@ -1,9 +1,10 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
-use codeint_model::{CodeModel, ImportResolution, Metric, Package, RepoPath, SourceSet};
+use codeint_model::{
+    CodeModel, ImportResolution, Metric, Package, RepoPath, SourceSet, UniversalToolingPaths,
+};
 
 use crate::finding_id::{FindingContext, FindingId, FindingIds};
-use crate::tooling_paths::ToolingPaths;
 
 #[cfg(test)]
 mod tests;
@@ -59,12 +60,39 @@ struct PendingOrphan {
 
 impl OrphanFiles {
     pub fn measure(model: &CodeModel, entry_points: &[RepoPath]) -> Option<OrphanFiles> {
-        OrphanFiles::measure_filtered(model, entry_points, |_| true)
+        OrphanFiles::measure_with_explicit_entry_points(model, entry_points, &[])
+    }
+
+    pub fn measure_with_explicit_entry_points(
+        model: &CodeModel,
+        entry_points: &[RepoPath],
+        explicit_entry_points: &[RepoPath],
+    ) -> Option<OrphanFiles> {
+        OrphanFiles::measure_filtered_with_explicit_entry_points(
+            model,
+            entry_points,
+            explicit_entry_points,
+            |_| true,
+        )
     }
 
     pub fn measure_filtered(
         model: &CodeModel,
         entry_points: &[RepoPath],
+        include_in_report: impl Fn(&RepoPath) -> bool,
+    ) -> Option<OrphanFiles> {
+        OrphanFiles::measure_filtered_with_explicit_entry_points(
+            model,
+            entry_points,
+            &[],
+            include_in_report,
+        )
+    }
+
+    pub fn measure_filtered_with_explicit_entry_points(
+        model: &CodeModel,
+        entry_points: &[RepoPath],
+        explicit_entry_points: &[RepoPath],
         include_in_report: impl Fn(&RepoPath) -> bool,
     ) -> Option<OrphanFiles> {
         let index_of: HashMap<&RepoPath, usize> = model
@@ -78,8 +106,24 @@ impl OrphanFiles {
             .iter()
             .map(|file| file.model.source_set)
             .collect();
-        let tooling = ToolingPaths::from_model(model);
-        let roots = collect_roots(&index_of, &source_sets, entry_points, &tooling);
+        let tooling = UniversalToolingPaths::from_model(model);
+        let is_tooling: Vec<bool> = model
+            .files
+            .iter()
+            .map(|file| tooling.is_tooling_file(file))
+            .collect();
+        let explicit_roots: HashSet<usize> = explicit_entry_points
+            .iter()
+            .filter_map(|entry| index_of.get(entry).copied())
+            .filter(|&index| source_sets[index] == SourceSet::Production)
+            .collect();
+        let roots = collect_roots(
+            &index_of,
+            &source_sets,
+            entry_points,
+            &explicit_roots,
+            &is_tooling,
+        );
         if roots.is_empty() {
             return None;
         }
@@ -101,11 +145,12 @@ impl OrphanFiles {
         let mut evaluated_files = 0usize;
         let mut pending = Vec::new();
         for (index, file) in model.files.iter().enumerate() {
+            let excluded_tooling = is_tooling[index] && !explicit_roots.contains(&index);
             if !is_evaluated_production_file(
                 model,
                 file.model.source_set,
+                excluded_tooling,
                 &file.path,
-                &tooling,
                 active_packages.as_ref(),
                 &include_in_report,
             ) {
@@ -206,13 +251,14 @@ fn collect_roots(
     index_of: &HashMap<&RepoPath, usize>,
     source_sets: &[SourceSet],
     entry_points: &[RepoPath],
-    tooling: &ToolingPaths,
+    explicit_roots: &HashSet<usize>,
+    is_tooling: &[bool],
 ) -> BTreeSet<usize> {
-    let mut roots = BTreeSet::new();
+    let mut roots: BTreeSet<usize> = explicit_roots.iter().copied().collect();
     for entry in entry_points {
         if let Some(&index) = index_of.get(entry)
             && source_sets[index] == SourceSet::Production
-            && !tooling.is_non_runtime_tooling_path(entry)
+            && !is_tooling[index]
         {
             roots.insert(index);
         }
@@ -498,12 +544,12 @@ fn sorted_importer_paths(indices: &BTreeSet<usize>, model: &CodeModel) -> Vec<Re
 fn is_evaluated_production_file<'model>(
     model: &'model CodeModel,
     source_set: SourceSet,
+    excluded_tooling: bool,
     path: &RepoPath,
-    tooling: &ToolingPaths,
     active_packages: Option<&HashSet<Package<'model>>>,
     include_in_report: &impl Fn(&RepoPath) -> bool,
 ) -> bool {
-    if source_set != SourceSet::Production || tooling.is_non_runtime_tooling_path(path) {
+    if source_set != SourceSet::Production || excluded_tooling {
         return false;
     }
     if let Some(active) = active_packages

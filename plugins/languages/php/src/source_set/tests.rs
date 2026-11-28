@@ -1,6 +1,8 @@
 use codeint_model::language::SourceSet;
+use codeint_model::{LanguagePlugin, RepoPath};
 
-use super::classify;
+use super::{classify, is_tooling_file};
+use crate::Php;
 
 #[test]
 fn classifies_generated_test_and_production_php_files() {
@@ -27,4 +29,19 @@ fn classifies_generated_test_and_production_php_files() {
     ] {
         assert_eq!(classify(path, ""), SourceSet::Production, "{path}");
     }
+}
+
+#[test]
+fn classifies_php_cs_fixer_configs_as_tooling_files() {
+    assert!(is_tooling_file(".php-cs-fixer.php"));
+    assert!(is_tooling_file(".php-cs-fixer.dist.php"));
+    assert!(is_tooling_file("packages/api/.php-cs-fixer.dist.php"));
+    assert!(!is_tooling_file("config/app.config.php"));
+    assert!(!is_tooling_file("app/Models/User.php"));
+    let path = RepoPath::new(".php-cs-fixer.dist.php").expect("valid path");
+    assert!(
+        Php.lower(&path, "<?php\nreturn [];\n", None)
+            .unwrap()
+            .is_tooling_file
+    );
 }

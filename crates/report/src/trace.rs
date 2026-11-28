@@ -83,7 +83,7 @@ impl TraceReport {
 fn program_start_reason(model: &CodeModel, path: &RepoPath) -> Option<String> {
     let has_imports =
         model.languages.is_empty() || model.languages.iter().any(|facts| facts.has_imports);
-    if !has_imports || codeint_metrics::is_non_runtime_tooling_path(model, path) {
+    if !has_imports || model.is_tooling_path(path) {
         return None;
     }
     let marked_production = model.files.iter().any(|file| {

@@ -16,6 +16,12 @@ pub(crate) fn classify(path: &str, header_comments: &str) -> SourceSet {
     SourceSet::Production
 }
 
+pub(crate) fn is_tooling_file(path: &str) -> bool {
+    path_file_name(path)
+        .to_ascii_lowercase()
+        .starts_with(".php-cs-fixer")
+}
+
 fn is_test_path(path: &str) -> bool {
     let file_name = path_file_name(path);
     let has_test_suffix = ["Test.php", ".test.php"]
