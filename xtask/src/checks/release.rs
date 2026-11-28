@@ -19,6 +19,9 @@ pub(crate) const PLATFORM_PACKAGES: [&str; 6] = [
 
 const WRAPPER_MANIFEST: &str = "npm/codeint/package.json";
 const WORKSPACE_MANIFEST: &str = "Cargo.toml";
+const DART_PUBSPEC_MANIFEST: &str = "sdks/dart/pubspec.yaml";
+const DART_OPTIONS_SOURCE: &str = "sdks/dart/lib/src/options.dart";
+const DART_VERSION_PREFIX: &str = "const String codeintVersion = ";
 
 fn platform_manifest_path(platform: &str) -> String {
     format!("npm/platforms/{platform}/package.json")
@@ -26,6 +29,191 @@ fn platform_manifest_path(platform: &str) -> String {
 
 fn platform_package_name(platform: &str) -> String {
     format!("@avidian/codeint-{platform}")
+}
+
+fn replace_first_line(
+    text: &str,
+    missing_error: impl FnOnce() -> String,
+    mut rewrite: impl FnMut(&str) -> Option<String>,
+) -> Result<String, String> {
+    let mut replaced = false;
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        if !replaced && let Some(next) = rewrite(line) {
+            lines.push(next);
+            replaced = true;
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+    if !replaced {
+        return Err(missing_error());
+    }
+    let mut updated = lines.join("\n");
+    if text.ends_with('\n') {
+        updated.push('\n');
+    }
+    Ok(updated)
+}
+
+fn discover_pubspec_manifests(root: &Path) -> Result<Vec<String>, String> {
+    let mut manifests = Vec::new();
+    let sdks_dir = root.join("sdks");
+    if sdks_dir.is_dir() {
+        let entries = fs::read_dir(&sdks_dir)
+            .map_err(|error| format!("cannot read sdks directory: {error}"))?;
+        for entry in entries {
+            let entry = entry.map_err(|error| format!("cannot read sdks entry: {error}"))?;
+            if !entry.path().is_dir() {
+                continue;
+            }
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            let relative = format!("sdks/{name}/pubspec.yaml");
+            if root.join(&relative).is_file() {
+                manifests.push(relative);
+            }
+        }
+    }
+    if !manifests.iter().any(|path| path == DART_PUBSPEC_MANIFEST) {
+        manifests.push(DART_PUBSPEC_MANIFEST.to_string());
+    }
+    manifests.sort();
+    Ok(manifests)
+}
+
+fn sibling_changelog_path(pubspec_relative: &str) -> String {
+    let parent = Path::new(pubspec_relative)
+        .parent()
+        .and_then(Path::to_str)
+        .unwrap_or("");
+    format!("{parent}/CHANGELOG.md")
+}
+
+fn parse_quoted_pubspec_version(rest: &str, quote: char) -> Option<(&str, Option<char>, &str)> {
+    let (inner, after) = rest[1..].split_once(quote)?;
+    let trailing = after.trim_start();
+    if !trailing.is_empty() && !trailing.starts_with('#') {
+        return None;
+    }
+    (!inner.is_empty()).then_some((inner, Some(quote), after))
+}
+
+fn parse_unquoted_pubspec_version(rest: &str) -> Option<(&str, Option<char>, &str)> {
+    let (value, after) = match rest.find('#') {
+        Some(index) => {
+            let value = rest[..index].trim_end();
+            (value, &rest[value.len()..])
+        }
+        None => (rest.trim_end(), ""),
+    };
+    if value.is_empty() || value.contains(['\'', '"']) {
+        return None;
+    }
+    Some((value, None, after))
+}
+
+fn parse_pubspec_version_line(line: &str) -> Option<(&str, Option<char>, &str)> {
+    let rest = line.strip_prefix("version:")?.trim_start();
+    match rest.chars().next() {
+        Some(quote @ ('\'' | '"')) => parse_quoted_pubspec_version(rest, quote),
+        _ => parse_unquoted_pubspec_version(rest),
+    }
+}
+
+pub(crate) fn pubspec_version(text: &str) -> Option<&str> {
+    text.lines()
+        .find_map(|line| parse_pubspec_version_line(line).map(|(value, _, _)| value))
+}
+
+pub(crate) fn replace_pubspec_version(text: &str, new_version: &str) -> Result<String, String> {
+    replace_first_line(
+        text,
+        || "pubspec.yaml lacks a top-level \"version:\" line".to_string(),
+        |line| {
+            let (_, quote, after) = parse_pubspec_version_line(line)?;
+            match quote {
+                Some(quote) => Some(format!("version: {quote}{new_version}{quote}{after}")),
+                None => Some(format!("version: {new_version}{after}")),
+            }
+        },
+    )
+}
+
+pub(crate) fn changelog_has_version(text: &str, version: &str) -> bool {
+    let heading = format!("## {version}");
+    text.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed == heading
+            || trimmed
+                .strip_prefix(&heading)
+                .is_some_and(|rest| rest.starts_with(char::is_whitespace))
+    })
+}
+
+pub(crate) fn prepend_changelog_version(text: &str, new_version: &str) -> String {
+    if changelog_has_version(text, new_version) {
+        return text.to_string();
+    }
+    let entry = format!("## {new_version}\n\n- Release {new_version}.");
+    let lines: Vec<&str> = text.lines().collect();
+    if let Some(first) = lines.first()
+        && first.trim_start().starts_with("# ")
+    {
+        let mut rest_start = 1;
+        while rest_start < lines.len() && lines[rest_start].trim().is_empty() {
+            rest_start += 1;
+        }
+        let mut out = format!("{first}\n\n{entry}\n");
+        if rest_start < lines.len() {
+            out.push('\n');
+            out.push_str(&lines[rest_start..].join("\n"));
+            out.push('\n');
+        }
+        return out;
+    }
+    let trimmed = text.trim_start();
+    if trimmed.is_empty() {
+        return format!("{entry}\n");
+    }
+    let mut out = format!("{entry}\n\n{trimmed}");
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
+pub(crate) fn dart_codeint_version(text: &str) -> Option<&str> {
+    text.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix(DART_VERSION_PREFIX)?.trim_start();
+        let quote = rest.chars().next().filter(|&ch| ch == '\'' || ch == '"')?;
+        let (value, after_quote) = rest[1..].split_once(quote)?;
+        let after_semi = after_quote.trim_start().strip_prefix(';')?.trim();
+        if !after_semi.is_empty() && !after_semi.starts_with("//") {
+            return None;
+        }
+        (!value.is_empty()).then_some(value)
+    })
+}
+
+pub(crate) fn replace_dart_codeint_version(
+    text: &str,
+    new_version: &str,
+) -> Result<String, String> {
+    replace_first_line(
+        text,
+        || format!("{DART_OPTIONS_SOURCE} lacks a const String codeintVersion declaration"),
+        |line| {
+            line.trim_start().starts_with(DART_VERSION_PREFIX).then(|| {
+                let indent: String = line
+                    .chars()
+                    .take_while(|character| character.is_whitespace())
+                    .collect();
+                format!("{indent}{DART_VERSION_PREFIX}'{new_version}';")
+            })
+        },
+    )
 }
 
 pub(crate) fn workspace_version(root: &Path) -> Result<String, String> {
@@ -48,10 +236,7 @@ pub(crate) fn workspace_version(root: &Path) -> Result<String, String> {
     Ok(version.to_string())
 }
 
-pub(crate) fn version_sync(root: &Path, tag: Option<&str>) -> Result<Violations, String> {
-    let expected = workspace_version(root)?;
-    let mut violations = Violations::new();
-
+fn check_release_tag(tag: Option<&str>, expected: &str, violations: &mut Violations) {
     if let Some(tag) = tag {
         let expected_tag = format!("v{expected}");
         if tag != expected_tag {
@@ -60,71 +245,181 @@ pub(crate) fn version_sync(root: &Path, tag: Option<&str>) -> Result<Violations,
             ));
         }
     }
+}
 
+fn check_wrapper_optional_deps(
+    wrapper: &serde_json::Value,
+    expected: &str,
+    violations: &mut Violations,
+) {
+    let Some(deps) = wrapper
+        .get("optionalDependencies")
+        .and_then(serde_json::Value::as_object)
+    else {
+        violations.push(format!(
+            "{WRAPPER_MANIFEST} lacks an \"optionalDependencies\" object."
+        ));
+        return;
+    };
+
+    for platform in PLATFORM_PACKAGES {
+        let package_name = platform_package_name(platform);
+        match deps.get(&package_name).and_then(serde_json::Value::as_str) {
+            Some(actual) if actual == expected => {}
+            Some(actual) => violations.push(format!(
+                "{WRAPPER_MANIFEST} optionalDependencies.{package_name} is \"{actual}\", expected \"{expected}\"."
+            )),
+            None => violations.push(format!(
+                "{WRAPPER_MANIFEST} optionalDependencies lacks \"{package_name}\"."
+            )),
+        }
+    }
+
+    for (name, value) in deps {
+        let is_known = PLATFORM_PACKAGES
+            .iter()
+            .any(|platform| platform_package_name(platform) == *name);
+        if !is_known {
+            violations.push(format!(
+                "{WRAPPER_MANIFEST} optionalDependencies has unexpected package \"{name}\"."
+            ));
+        } else if value.as_str().is_none() {
+            violations.push(format!(
+                "{WRAPPER_MANIFEST} optionalDependencies.{name} must be a version string."
+            ));
+        }
+    }
+}
+
+fn rewrite_file(
+    root: &Path,
+    relative: &str,
+    transform: impl FnOnce(&str) -> Result<String, String>,
+) -> Result<(), String> {
+    let path = root.join(relative);
+    let text =
+        fs::read_to_string(&path).map_err(|error| format!("cannot read {relative}: {error}"))?;
+    let updated = transform(&text)?;
+    fs::write(&path, updated).map_err(|error| format!("cannot write {relative}: {error}"))
+}
+
+fn check_version_field(
+    path: &str,
+    field: &str,
+    missing_message: &str,
+    actual: Option<&str>,
+    expected: &str,
+    violations: &mut Violations,
+) {
+    match actual {
+        Some(value) if value == expected => {}
+        Some(value) => violations.push(format!(
+            "{path} {field} is \"{value}\", expected \"{expected}\" from {WORKSPACE_MANIFEST}."
+        )),
+        None => violations.push(format!("{path} {missing_message}")),
+    }
+}
+
+fn check_wrapper_manifest(
+    root: &Path,
+    expected: &str,
+    violations: &mut Violations,
+) -> Result<(), String> {
     let wrapper_text = fs::read_to_string(root.join(WRAPPER_MANIFEST))
         .map_err(|error| format!("cannot read {WRAPPER_MANIFEST}: {error}"))?;
     let wrapper: serde_json::Value = serde_json::from_str(&wrapper_text)
         .map_err(|error| format!("{WRAPPER_MANIFEST} is not valid JSON: {error}"))?;
-    match wrapper.get("version").and_then(serde_json::Value::as_str) {
-        Some(actual) if actual == expected => {}
-        Some(actual) => violations.push(format!(
-            "{WRAPPER_MANIFEST} version is \"{actual}\", expected \"{expected}\" from {WORKSPACE_MANIFEST}."
-        )),
-        None => violations.push(format!("{WRAPPER_MANIFEST} lacks a string \"version\" field.")),
-    }
+    check_version_field(
+        WRAPPER_MANIFEST,
+        "version",
+        "lacks a string \"version\" field.",
+        wrapper.get("version").and_then(serde_json::Value::as_str),
+        expected,
+        violations,
+    );
+    check_wrapper_optional_deps(&wrapper, expected, violations);
+    Ok(())
+}
 
-    let optional_deps = wrapper
-        .get("optionalDependencies")
-        .and_then(serde_json::Value::as_object);
-    match optional_deps {
-        None => violations.push(format!(
-            "{WRAPPER_MANIFEST} lacks an \"optionalDependencies\" object."
-        )),
-        Some(deps) => {
-            for platform in PLATFORM_PACKAGES {
-                let package_name = platform_package_name(platform);
-                match deps.get(&package_name).and_then(serde_json::Value::as_str) {
-                    Some(actual) if actual == expected => {}
-                    Some(actual) => violations.push(format!(
-                        "{WRAPPER_MANIFEST} optionalDependencies.{package_name} is \"{actual}\", expected \"{expected}\"."
-                    )),
-                    None => violations.push(format!(
-                        "{WRAPPER_MANIFEST} optionalDependencies lacks \"{package_name}\"."
-                    )),
-                }
-            }
-            for (name, value) in deps {
-                let is_known = PLATFORM_PACKAGES
-                    .iter()
-                    .any(|platform| platform_package_name(platform) == *name);
-                if !is_known {
-                    violations.push(format!(
-                        "{WRAPPER_MANIFEST} optionalDependencies has unexpected package \"{name}\"."
-                    ));
-                } else if value.as_str().is_none() {
-                    violations.push(format!(
-                        "{WRAPPER_MANIFEST} optionalDependencies.{name} must be a version string."
-                    ));
-                }
-            }
-        }
-    }
-
+fn check_platform_manifests(
+    root: &Path,
+    expected: &str,
+    violations: &mut Violations,
+) -> Result<(), String> {
     for platform in PLATFORM_PACKAGES {
         let path = platform_manifest_path(platform);
         let text = fs::read_to_string(root.join(&path))
             .map_err(|error| format!("cannot read {path}: {error}"))?;
         let manifest: serde_json::Value = serde_json::from_str(&text)
             .map_err(|error| format!("{path} is not valid JSON: {error}"))?;
-        match manifest.get("version").and_then(serde_json::Value::as_str) {
-            Some(actual) if actual == expected => {}
-            Some(actual) => violations.push(format!(
-                "{path} version is \"{actual}\", expected \"{expected}\" from {WORKSPACE_MANIFEST}."
-            )),
-            None => violations.push(format!("{path} lacks a string \"version\" field.")),
+        check_version_field(
+            &path,
+            "version",
+            "lacks a string \"version\" field.",
+            manifest.get("version").and_then(serde_json::Value::as_str),
+            expected,
+            violations,
+        );
+    }
+    Ok(())
+}
+
+fn check_pubspec_manifests(
+    root: &Path,
+    expected: &str,
+    violations: &mut Violations,
+) -> Result<(), String> {
+    for path in discover_pubspec_manifests(root)? {
+        let text = fs::read_to_string(root.join(&path))
+            .map_err(|error| format!("cannot read {path}: {error}"))?;
+        check_version_field(
+            &path,
+            "version",
+            "lacks a top-level \"version\" field.",
+            pubspec_version(&text),
+            expected,
+            violations,
+        );
+        let changelog_path = sibling_changelog_path(&path);
+        if root.join(&changelog_path).is_file() {
+            let changelog = fs::read_to_string(root.join(&changelog_path))
+                .map_err(|error| format!("cannot read {changelog_path}: {error}"))?;
+            if !changelog_has_version(&changelog, expected) {
+                violations.push(format!(
+                    "{changelog_path} lacks a \"## {expected}\" heading for {WORKSPACE_MANIFEST} version \"{expected}\"."
+                ));
+            }
         }
     }
+    Ok(())
+}
 
+fn check_dart_options_version(
+    root: &Path,
+    expected: &str,
+    violations: &mut Violations,
+) -> Result<(), String> {
+    let options_text = fs::read_to_string(root.join(DART_OPTIONS_SOURCE))
+        .map_err(|error| format!("cannot read {DART_OPTIONS_SOURCE}: {error}"))?;
+    check_version_field(
+        DART_OPTIONS_SOURCE,
+        "codeintVersion",
+        "lacks a const String codeintVersion declaration.",
+        dart_codeint_version(&options_text),
+        expected,
+        violations,
+    );
+    Ok(())
+}
+
+pub(crate) fn version_sync(root: &Path, tag: Option<&str>) -> Result<Violations, String> {
+    let expected = workspace_version(root)?;
+    let mut violations = Violations::new();
+    check_release_tag(tag, &expected, &mut violations);
+    check_wrapper_manifest(root, &expected, &mut violations)?;
+    check_platform_manifests(root, &expected, &mut violations)?;
+    check_pubspec_manifests(root, &expected, &mut violations)?;
+    check_dart_options_version(root, &expected, &mut violations)?;
     Ok(violations)
 }
 
@@ -267,41 +562,29 @@ pub(crate) fn replace_workspace_package_version(
     new_version: &str,
 ) -> Result<String, String> {
     let mut in_workspace_package = false;
-    let mut replaced = false;
-    let mut lines = Vec::new();
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            in_workspace_package = trimmed == "[workspace.package]";
-            lines.push(line.to_string());
-            continue;
-        }
-        if in_workspace_package
-            && !replaced
-            && trimmed.starts_with("version")
-            && let Some((key, _)) = trimmed.split_once('=')
-            && key.trim() == "version"
-        {
-            let indent: String = line
-                .chars()
-                .take_while(|character| character.is_whitespace())
-                .collect();
-            lines.push(format!("{indent}version = \"{new_version}\""));
-            replaced = true;
-            continue;
-        }
-        lines.push(line.to_string());
-    }
-    if !replaced {
-        return Err(format!(
-            "{WORKSPACE_MANIFEST} lacks a version line under [workspace.package]"
-        ));
-    }
-    let mut updated = lines.join("\n");
-    if text.ends_with('\n') {
-        updated.push('\n');
-    }
-    Ok(updated)
+    replace_first_line(
+        text,
+        || format!("{WORKSPACE_MANIFEST} lacks a version line under [workspace.package]"),
+        |line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                in_workspace_package = trimmed == "[workspace.package]";
+                return None;
+            }
+            if in_workspace_package
+                && trimmed.starts_with("version")
+                && let Some((key, _)) = trimmed.split_once('=')
+                && key.trim() == "version"
+            {
+                let indent: String = line
+                    .chars()
+                    .take_while(|character| character.is_whitespace())
+                    .collect();
+                return Some(format!("{indent}version = \"{new_version}\""));
+            }
+            None
+        },
+    )
 }
 
 pub(crate) fn replace_json_string_field(
@@ -310,31 +593,100 @@ pub(crate) fn replace_json_string_field(
     new_value: &str,
 ) -> Result<String, String> {
     let needle = format!("\"{key}\": \"");
-    let mut replaced = false;
-    let mut lines = Vec::new();
-    for line in text.lines() {
-        if !replaced && let Some(prefix_end) = line.find(&needle) {
+    replace_first_line(
+        text,
+        || format!("JSON manifest lacks string field \"{key}\""),
+        |line| {
+            let prefix_end = line.find(&needle)?;
             let value_start = prefix_end + needle.len();
-            if let Some(value_len) = line[value_start..].find('"') {
-                let mut rewritten = String::new();
-                rewritten.push_str(&line[..value_start]);
-                rewritten.push_str(new_value);
-                rewritten.push_str(&line[value_start + value_len..]);
-                lines.push(rewritten);
-                replaced = true;
-                continue;
-            }
+            let value_len = line[value_start..].find('"')?;
+            Some(format!(
+                "{}{new_value}{}",
+                &line[..value_start],
+                &line[value_start + value_len..]
+            ))
+        },
+    )
+}
+
+fn update_wrapper_manifest(root: &Path, new_version: &str) -> Result<(), String> {
+    rewrite_file(root, WRAPPER_MANIFEST, |text| {
+        let mut updated = replace_json_string_field(text, "version", new_version)?;
+        for platform in PLATFORM_PACKAGES {
+            let package_name = platform_package_name(platform);
+            updated = replace_json_string_field(&updated, &package_name, new_version)?;
         }
-        lines.push(line.to_string());
+        serde_json::from_str::<serde_json::Value>(&updated)
+            .map_err(|error| format!("updated {WRAPPER_MANIFEST} is not valid JSON: {error}"))?;
+        Ok(updated)
+    })
+}
+
+fn update_platform_manifests(root: &Path, new_version: &str) -> Result<(), String> {
+    for platform in PLATFORM_PACKAGES {
+        let relative = platform_manifest_path(platform);
+        rewrite_file(root, &relative, |text| {
+            let updated = replace_json_string_field(text, "version", new_version)?;
+            serde_json::from_str::<serde_json::Value>(&updated)
+                .map_err(|error| format!("updated {relative} is not valid JSON: {error}"))?;
+            Ok(updated)
+        })?;
     }
-    if !replaced {
-        return Err(format!("JSON manifest lacks string field \"{key}\""));
+    Ok(())
+}
+
+fn update_sdk_versions(root: &Path, new_version: &str) -> Result<(), String> {
+    for relative in discover_pubspec_manifests(root)? {
+        rewrite_file(root, &relative, |text| {
+            replace_pubspec_version(text, new_version)
+        })?;
+        let changelog = sibling_changelog_path(&relative);
+        if root.join(&changelog).is_file() {
+            rewrite_file(root, &changelog, |text| {
+                Ok(prepend_changelog_version(text, new_version))
+            })?;
+        }
     }
-    let mut updated = lines.join("\n");
-    if text.ends_with('\n') {
-        updated.push('\n');
+    rewrite_file(root, DART_OPTIONS_SOURCE, |text| {
+        replace_dart_codeint_version(text, new_version)
+    })
+}
+
+fn apply_release_updates(root: &Path, new_version: &str) -> Result<(), String> {
+    rewrite_file(root, WORKSPACE_MANIFEST, |text| {
+        replace_workspace_package_version(text, new_version)
+    })?;
+    update_wrapper_manifest(root, new_version)?;
+    update_platform_manifests(root, new_version)?;
+    update_sdk_versions(root, new_version)?;
+    refresh_cargo_lock(root)
+}
+
+fn refresh_cargo_lock(root: &Path) -> Result<(), String> {
+    if !root.join("Cargo.lock").exists() {
+        return Ok(());
     }
-    Ok(updated)
+    let output = Command::new("cargo")
+        .args(["update", "--workspace", "--offline"])
+        .current_dir(root)
+        .output()
+        .map_err(|error| format!("cannot run cargo update --workspace --offline: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "cargo update --workspace --offline failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+fn print_release_notes(resolved_since: Option<&str>, notes: &str) {
+    if let Some(reference) = resolved_since {
+        println!("Release notes since {reference}:\n");
+    } else {
+        println!("Release notes:\n");
+    }
+    print!("{notes}");
 }
 
 pub(crate) fn prepare_release(
@@ -351,64 +703,8 @@ pub(crate) fn prepare_release(
     let current = workspace_version(root)?;
     let (resolved_since, notes) = draft_release_notes(root, since)?;
 
-    if dry_run {
-        let violations = version_sync(root, None)?;
-        if !violations.is_empty() {
-            return Ok(violations);
-        }
-        println!("Dry run: would update version {current} -> {new_version} (no files modified).");
-        if let Some(reference) = resolved_since {
-            println!("Release notes since {reference}:\n");
-        } else {
-            println!("Release notes:\n");
-        }
-        print!("{notes}");
-        return Ok(Vec::new());
-    }
-
-    let cargo_path = root.join(WORKSPACE_MANIFEST);
-    let cargo_text = fs::read_to_string(&cargo_path)
-        .map_err(|error| format!("cannot read {WORKSPACE_MANIFEST}: {error}"))?;
-    let updated_cargo = replace_workspace_package_version(&cargo_text, new_version)?;
-    fs::write(&cargo_path, updated_cargo)
-        .map_err(|error| format!("cannot write {WORKSPACE_MANIFEST}: {error}"))?;
-
-    let wrapper_path = root.join(WRAPPER_MANIFEST);
-    let mut wrapper_text = fs::read_to_string(&wrapper_path)
-        .map_err(|error| format!("cannot read {WRAPPER_MANIFEST}: {error}"))?;
-    wrapper_text = replace_json_string_field(&wrapper_text, "version", new_version)?;
-    for platform in PLATFORM_PACKAGES {
-        let package_name = platform_package_name(platform);
-        wrapper_text = replace_json_string_field(&wrapper_text, &package_name, new_version)?;
-    }
-    serde_json::from_str::<serde_json::Value>(&wrapper_text)
-        .map_err(|error| format!("updated {WRAPPER_MANIFEST} is not valid JSON: {error}"))?;
-    fs::write(&wrapper_path, wrapper_text)
-        .map_err(|error| format!("cannot write {WRAPPER_MANIFEST}: {error}"))?;
-
-    for platform in PLATFORM_PACKAGES {
-        let relative = platform_manifest_path(platform);
-        let path = root.join(&relative);
-        let text = fs::read_to_string(&path)
-            .map_err(|error| format!("cannot read {relative}: {error}"))?;
-        let updated = replace_json_string_field(&text, "version", new_version)?;
-        serde_json::from_str::<serde_json::Value>(&updated)
-            .map_err(|error| format!("updated {relative} is not valid JSON: {error}"))?;
-        fs::write(&path, updated).map_err(|error| format!("cannot write {relative}: {error}"))?;
-    }
-
-    if root.join("Cargo.lock").exists() {
-        let output = Command::new("cargo")
-            .args(["update", "--workspace", "--offline"])
-            .current_dir(root)
-            .output()
-            .map_err(|error| format!("cannot run cargo update --workspace --offline: {error}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "cargo update --workspace --offline failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-        }
+    if !dry_run {
+        apply_release_updates(root, new_version)?;
     }
 
     let violations = version_sync(root, None)?;
@@ -416,13 +712,12 @@ pub(crate) fn prepare_release(
         return Ok(violations);
     }
 
-    println!("Updated manifests from {current} to {new_version}.");
-    if let Some(reference) = resolved_since {
-        println!("Release notes since {reference}:\n");
+    if dry_run {
+        println!("Dry run: would update version {current} -> {new_version} (no files modified).");
     } else {
-        println!("Release notes:\n");
+        println!("Updated manifests from {current} to {new_version}.");
     }
-    print!("{notes}");
+    print_release_notes(resolved_since.as_deref(), &notes);
     Ok(Vec::new())
 }
 

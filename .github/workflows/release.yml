@@ -245,9 +245,25 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  stage-dart:
+    name: stage Dart package
+    needs: [verify]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b
+      - name: Verify Dart package
+        working-directory: sdks/dart
+        run: |
+          dart pub get
+          dart analyze --fatal-infos
+          dart pub publish --dry-run
+
   publish-github-release:
     name: publish GitHub Release
-    needs: [verify, checksums-and-attestations]
+    needs: [verify, checksums-and-attestations, stage-npm, stage-dart]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -299,7 +315,7 @@ jobs:
 
   publish-npm:
     name: publish npm packages
-    needs: [verify, checksums-and-attestations, stage-npm]
+    needs: [verify, checksums-and-attestations, stage-npm, stage-dart]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -324,3 +340,22 @@ jobs:
             npm publish "./npm-tarballs/avidian-codeint-$platform-$version.tgz" --provenance --access public
           done
           npm publish "./npm-tarballs/codeint-$version.tgz" --provenance --access public
+
+  publish-pub:
+    name: publish Dart package to pub.dev
+    needs: [verify, checksums-and-attestations, stage-npm, stage-dart, publish-github-release]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b
+      - name: Publish Dart package to pub.dev
+        working-directory: sdks/dart
+        run: |
+          dart pub get
+          dart analyze --fatal-infos
+          dart pub publish --dry-run
+          dart pub publish --force

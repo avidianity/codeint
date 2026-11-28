@@ -440,6 +440,14 @@ fn seed_release_manifests(repository: &Repository, version: &str) {
             ),
         );
     }
+    repository.write(
+        "sdks/dart/pubspec.yaml",
+        &format!("name: codeint\nversion: {version}\nenvironment:\n  sdk: ^3.6.0\n"),
+    );
+    repository.write(
+        "sdks/dart/lib/src/options.dart",
+        &format!("import 'enums.dart';\n\nconst String codeintVersion = '{version}';\n"),
+    );
 }
 
 #[test]
@@ -477,6 +485,16 @@ fn version_sync_and_prepare_release_enforce_manifest_and_tag_agreement() {
     let apply = repository.xtask(&["prepare-release", "--version", "0.2.0"]);
     assert_passes(&apply);
     assert_passes(&repository.xtask(&["version-sync", "--tag", "v0.2.0"]));
+    assert!(
+        fs::read_to_string(repository.path.join("sdks/dart/pubspec.yaml"))
+            .unwrap()
+            .contains("version: 0.2.0")
+    );
+    assert!(
+        fs::read_to_string(repository.path.join("sdks/dart/lib/src/options.dart"))
+            .unwrap()
+            .contains("const String codeintVersion = '0.2.0';")
+    );
     assert!(!repository.path.join("CHANGELOG.md").exists());
 }
 
