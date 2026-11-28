@@ -4,9 +4,10 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{
-    PLATFORM_PACKAGES, dart_codeint_version, format_release_notes, prepare_release,
-    pubspec_version, replace_dart_codeint_version, replace_json_string_field,
-    replace_pubspec_version, replace_workspace_package_version, version_sync,
+    PLATFORM_PACKAGES, changelog_has_version, dart_codeint_version, format_release_notes,
+    prepare_release, prepend_changelog_version, pubspec_version, replace_dart_codeint_version,
+    replace_json_string_field, replace_pubspec_version, replace_workspace_package_version,
+    version_sync,
 };
 
 static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
@@ -38,6 +39,10 @@ impl TempTree {
             (
                 "sdks/dart/pubspec.yaml".to_string(),
                 format!("name: codeint\nversion: {version}\nenvironment:\n  sdk: ^3.6.0\n"),
+            ),
+            (
+                "sdks/dart/CHANGELOG.md".to_string(),
+                format!("# Changelog\n\n## {version}\n\n- Initial release.\n"),
             ),
             (
                 "sdks/dart/lib/src/options.dart".to_string(),
@@ -259,6 +264,12 @@ fn prepare_release_updates_dart_pubspec_and_options_and_dry_run_does_not_mutate(
         dart_codeint_version(&tree.read("sdks/dart/lib/src/options.dart")),
         Some("0.8.0")
     );
+    assert!(!changelog_has_version(
+        &tree.read("sdks/dart/CHANGELOG.md"),
+        "0.9.0"
+    ));
+
+    tree.write("CHANGELOG.md", "# Root Changelog\n\n## 0.8.0\n");
 
     assert!(
         prepare_release(tree.root(), "0.9.0", None, false)
@@ -273,5 +284,50 @@ fn prepare_release_updates_dart_pubspec_and_options_and_dry_run_does_not_mutate(
         dart_codeint_version(&tree.read("sdks/dart/lib/src/options.dart")),
         Some("0.9.0")
     );
+    let updated_changelog = tree.read("sdks/dart/CHANGELOG.md");
+    assert!(changelog_has_version(&updated_changelog, "0.9.0"));
+    assert!(updated_changelog.contains("## 0.9.0\n\n- Release 0.9.0.\n\n## 0.8.0"));
+    assert_eq!(tree.read("CHANGELOG.md"), "# Root Changelog\n\n## 0.8.0\n");
     assert_eq!(version_sync(tree.root(), Some("v0.9.0")), Ok(Vec::new()));
+}
+
+#[test]
+fn pubspec_and_dart_version_parsers_handle_comments_and_quotes() {
+    assert_eq!(
+        pubspec_version("name: codeint\nversion: 0.8.0 # inline comment\n"),
+        Some("0.8.0")
+    );
+    assert_eq!(
+        pubspec_version("name: codeint\nversion: '0.8.0' # inline comment\n"),
+        Some("0.8.0")
+    );
+    assert_eq!(pubspec_version("name: codeint\nversion: '0.8.0\"\n"), None);
+    assert_eq!(
+        pubspec_version("name: codeint\nversion: # only comment\n"),
+        None
+    );
+    assert_eq!(
+        dart_codeint_version("const String codeintVersion = '0.8.0'; // inline comment\n"),
+        Some("0.8.0")
+    );
+
+    let unquoted = replace_pubspec_version("version: 0.8.0 # inline comment\n", "0.9.0").unwrap();
+    assert_eq!(unquoted, "version: 0.9.0 # inline comment\n");
+    let quoted = replace_pubspec_version("version: '0.8.0' # inline comment\n", "0.9.0").unwrap();
+    assert_eq!(quoted, "version: '0.9.0' # inline comment\n");
+    assert!(replace_pubspec_version("version: # only comment\n", "0.9.0").is_err());
+}
+
+#[test]
+fn version_sync_detects_missing_sdk_changelog_heading_and_prepend_is_idempotent() {
+    let tree = TempTree::new("0.8.0");
+    tree.write(
+        "sdks/dart/CHANGELOG.md",
+        "# Changelog\n\n## 0.7.0\n\n- Older.\n",
+    );
+    assert_single_violation(&tree, "sdks/dart/CHANGELOG.md lacks a \"## 0.8.0\" heading");
+
+    let once = prepend_changelog_version(&tree.read("sdks/dart/CHANGELOG.md"), "0.8.0");
+    assert!(changelog_has_version(&once, "0.8.0"));
+    assert_eq!(prepend_changelog_version(&once, "0.8.0"), once);
 }

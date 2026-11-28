@@ -83,12 +83,48 @@ fn discover_pubspec_manifests(root: &Path) -> Result<Vec<String>, String> {
     Ok(manifests)
 }
 
+fn sibling_changelog_path(pubspec_relative: &str) -> String {
+    let parent = Path::new(pubspec_relative)
+        .parent()
+        .and_then(Path::to_str)
+        .unwrap_or("");
+    format!("{parent}/CHANGELOG.md")
+}
+
+fn parse_quoted_pubspec_version(rest: &str, quote: char) -> Option<(&str, Option<char>, &str)> {
+    let (inner, after) = rest[1..].split_once(quote)?;
+    let trailing = after.trim_start();
+    if !trailing.is_empty() && !trailing.starts_with('#') {
+        return None;
+    }
+    (!inner.is_empty()).then_some((inner, Some(quote), after))
+}
+
+fn parse_unquoted_pubspec_version(rest: &str) -> Option<(&str, Option<char>, &str)> {
+    let (value, after) = match rest.find('#') {
+        Some(index) => {
+            let value = rest[..index].trim_end();
+            (value, &rest[value.len()..])
+        }
+        None => (rest.trim_end(), ""),
+    };
+    if value.is_empty() || value.contains(['\'', '"']) {
+        return None;
+    }
+    Some((value, None, after))
+}
+
+fn parse_pubspec_version_line(line: &str) -> Option<(&str, Option<char>, &str)> {
+    let rest = line.strip_prefix("version:")?.trim_start();
+    match rest.chars().next() {
+        Some(quote @ ('\'' | '"')) => parse_quoted_pubspec_version(rest, quote),
+        _ => parse_unquoted_pubspec_version(rest),
+    }
+}
+
 pub(crate) fn pubspec_version(text: &str) -> Option<&str> {
-    text.lines().find_map(|line| {
-        let rest = line.strip_prefix("version:")?;
-        let value = rest.trim().trim_matches('\'').trim_matches('"');
-        (!value.is_empty()).then_some(value)
-    })
+    text.lines()
+        .find_map(|line| parse_pubspec_version_line(line).map(|(value, _, _)| value))
 }
 
 pub(crate) fn replace_pubspec_version(text: &str, new_version: &str) -> Result<String, String> {
@@ -96,26 +132,67 @@ pub(crate) fn replace_pubspec_version(text: &str, new_version: &str) -> Result<S
         text,
         || "pubspec.yaml lacks a top-level \"version:\" line".to_string(),
         |line| {
-            line.starts_with("version:")
-                .then(|| format!("version: {new_version}"))
+            let (_, quote, after) = parse_pubspec_version_line(line)?;
+            match quote {
+                Some(quote) => Some(format!("version: {quote}{new_version}{quote}{after}")),
+                None => Some(format!("version: {new_version}{after}")),
+            }
         },
     )
 }
 
+pub(crate) fn changelog_has_version(text: &str, version: &str) -> bool {
+    let heading = format!("## {version}");
+    text.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed == heading
+            || trimmed
+                .strip_prefix(&heading)
+                .is_some_and(|rest| rest.starts_with(char::is_whitespace))
+    })
+}
+
+pub(crate) fn prepend_changelog_version(text: &str, new_version: &str) -> String {
+    if changelog_has_version(text, new_version) {
+        return text.to_string();
+    }
+    let entry = format!("## {new_version}\n\n- Release {new_version}.");
+    let lines: Vec<&str> = text.lines().collect();
+    if let Some(first) = lines.first()
+        && first.trim_start().starts_with("# ")
+    {
+        let mut rest_start = 1;
+        while rest_start < lines.len() && lines[rest_start].trim().is_empty() {
+            rest_start += 1;
+        }
+        let mut out = format!("{first}\n\n{entry}\n");
+        if rest_start < lines.len() {
+            out.push('\n');
+            out.push_str(&lines[rest_start..].join("\n"));
+            out.push('\n');
+        }
+        return out;
+    }
+    let trimmed = text.trim_start();
+    if trimmed.is_empty() {
+        return format!("{entry}\n");
+    }
+    let mut out = format!("{entry}\n\n{trimmed}");
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
 pub(crate) fn dart_codeint_version(text: &str) -> Option<&str> {
     text.lines().find_map(|line| {
-        let rest = line
-            .trim()
-            .strip_prefix(DART_VERSION_PREFIX)?
-            .strip_suffix(';')?
-            .trim();
-        let value = rest
-            .strip_prefix('\'')
-            .and_then(|inner| inner.strip_suffix('\''))
-            .or_else(|| {
-                rest.strip_prefix('"')
-                    .and_then(|inner| inner.strip_suffix('"'))
-            })?;
+        let rest = line.trim().strip_prefix(DART_VERSION_PREFIX)?.trim_start();
+        let quote = rest.chars().next().filter(|&ch| ch == '\'' || ch == '"')?;
+        let (value, after_quote) = rest[1..].split_once(quote)?;
+        let after_semi = after_quote.trim_start().strip_prefix(';')?.trim();
+        if !after_semi.is_empty() && !after_semi.starts_with("//") {
+            return None;
+        }
         (!value.is_empty()).then_some(value)
     })
 }
@@ -303,6 +380,16 @@ fn check_pubspec_manifests(
             expected,
             violations,
         );
+        let changelog_path = sibling_changelog_path(&path);
+        if root.join(&changelog_path).is_file() {
+            let changelog = fs::read_to_string(root.join(&changelog_path))
+                .map_err(|error| format!("cannot read {changelog_path}: {error}"))?;
+            if !changelog_has_version(&changelog, expected) {
+                violations.push(format!(
+                    "{changelog_path} lacks a \"## {expected}\" heading for {WORKSPACE_MANIFEST} version \"{expected}\"."
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -553,6 +640,12 @@ fn update_sdk_versions(root: &Path, new_version: &str) -> Result<(), String> {
         rewrite_file(root, &relative, |text| {
             replace_pubspec_version(text, new_version)
         })?;
+        let changelog = sibling_changelog_path(&relative);
+        if root.join(&changelog).is_file() {
+            rewrite_file(root, &changelog, |text| {
+                Ok(prepend_changelog_version(text, new_version))
+            })?;
+        }
     }
     rewrite_file(root, DART_OPTIONS_SOURCE, |text| {
         replace_dart_codeint_version(text, new_version)

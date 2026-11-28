@@ -263,7 +263,7 @@ jobs:
 
   publish-github-release:
     name: publish GitHub Release
-    needs: [verify, checksums-and-attestations]
+    needs: [verify, checksums-and-attestations, stage-npm, stage-dart]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -315,7 +315,7 @@ jobs:
 
   publish-npm:
     name: publish npm packages
-    needs: [verify, checksums-and-attestations, stage-npm]
+    needs: [verify, checksums-and-attestations, stage-npm, stage-dart]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -343,7 +343,7 @@ jobs:
 
   publish-pub:
     name: publish Dart package to pub.dev
-    needs: [verify, checksums-and-attestations, publish-github-release, stage-dart]
+    needs: [verify, checksums-and-attestations, stage-npm, stage-dart, publish-github-release]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
