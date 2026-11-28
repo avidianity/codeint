@@ -16,7 +16,7 @@ let configuration = read_configuration(repository.root())?;
 - `read_resolved_configuration` runs the same merge pipeline with `ConfigOverrides` and returns both the merged `Configuration` and per-field `ResolvedSetting` entries with `ConfigProvenance` (`default`, `file`, or `cli`).
 - `configuration.format` holds the configured `OutputFormat` (`Toon` by default, or `Text`, `Json`, `Sarif`, `Markdown`), used as the fallback when CLI `--format` is omitted on `check`, `diff`, `trend`, `report`, `impact`, `trace`, `churn`, and `coupling`.
 - `Command::{Check, Diff, Trend, Report, Impact, Trace, Churn, Coupling}` carry `format: Option<...>` so callers distinguish an explicit CLI `--format` override from an omitted flag.
-- It returns `Configuration::default()` when neither file is present; codeint runs with defaults.
+- It returns `Configuration::default()` when no configuration file is present; codeint runs with defaults.
 - Every other failure is a `ConfigurationFileError`, which stops the run with exit code 2.
   Its message names the key with its path, such as `source_sets.test[1]`, and the expected JSON type.
 - Only this crate reads the repository configuration file; every other crate receives the typed `Configuration`.

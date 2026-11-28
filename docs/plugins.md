@@ -435,7 +435,7 @@ Cargo writes the WebAssembly component to `crates/plugin-host/tests/fixtures/sam
 
 ## Compute the SHA-256 hash
 
-Every external Plugin entry in `codeint.jsonc` or `codeint.json` requires the 64-character hexadecimal SHA-256 digest of the `.wasm` file.
+Every external Plugin entry in the configuration file requires the 64-character hexadecimal SHA-256 digest of the `.wasm` file.
 codeint verifies the digest in constant time before compiling or instantiating the component.
 A missing digest, malformed digest, or hash mismatch stops the run with exit code 2.
 
@@ -556,7 +556,7 @@ cargo test --locked -p codeint-plugin-host --test load
 ### Check a Plugin with the Conformance runner
 
 `codeint plugin test <WASM>` runs the built-in Conformance runner against a built `.wasm` file.
-It needs no repository and no `codeint.json`, and it exits with code 0 when every check passes, code 1 when a check fails, and code 2 when the file cannot be read.
+It needs no repository and no configuration file, and it exits with code 0 when every check passes, code 1 when a check fails, and code 2 when the file cannot be read.
 Pass `--kind metric` for a Metric plugin; the default kind is `language`.
 
 ```sh
@@ -583,7 +583,7 @@ See [docs/reference.md](./reference.md#codeint-plugin) for every option and outp
 
 ### Test end to end with the CLI
 
-Copy your built `.wasm` file into a Git repository, compute its SHA-256 digest, declare it in `codeint.jsonc` or `codeint.json`, and run `codeint check` and `codeint diff`:
+Copy your built `.wasm` file into a Git repository, compute its SHA-256 digest, declare it in the configuration file, and run `codeint check` and `codeint diff`:
 
 ```sh
 codeint check --format json
@@ -629,7 +629,7 @@ This version identifies the exported interfaces `codeint:plugin/language@0.5.0` 
 At load time, wasmtime checks that the component's exported interface name and version match what the host expects.
 
 - A Plugin built against an incompatible WIT version (such as `codeint:plugin@0.4.0`, `codeint:plugin@0.3.0`, or `codeint:plugin@0.2.0`) fails at load time with exit code 2, naming the plugin, its found interface version, the required `0.5.0` interface version, and how to rebuild it.
-- Rebuild the Plugin against the updated `codeint-plugin-sdk` or `wit/` files and update its `sha256` in `codeint.jsonc` or `codeint.json` when upgrading to a breaking WIT version.
+- Rebuild the Plugin against the updated `codeint-plugin-sdk` or `wit/` files and update its `sha256` in the configuration file when upgrading to a breaking WIT version.
 - Never silently mutate an existing released WIT version in place; every breaking change gets a new version number.
 
 ### Moving a Plugin from 0.4.0 to 0.5.0
