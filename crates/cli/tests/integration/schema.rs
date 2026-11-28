@@ -168,6 +168,16 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
         flag_names(schema_cmd),
         BTreeSet::from(["--format".to_owned(), "--output".to_owned()])
     );
+    let trend_cmd = find_command(&manifest, "trend");
+    assert_eq!(
+        flag_names(trend_cmd),
+        BTreeSet::from([
+            "--commits".to_owned(),
+            "--format".to_owned(),
+            "--output".to_owned(),
+            "--since".to_owned(),
+        ])
+    );
 
     let metric_keys: Vec<&str> = manifest["metrics"]
         .as_array()

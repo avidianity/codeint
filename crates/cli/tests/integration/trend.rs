@@ -456,3 +456,48 @@ fn trend_since_tolerates_out_of_order_skew_within_14_days_and_stops_beyond() {
         vec![commits[2].clone(), commits[4].clone()]
     );
 }
+
+#[test]
+fn trend_commits_selects_below_at_and_above_default_20_and_defaults_to_20() {
+    let history = History::with_commits(25);
+    let main_line = history.main_line_oldest_first();
+
+    let default_report = history.trend_json(&[]);
+    assert_eq!(default_report["commits"], 20);
+    assert_eq!(production_commits(&default_report), main_line[5..]);
+
+    let five_report = history.trend_json(&["--commits", "5"]);
+    assert_eq!(five_report["commits"], 5);
+    assert_eq!(production_commits(&five_report), main_line[20..]);
+
+    let twenty_report = history.trend_json(&["--commits", "20"]);
+    assert_eq!(twenty_report["commits"], 20);
+    assert_eq!(production_commits(&twenty_report), main_line[5..]);
+
+    let twenty_five_report = history.trend_json(&["--commits", "25"]);
+    assert_eq!(twenty_five_report["commits"], 25);
+    assert_eq!(production_commits(&twenty_five_report), main_line);
+}
+
+#[test]
+fn trend_commits_zero_and_since_conflict_exit_2() {
+    let history = History::with_commits(2);
+
+    let zero = history.trend(&["--commits", "0"]);
+    assert_eq!(zero.status.code(), Some(2));
+    let zero_stderr = stderr_of(&zero);
+    assert!(
+        zero_stderr.contains("invalid value '0' for '--commits"),
+        "unexpected error for --commits 0: {zero_stderr}"
+    );
+
+    let conflict = history.trend(&["--since", "2026-01-01", "--commits", "5"]);
+    assert_eq!(conflict.status.code(), Some(2));
+    let conflict_stderr = stderr_of(&conflict);
+    assert!(
+        conflict_stderr.contains("--since")
+            && conflict_stderr.contains("--commits")
+            && conflict_stderr.contains("cannot be used with"),
+        "unexpected conflict error: {conflict_stderr}"
+    );
+}

@@ -31,7 +31,7 @@ See [docs/reference.md](./reference.md) for the exact semantics of each command 
 | ----------- | --------------- | -------------------- | ---------------------- | ----- | ----------- |
 | `check` | `check(options?)` | `check(folder, &CheckOptions)` | `check([CheckOptions])` | Yes | `path`, `all`, `package`, `owner`, `coverageReports` / `coverage_reports`, `ignoreBaseline` / `ignore_baseline` |
 | `diff` | `diff(baseRef, options?)` | `diff(folder, base_ref, &DiffOptions)` | `diff(baseRef, [DiffOptions])` | Yes | `headRef` / `head_ref`, `all`, `package`, `owner`, `resultCache` / `result_cache` |
-| `trend` | `trend(options?)` | `trend(folder, &TrendOptions)` | `trend([TrendOptions])` | No | `since`, `last` (Dart) / `range` (Rust), `resultCache` / `result_cache` |
+| `trend` | `trend(options?)` | `trend(folder, &TrendOptions)` | `trend([TrendOptions])` | No | `since`, `commits` (CLI) / `last` (Dart) / `range` (Rust), `resultCache` / `result_cache` |
 | `impact` | `impact(options)` | `impact(folder, &ImpactOptions)` | `impact([ImpactOptions])` | No | `paths`, `changed`, `depth`, `package` |
 | `trace` | `trace(from, to, options?)` | `trace(folder, from, to, &TraceOptions)` | `trace(from, to, [TraceOptions])` | No | `all`, `maxPaths` / `max_paths`, `package` |
 | `init` | `init(options?)` | `init(folder, &InitOptions)` | `init([InitOptions])` | No | `format` (`jsonc`, `json`, `toml`, `yaml`), `adopt` |
@@ -53,6 +53,7 @@ Subprocess SDKs also accept common execution options:
 - TypeScript/JavaScript accepts `cwd` and `binaryPath` on every options object, plus `output` on report-producing operations (`check`, `diff`, `trend`, `impact`, `trace`, `schema`, `report`, `churn`, `coupling`).
 - Dart configures `cwd`, `binaryPath`, `allowDownload`, `releaseBaseUrl`, `cacheDir`, and `environment` on `CodeintClient`.
 - Rust accepts `PluginHostConfig` on measurement options (`check`, `diff`, `trend`, `impact`, `trace`, `init`, `doctor`, `churn`, `coupling`, `ratchet_update`, `baseline_update`).
+- `trend` accepts either `since` or a positive commit count (`--commits <COUNT>` on the CLI, defaulting to 20; passing `0` or combining `since` with `commits` fails with exit code 2).
 
 ## Built-in Metrics, custom Metric plugins, and report JSON Schemas
 

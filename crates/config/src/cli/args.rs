@@ -74,9 +74,17 @@ pub(super) enum CommandArguments {
         #[arg(
             long,
             value_name = "YYYY-MM-DD",
+            conflicts_with = "commits",
             help = "Measure every main-line commit committed on or after this day, in UTC, instead of the latest 20"
         )]
         since: Option<CalendarDay>,
+        #[arg(
+            long,
+            value_name = "COUNT",
+            conflicts_with = "since",
+            help = "Measure at most this many latest main-line commits from HEAD instead of the latest 20"
+        )]
+        commits: Option<std::num::NonZeroUsize>,
         #[command(flatten)]
         output: OutputArgument,
         #[arg(
