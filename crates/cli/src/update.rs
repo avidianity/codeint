@@ -1,11 +1,28 @@
+use std::ffi::OsString;
 use std::fs;
+use std::hint::black_box;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
+
+use codeint_config::{
+    DEFAULT_UPDATE_CONNECT_TIMEOUT_SECONDS, DEFAULT_UPDATE_DOWNLOAD_MAX_TIME_SECONDS,
+    DEFAULT_UPDATE_METADATA_MAX_TIME_SECONDS, RewrittenSchemaForm, Sha256Digest,
+};
+use codeint_plugin_host::{sha256, sha256_hex};
+use serde::Deserialize;
+
+#[cfg(test)]
+mod tests;
 
 const LATEST_RELEASE_API_URL: &str =
     "https://api.github.com/repos/avidianity/codeint/releases/latest";
 const DEFAULT_RELEASE_DOWNLOAD_BASE: &str =
     "https://github.com/avidianity/codeint/releases/download";
+
+#[derive(Deserialize)]
+struct LatestReleaseResponse {
+    tag_name: String,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum UpdateError {
@@ -15,10 +32,26 @@ pub(crate) enum UpdateError {
     ManagedByPackageManager { path: PathBuf },
     #[error("unsupported platform for self-update")]
     UnsupportedPlatform,
+    #[error("invalid --version value {version:?}: {detail}")]
+    InvalidVersion { version: String, detail: String },
     #[error("cannot query the latest release: {detail}")]
     LatestRelease { detail: String },
+    #[error("cannot query the latest release: invalid GitHub Releases API JSON")]
+    LatestReleaseJson(#[source] serde_json::Error),
+    #[error("cannot query the latest release: {context}")]
+    LatestReleaseIo {
+        context: String,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("cannot download {url}: {detail}")]
     Download { url: String, detail: String },
+    #[error("cannot download {url}")]
+    DownloadIo {
+        url: String,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("checksum verification failed for {file}: expected {expected}, got {actual}")]
     ChecksumMismatch {
         file: String,
@@ -27,10 +60,16 @@ pub(crate) enum UpdateError {
     },
     #[error("no SHA-256 checksum entry found for {file} in SHA256SUMS")]
     MissingChecksum { file: String },
-    #[error("cannot compute SHA-256 checksum: {detail}")]
-    ChecksumTool { detail: String },
+    #[error("cannot read downloaded archive {}", path.display())]
+    ReadArchive {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("cannot extract release archive: {detail}")]
     Extract { detail: String },
+    #[error("cannot extract release archive")]
+    ExtractIo(#[source] std::io::Error),
     #[error("cannot replace executable at {}", path.display())]
     Replace {
         path: PathBuf,
@@ -50,10 +89,7 @@ pub(crate) fn update(
     }
     let current = env!("CARGO_PKG_VERSION");
     let current_tag = format!("v{current}");
-    let target_tag = match requested_version {
-        Some(tag) => normalize_tag(tag),
-        None => resolve_latest_tag(release_base_url)?,
-    };
+    let target_tag = resolve_target_tag(requested_version, release_base_url)?;
     if target_tag == current_tag && (requested_version.is_none() || check_only) {
         let base = format!("codeint {current} is already up to date ({target_tag})");
         return Ok(if check_only {
@@ -66,6 +102,16 @@ pub(crate) fn update(
         return Ok(format!("Update available: {current_tag} -> {target_tag}"));
     }
     perform_binary_update(&exe_path, &target_tag, release_base_url)
+}
+
+fn resolve_target_tag(
+    requested_version: Option<&str>,
+    release_base_url: Option<&str>,
+) -> Result<String, UpdateError> {
+    match requested_version {
+        Some(tag) => validate_requested_version(tag),
+        None => resolve_latest_tag(release_base_url),
+    }
 }
 
 fn perform_binary_update(
@@ -85,7 +131,7 @@ fn perform_binary_update(
 }
 
 fn append_schema_sync(mut message: String, target_tag: &str) -> String {
-    if let Some(updated) = sync_codeint_json_schema(target_tag) {
+    if let Some(updated) = sync_config_schema(target_tag) {
         message.push_str(&format!("\n{updated}"));
     }
     message
@@ -107,17 +153,43 @@ fn find_config_file(start: &Path) -> Option<codeint_config::DiscoveredConfigFile
     None
 }
 
-fn sync_codeint_json_schema(target_tag: &str) -> Option<String> {
+fn sync_config_schema(target_tag: &str) -> Option<String> {
     let cwd = std::env::current_dir().ok()?;
     let discovered = find_config_file(&cwd)?;
     let text = fs::read_to_string(&discovered.path).ok()?;
-    let (updated, new_url) =
-        codeint_config::rewrite_schema_tag(discovered.kind, &text, target_tag)?;
-    fs::write(&discovered.path, updated).ok()?;
-    Some(format!(
-        "Updated $schema in {} to {new_url}",
-        discovered.path.display()
+    let rewritten = codeint_config::rewrite_schema_tag(discovered.kind, &text, target_tag)?;
+    fs::write(&discovered.path, rewritten.text).ok()?;
+    Some(format_schema_sync_notice(
+        rewritten.form,
+        &discovered.path,
+        &rewritten.url,
     ))
+}
+
+fn format_schema_sync_notice(form: RewrittenSchemaForm, path: &Path, new_url: &str) -> String {
+    match form {
+        RewrittenSchemaForm::JsonKey
+        | RewrittenSchemaForm::TomlKey
+        | RewrittenSchemaForm::YamlKey => {
+            format!("Updated $schema in {} to {new_url}", path.display())
+        }
+        RewrittenSchemaForm::TomlDirective => format!(
+            "Updated #:schema directive in {} to {new_url}",
+            path.display()
+        ),
+        RewrittenSchemaForm::TomlDirectiveAndKey => format!(
+            "Updated #:schema directive and $schema in {} to {new_url}",
+            path.display()
+        ),
+        RewrittenSchemaForm::YamlDirective => format!(
+            "Updated # yaml-language-server: $schema= directive in {} to {new_url}",
+            path.display()
+        ),
+        RewrittenSchemaForm::YamlDirectiveAndKey => format!(
+            "Updated # yaml-language-server: $schema= directive and $schema in {} to {new_url}",
+            path.display()
+        ),
+    }
 }
 
 fn is_node_modules_install(path: &Path) -> bool {
@@ -125,13 +197,76 @@ fn is_node_modules_install(path: &Path) -> bool {
         .any(|component| matches!(component, Component::Normal(name) if name == "node_modules"))
 }
 
-fn normalize_tag(tag: &str) -> String {
-    let trimmed = tag.trim();
-    if trimmed.starts_with('v') {
-        trimmed.to_owned()
-    } else {
-        format!("v{trimmed}")
+fn is_valid_semver_numeric_part(part: &str) -> bool {
+    !part.is_empty()
+        && part.bytes().all(|byte| byte.is_ascii_digit())
+        && !(part.len() > 1 && part.starts_with('0'))
+}
+
+fn is_valid_semver_prerelease(prerelease: &str) -> bool {
+    !prerelease.is_empty()
+        && prerelease.split('.').all(|segment| {
+            if segment.is_empty()
+                || !segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            {
+                return false;
+            }
+            let all_digits = segment.bytes().all(|byte| byte.is_ascii_digit());
+            !all_digits || is_valid_semver_numeric_part(segment)
+        })
+}
+
+fn parse_semver_tag(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
     }
+    let version = trimmed.strip_prefix('v').unwrap_or(trimmed);
+    let (core, prerelease) = match version.split_once('-') {
+        Some((core, pre)) => (core, Some(pre)),
+        None => (version, None),
+    };
+    let mut parts = core.split('.');
+    let valid_core = match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(major), Some(minor), Some(patch), None) => {
+            is_valid_semver_numeric_part(major)
+                && is_valid_semver_numeric_part(minor)
+                && is_valid_semver_numeric_part(patch)
+        }
+        _ => false,
+    };
+    let valid_pre = prerelease.is_none_or(is_valid_semver_prerelease);
+    (valid_core && valid_pre).then(|| format!("v{version}"))
+}
+
+fn validate_release_tag(raw: &str) -> Result<String, UpdateError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(UpdateError::LatestRelease {
+            detail: "release tag is empty".to_owned(),
+        });
+    }
+    parse_semver_tag(trimmed).ok_or_else(|| UpdateError::LatestRelease {
+        detail: format!(
+            "invalid release tag {trimmed:?}; expected SemVer tag v<major>.<minor>.<patch>"
+        ),
+    })
+}
+
+fn validate_requested_version(raw: &str) -> Result<String, UpdateError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(UpdateError::InvalidVersion {
+            version: raw.to_owned(),
+            detail: "value is empty; expected SemVer tag v<major>.<minor>.<patch>".to_owned(),
+        });
+    }
+    parse_semver_tag(trimmed).ok_or_else(|| UpdateError::InvalidVersion {
+        version: trimmed.to_owned(),
+        detail: "expected SemVer tag v<major>.<minor>.<patch>".to_owned(),
+    })
 }
 
 fn resolve_download_base(release_base_url: Option<&str>, tag: &str) -> String {
@@ -146,45 +281,27 @@ fn resolve_latest_tag(release_base_url: Option<&str>) -> Result<String, UpdateEr
         let base = base.trim_end_matches('/');
         if let Some(local_dir) = local_path_from_base(base) {
             let latest_path = local_dir.join("LATEST");
-            let raw =
-                fs::read_to_string(&latest_path).map_err(|error| UpdateError::LatestRelease {
-                    detail: format!("cannot read {}: {error}", latest_path.display()),
-                })?;
-            let tag = raw.trim();
-            if tag.is_empty() {
-                return Err(UpdateError::LatestRelease {
-                    detail: format!("{} is empty", latest_path.display()),
-                });
-            }
-            return Ok(normalize_tag(tag));
+            let raw = fs::read_to_string(&latest_path).map_err(|source| {
+                UpdateError::LatestReleaseIo {
+                    context: format!("cannot read {}", latest_path.display()),
+                    source,
+                }
+            })?;
+            return validate_release_tag(&raw);
         }
         let url = format!("{base}/LATEST");
         let text = fetch_text_http(&url)?;
-        let tag = text.trim();
-        if tag.is_empty() {
-            return Err(UpdateError::LatestRelease {
-                detail: format!("{url} returned an empty tag"),
-            });
-        }
-        return Ok(normalize_tag(tag));
+        return validate_release_tag(&text);
     }
 
     let body = fetch_text_http(LATEST_RELEASE_API_URL)?;
-    extract_tag_name(&body).ok_or_else(|| UpdateError::LatestRelease {
-        detail: "GitHub Releases API response did not include tag_name".to_owned(),
-    })
+    extract_tag_name(&body)
 }
 
-fn extract_tag_name(json_text: &str) -> Option<String> {
-    let key = "\"tag_name\"";
-    let idx = json_text.find(key)?;
-    let rest = &json_text[idx + key.len()..];
-    let colon = rest.find(':')?;
-    let after_colon = rest[colon + 1..].trim_start();
-    let after_quote = after_colon.strip_prefix('"')?;
-    let end_quote = after_quote.find('"')?;
-    let tag = &after_quote[..end_quote];
-    (!tag.is_empty()).then(|| normalize_tag(tag))
+fn extract_tag_name(json_text: &str) -> Result<String, UpdateError> {
+    let release: LatestReleaseResponse =
+        serde_json::from_str(json_text).map_err(UpdateError::LatestReleaseJson)?;
+    validate_release_tag(&release.tag_name)
 }
 
 fn detect_target() -> Result<(&'static str, &'static str), UpdateError> {
@@ -227,23 +344,16 @@ fn install_verified_archive(
     fetch_asset(download_base, archive_name, &archive_path)?;
 
     let checksums_text =
-        fs::read_to_string(&checksums_path).map_err(|source| UpdateError::Download {
+        fs::read_to_string(&checksums_path).map_err(|source| UpdateError::DownloadIo {
             url: format!("{download_base}/SHA256SUMS"),
-            detail: source.to_string(),
+            source,
         })?;
     let expected = parse_expected_sha256(&checksums_text, archive_name).ok_or_else(|| {
         UpdateError::MissingChecksum {
             file: archive_name.to_owned(),
         }
     })?;
-    let actual = compute_sha256(&archive_path)?;
-    if actual != expected {
-        return Err(UpdateError::ChecksumMismatch {
-            file: archive_name.to_owned(),
-            expected,
-            actual,
-        });
-    }
+    verify_archive_sha256(&archive_path, archive_name, &expected)?;
 
     let extract_dir = stage_dir.join("extracted");
     fs::create_dir_all(&extract_dir).map_err(|source| UpdateError::Replace {
@@ -277,29 +387,78 @@ fn local_path_from_base(base: &str) -> Option<PathBuf> {
     }
 }
 
+fn build_curl_base_args(connect_timeout_seconds: u64, max_time_seconds: u64) -> Vec<OsString> {
+    vec![
+        OsString::from("--proto"),
+        OsString::from("=https"),
+        OsString::from("--tlsv1.2"),
+        OsString::from("--proto-redir"),
+        OsString::from("=https"),
+        OsString::from("--connect-timeout"),
+        OsString::from(connect_timeout_seconds.to_string()),
+        OsString::from("--max-time"),
+        OsString::from(max_time_seconds.to_string()),
+        OsString::from("--fail"),
+        OsString::from("--silent"),
+        OsString::from("--show-error"),
+        OsString::from("--location"),
+    ]
+}
+
+fn build_curl_download_args(url: &str, destination: &Path) -> Vec<OsString> {
+    let mut args = build_curl_base_args(
+        DEFAULT_UPDATE_CONNECT_TIMEOUT_SECONDS,
+        DEFAULT_UPDATE_DOWNLOAD_MAX_TIME_SECONDS,
+    );
+    args.push(OsString::from("--output"));
+    args.push(destination.as_os_str().to_owned());
+    args.push(OsString::from("--"));
+    args.push(OsString::from(url));
+    args
+}
+
+fn build_curl_text_args(url: &str) -> Vec<OsString> {
+    let mut args = build_curl_base_args(
+        DEFAULT_UPDATE_CONNECT_TIMEOUT_SECONDS,
+        DEFAULT_UPDATE_METADATA_MAX_TIME_SECONDS,
+    );
+    args.push(OsString::from("--header"));
+    args.push(OsString::from("Accept: application/vnd.github+json"));
+    args.push(OsString::from("--"));
+    args.push(OsString::from(url));
+    args
+}
+
+fn format_curl_failure(output: &Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    if stderr.is_empty() {
+        format!("curl exited with {}", output.status)
+    } else {
+        stderr
+    }
+}
+
 fn fetch_asset(base: &str, filename: &str, destination: &Path) -> Result<(), UpdateError> {
     if let Some(dir) = local_path_from_base(base) {
         let source_path = dir.join(filename);
-        fs::copy(&source_path, destination).map_err(|error| UpdateError::Download {
+        fs::copy(&source_path, destination).map_err(|source| UpdateError::DownloadIo {
             url: source_path.display().to_string(),
-            detail: error.to_string(),
+            source,
         })?;
         return Ok(());
     }
     let url = format!("{base}/{filename}");
-    let status = Command::new("curl")
-        .args(["-fsSL", "-o"])
-        .arg(destination)
-        .arg(&url)
-        .status()
-        .map_err(|error| UpdateError::Download {
+    let output = Command::new("curl")
+        .args(build_curl_download_args(&url, destination))
+        .output()
+        .map_err(|source| UpdateError::DownloadIo {
             url: url.clone(),
-            detail: error.to_string(),
+            source,
         })?;
-    if !status.success() {
+    if !output.status.success() {
         return Err(UpdateError::Download {
             url,
-            detail: format!("curl exited with {status}"),
+            detail: format_curl_failure(&output),
         });
     }
     Ok(())
@@ -307,14 +466,15 @@ fn fetch_asset(base: &str, filename: &str, destination: &Path) -> Result<(), Upd
 
 fn fetch_text_http(url: &str) -> Result<String, UpdateError> {
     let output = Command::new("curl")
-        .args(["-fsSL", "-H", "Accept: application/vnd.github+json", url])
+        .args(build_curl_text_args(url))
         .output()
-        .map_err(|error| UpdateError::LatestRelease {
-            detail: error.to_string(),
+        .map_err(|source| UpdateError::LatestReleaseIo {
+            context: format!("cannot invoke curl for {url}"),
+            source,
         })?;
     if !output.status.success() {
         return Err(UpdateError::LatestRelease {
-            detail: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            detail: format_curl_failure(&output),
         });
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
@@ -338,52 +498,43 @@ fn parse_expected_sha256(checksums: &str, archive_name: &str) -> Option<String> 
     None
 }
 
-fn compute_sha256(path: &Path) -> Result<String, UpdateError> {
-    #[cfg(windows)]
-    {
-        let output = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "(Get-FileHash -Algorithm SHA256 -LiteralPath $args[0]).Hash.ToLowerInvariant()",
-            ])
-            .arg(path)
-            .output()
-            .map_err(|error| UpdateError::ChecksumTool {
-                detail: error.to_string(),
-            })?;
-        if !output.status.success() {
-            return Err(UpdateError::ChecksumTool {
-                detail: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-            });
-        }
-        return Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned());
+fn constant_time_equal(left: &[u8; 32], right: &[u8; 32]) -> bool {
+    let mut diff = 0u8;
+    for (&a, &b) in left.iter().zip(right.iter()) {
+        diff |= black_box(a ^ b);
     }
-    #[cfg(not(windows))]
-    {
-        let attempt = Command::new("sha256sum").arg(path).output().or_else(|_| {
-            Command::new("shasum")
-                .args(["-a", "256"])
-                .arg(path)
-                .output()
+    black_box(diff) == 0
+}
+
+fn verify_sha256_bytes(
+    bytes: &[u8],
+    archive_name: &str,
+    expected_hex: &str,
+) -> Result<(), UpdateError> {
+    let actual_digest = sha256(bytes);
+    let matches = Sha256Digest::parse_hex(expected_hex).is_some_and(|expected_digest| {
+        constant_time_equal(&actual_digest, expected_digest.as_bytes())
+    });
+    if !matches {
+        return Err(UpdateError::ChecksumMismatch {
+            file: archive_name.to_owned(),
+            expected: expected_hex.to_owned(),
+            actual: sha256_hex(&actual_digest),
         });
-        let output = attempt.map_err(|error| UpdateError::ChecksumTool {
-            detail: error.to_string(),
-        })?;
-        if !output.status.success() {
-            return Err(UpdateError::ChecksumTool {
-                detail: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-            });
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        stdout
-            .split_whitespace()
-            .next()
-            .map(|hash| hash.to_ascii_lowercase())
-            .ok_or_else(|| UpdateError::ChecksumTool {
-                detail: "checksum tool returned empty output".to_owned(),
-            })
     }
+    Ok(())
+}
+
+fn verify_archive_sha256(
+    archive_path: &Path,
+    archive_name: &str,
+    expected_hex: &str,
+) -> Result<(), UpdateError> {
+    let bytes = fs::read(archive_path).map_err(|source| UpdateError::ReadArchive {
+        path: archive_path.to_path_buf(),
+        source,
+    })?;
+    verify_sha256_bytes(&bytes, archive_name, expected_hex)
 }
 
 fn extract_archive(archive: &Path, destination: &Path, ext: &str) -> Result<(), UpdateError> {
@@ -405,9 +556,7 @@ fn extract_archive(archive: &Path, destination: &Path, ext: &str) -> Result<(), 
             .arg(destination)
             .status()
     }
-    .map_err(|error| UpdateError::Extract {
-        detail: error.to_string(),
-    })?;
+    .map_err(UpdateError::ExtractIo)?;
     if !status.success() {
         return Err(UpdateError::Extract {
             detail: format!("archive extractor exited with {status}"),
