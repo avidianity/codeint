@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use codeint_cli::{
     AgentClient, AgentFormat, BaselineFormat, BaselineUpdateOptions, CheckOptions, ChurnFormat,
@@ -17,12 +16,7 @@ use codeint_model::SourceSet;
 use tempfile::TempDir;
 
 pub(crate) fn git(dir: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .status()
-        .expect("run git");
-    assert!(status.success(), "git {args:?} failed");
+    crate::common::run_git(dir, args);
 }
 
 pub(crate) fn setup_repo() -> TempDir {
