@@ -486,7 +486,12 @@ fn measure_check_report(
     let (orphan_files, orphan_files_by_language) = compute_orphan_files(&snapshot, selected_ref);
     let (dependency_hygiene, dependency_hygiene_by_language) =
         compute_dependency_hygiene(&snapshot, &configuration.dependencies, selected_ref);
-    apply_selected_package(&mut snapshot, plugins, selected.as_ref())?;
+    apply_selected_package(
+        &mut snapshot,
+        plugins,
+        selected.as_ref(),
+        configuration.config_file(),
+    )?;
     Report::summarize_with_extras(
         snapshot.languages,
         tree.submodules().to_vec(),
@@ -519,6 +524,7 @@ fn apply_selected_package(
     snapshot: &mut MeasuredSnapshot,
     plugins: &[NamedLanguagePlugin<'_>],
     selected: Option<&(SelectedPackage, Workspace)>,
+    config_file: ConfigFileKind,
 ) -> Result<(), CheckError> {
     let Some((selected_pkg, workspace)) = selected else {
         return Ok(());
@@ -535,6 +541,7 @@ fn apply_selected_package(
         plugins,
         &snapshot.framework_profiles_by_language,
         selected_pkg,
+        config_file,
     )
 }
 
@@ -578,7 +585,8 @@ fn measure(
     let covered_files = lowering::assign_files_to_plugins(tree, plugins, coverage, config_file)?;
     let sql_dialects =
         sql::resolve_sql_dialects(plugins, &covered_files, &configuration.sql, config_file)?;
-    let discovery = manifests::find_plugin_workspaces(plugins, read_manifests(tree, plugins)?)?;
+    let discovery =
+        manifests::find_plugin_workspaces(plugins, read_manifests(tree, plugins, config_file)?)?;
     let workspace = discovery.workspace();
     let manifest_warnings = discovery.warnings();
     let plugin_members = discovery.members_by_plugin;

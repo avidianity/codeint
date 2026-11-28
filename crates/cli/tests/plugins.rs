@@ -905,6 +905,121 @@ fn https_url_plugin_hash_mismatch_refuses_download_leaves_cache_empty_and_exits_
 }
 
 #[test]
+fn plugin_max_download_mb_env_var_validates_and_enforces_cap() {
+    let wasm = built_sample_plugin();
+    let hash = sha256_hex(&sha256(&fs::read(wasm).expect("read sample wasm")));
+    let oversized_dir = tempfile::tempdir().expect("oversized tempdir");
+    let oversized_path = oversized_dir.path().join("oversized.wasm");
+    fs::write(&oversized_path, vec![0u8; 2 * 1024 * 1024]).expect("write 2 MiB file");
+
+    let server =
+        LocalHttpsServer::start(&[("sample.wasm", wasm), ("oversized.wasm", &oversized_path)]);
+    let cache_dir = tempfile::tempdir().expect("cache tempdir");
+    let repo = init_repo();
+    write_url_plugin_config(
+        repo.path(),
+        "oversized-remote",
+        &server.url("oversized.wasm"),
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    );
+    write_file(repo.path(), "src/app.mini", "fn main() {\n  return 1\n}\n");
+
+    for bad in ["0", "-2", "not-a-number", "8796093022208", "10000000000000"] {
+        let output = run_codeint_with_env(
+            repo.path(),
+            &["check"],
+            &[("CODEINT_PLUGIN_MAX_DOWNLOAD_MB", Path::new(bad))],
+        );
+        assert_eq!(output.status.code(), Some(2));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("CODEINT_PLUGIN_MAX_DOWNLOAD_MB"),
+            "expected CODEINT_PLUGIN_MAX_DOWNLOAD_MB error for {bad:?}, got: {stderr}"
+        );
+    }
+
+    let capped = run_codeint_with_env(
+        repo.path(),
+        &["check"],
+        &[
+            ("CODEINT_CACHE_DIR", cache_dir.path()),
+            ("CODEINT_TEST_CA_CERT", server.cert_path()),
+            ("CODEINT_PLUGIN_MAX_DOWNLOAD_MB", Path::new("1")),
+        ],
+    );
+    assert_eq!(capped.status.code(), Some(2));
+    let capped_stderr = String::from_utf8_lossy(&capped.stderr);
+    assert!(
+        capped_stderr.contains("oversized-remote")
+            && capped_stderr.contains("1048576 bytes")
+            && capped_stderr.contains("CODEINT_PLUGIN_MAX_DOWNLOAD_MB"),
+        "expected 1 MiB download cap error and remedy, got: {capped_stderr}"
+    );
+
+    write_url_plugin_config(
+        repo.path(),
+        "sample-mini",
+        &server.url("sample.wasm"),
+        &hash,
+    );
+    let allowed = run_check_json_with_env(
+        repo.path(),
+        &[
+            ("CODEINT_CACHE_DIR", cache_dir.path()),
+            ("CODEINT_TEST_CA_CERT", server.cert_path()),
+            ("CODEINT_PLUGIN_MAX_DOWNLOAD_MB", Path::new("1")),
+        ],
+    );
+    assert_eq!(allowed["files"], 1);
+}
+
+fn assert_manifest_paths_probe_error(repo: &Path, expected_snippets: &[&str], context: &str) {
+    let output = run_codeint_with_env(repo, &["check"], &[]);
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for snippet in expected_snippets {
+        assert!(
+            stderr.contains(snippet),
+            "{context}, missing {snippet:?}: {stderr}"
+        );
+    }
+    assert!(
+        !stderr.contains("cannot resolve runtime imports"),
+        "{context}, got: {stderr}"
+    );
+}
+
+#[test]
+fn manifest_paths_timeout_and_trap_report_language_plugin_error_and_remedy() {
+    let (timeout_repo, _hash) = init_single_probe_repo(
+        "loop-manifests",
+        None,
+        "loop_language_plugin.wasm",
+        r#""plugin_limits": { "timeout_ms": 50 }"#,
+    );
+    write_file(timeout_repo.path(), "loop-manifest-paths", "trigger\n");
+    write_file(timeout_repo.path(), "src/app.loop", "ok\n");
+    assert_manifest_paths_probe_error(
+        timeout_repo.path(),
+        &["loop-manifests", "50 ms", "plugin_limits.timeout_ms"],
+        "expected Language plugin timeout error and plugin_limits remedy",
+    );
+
+    let (trap_repo, _trap_hash) = init_single_probe_repo(
+        "trap-manifests",
+        None,
+        "manifest_paths_trap_language_plugin.wasm",
+        "",
+    );
+    write_file(trap_repo.path(), "src/app.probe", "ok\n");
+    assert_manifest_paths_probe_error(
+        trap_repo.path(),
+        &["trap-manifests", "manifest-paths"],
+        "expected Language plugin trap error instead of runtime imports error",
+    );
+}
+
+#[test]
 fn plain_http_and_non_https_plugin_urls_are_refused_with_exit_2() {
     for bad_url in [
         "http://127.0.0.1:8080/sample.wasm",

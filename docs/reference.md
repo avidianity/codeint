@@ -1524,7 +1524,7 @@ Set `kind` to `"language"` (the default) for a Language plugin, or `"metric"` fo
 Set either `path` or `url` on each entry, never both.
 External Metric plugins appear alongside the built-in Metrics in `codeint check`, `codeint diff`, and `codeint trend`, and support `budgets` and `regression_limits` under their Metric key.
 Relative paths resolve from the root of the repository.
-Remote plugins require an `https://` URL (plain `http://` and other schemes are refused), are downloaded once into the `plugins` subfolder of the [result cache](#result-cache) keyed by `<sha256>.wasm`, and are reused from the cache on later runs without touching the network.
+Remote plugins require an `https://` URL (plain `http://` and other schemes are refused), are downloaded once into the `plugins` subfolder of the [result cache](#result-cache) keyed by `<sha256>.wasm` under a 50 MiB default download cap (override with `CODEINT_PLUGIN_MAX_DOWNLOAD_MB`, a positive integer in MiB up to `8796093022207`), and are reused from the cache on later runs without touching the network.
 codeint verifies the SHA-256 digest before caching, compiling, or instantiating the component, and grants the component no host capabilities (no file system, network, environment, or clock access).
 A missing `sha256`, an invalid digest, a missing file, a non-HTTPS URL, or a hash mismatch stops the run with exit code 2:
 

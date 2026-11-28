@@ -1291,6 +1291,7 @@ fn resolve_in_project(files: &[(&str, &str)], importer: &str, specifier: &str) -
         .collect();
     let manifests = plugin()
         .manifest_paths(&paths)
+        .expect("manifest paths")
         .into_iter()
         .map(|path| {
             let text = files
@@ -1330,7 +1331,7 @@ fn the_plugin_asks_the_host_to_read_every_package_manifest_and_tsconfig_file() {
     .collect();
 
     assert_eq!(
-        plugin().manifest_paths(&paths),
+        plugin().manifest_paths(&paths).expect("manifest paths"),
         [
             "package.json",
             "tsconfig.json",
@@ -1688,6 +1689,7 @@ fn the_plugin_reads_package_json_manifests_to_find_workspace_packages() {
     .collect();
     let package_manifests: Vec<String> = plugin()
         .manifest_paths(&paths)
+        .expect("manifest paths")
         .into_iter()
         .filter(|path| path.ends_with("package.json"))
         .collect();
@@ -1713,7 +1715,10 @@ fn the_plugin_reads_the_pnpm_workspace_yaml_at_the_repository_root_and_no_other(
     .map(|path| RepoPath::new(*path).expect("a valid path"))
     .collect();
 
-    assert_eq!(plugin().manifest_paths(&paths), ["pnpm-workspace.yaml"]);
+    assert_eq!(
+        plugin().manifest_paths(&paths).expect("manifest paths"),
+        ["pnpm-workspace.yaml"]
+    );
 }
 
 #[test]

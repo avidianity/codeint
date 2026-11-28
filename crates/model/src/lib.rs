@@ -390,6 +390,8 @@ pub enum LanguagePluginError {
     FrameworkProfile { message: String },
     #[error("the Language plugin returned an invalid Framework profile Reference range")]
     InvalidFrameworkReferenceRange(#[from] InvalidReferenceRange),
+    #[error("the Language plugin returned an invalid Reference range")]
+    InvalidReferenceRange(#[source] InvalidReferenceRange),
     #[error(
         "the Language plugin declared a dependency with an invalid package root {package_root:?}"
     )]
@@ -591,7 +593,10 @@ pub trait LanguagePlugin: Sync {
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError>;
 
-    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String>;
+    fn manifest_paths(
+        &self,
+        repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, LanguagePluginError>;
 
     fn workspace_packages(&self, manifests: Vec<Manifest>)
     -> Result<Vec<RepoPath>, WorkspaceError>;
@@ -615,7 +620,7 @@ pub trait LanguagePlugin: Sync {
         manifests: Vec<Manifest>,
     ) -> Result<Vec<RepoPath>, LanguagePluginError>;
 
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange>;
+    fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError>;
 
     fn known_framework_profiles(&self) -> Vec<String>;
 
@@ -643,8 +648,11 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         Plugin::lower(path.as_str().to_owned(), text.to_owned()).map_err(LowerError::from)
     }
 
-    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
-        Plugin::manifest_paths(owned_paths(repository_paths))
+    fn manifest_paths(
+        &self,
+        repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, LanguagePluginError> {
+        Ok(Plugin::manifest_paths(owned_paths(repository_paths)))
     }
 
     fn workspace_packages(
@@ -690,8 +698,9 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         )
     }
 
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+    fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError> {
         ReferenceRanges::new(Plugin::reference_ranges())
+            .map_err(LanguagePluginError::InvalidReferenceRange)
     }
 
     fn known_framework_profiles(&self) -> Vec<String> {
