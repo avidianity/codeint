@@ -21,6 +21,9 @@ fn source_file(name: &str, source_set: SourceSet) -> SourceFile {
             hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
+            is_tooling_file: false,
+            diagnostics: Vec::new(),
+            scope_artifact: None,
         },
     }
 }

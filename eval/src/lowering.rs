@@ -61,7 +61,7 @@ fn lower_file(plugin: NamedLanguagePlugin<'_>, checkout: &Path, path: &str) -> L
     let Ok(repo_path) = RepoPath::new(path) else {
         return LoweredOutcome::NotMeasured;
     };
-    match plugin.plugin.lower(&repo_path, &text) {
+    match plugin.plugin.lower(&repo_path, &text, None) {
         Ok(model) => LoweredOutcome::Measured {
             source_set: settle_source_set(&repo_path, &text, model.source_set),
             functions: model

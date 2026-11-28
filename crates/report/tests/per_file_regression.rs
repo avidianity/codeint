@@ -28,6 +28,9 @@ fn flagged_source(path: &str, lines: &[u32]) -> SourceFile {
             hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
+            is_tooling_file: false,
+            diagnostics: Vec::new(),
+            scope_artifact: None,
         },
     }
 }

@@ -205,12 +205,12 @@ fn assert_fails(kind: &str, wasm: &str, extra: &[&std::ffi::OsStr], check_id: &s
 }
 
 #[test]
-fn workspace_packages_failures_fail_the_check() {
+fn analyze_manifests_failures_fail_the_check() {
     for wasm in [
         "invalid_workspace_root_language_plugin.wasm",
         "workspace_trap_language_plugin.wasm",
     ] {
-        assert_fails("language", wasm, &[], "workspace-packages");
+        assert_fails("language", wasm, &[], "analyze-manifests");
     }
 }
 
@@ -219,7 +219,7 @@ fn a_plugin_that_chooses_no_manifests_is_never_sent_a_foreign_manifest() {
     let (output, report) =
         json_report("language", "cargo_only_workspace_language_plugin.wasm", &[]);
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    assert_eq!(check_status(&report, "workspace-packages"), "pass");
+    assert_eq!(check_status(&report, "analyze-manifests"), "pass");
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn a_workspace_error_on_a_valid_manifest_fails_the_check() {
         "language",
         "workspace_always_fails_language_plugin.wasm",
         &[],
-        "workspace-packages",
+        "analyze-manifests",
     );
 }
 
@@ -337,28 +337,24 @@ fn assert_language_passes(wasm: &str, expected: &[(&str, &str)]) {
 }
 
 #[test]
-fn a_workspace_error_naming_an_unpassed_manifest_path_fails_workspace_packages() {
+fn a_workspace_error_naming_an_unpassed_manifest_path_fails_analyze_manifests() {
     let report = assert_fails(
         "language",
         "workspace_unpassed_path_language_plugin.wasm",
         &[],
-        "workspace-packages",
+        "analyze-manifests",
     );
     assert!(
-        check_message(&report, "workspace-packages").contains("wrong/unpassed.json"),
+        check_message(&report, "analyze-manifests").contains("wrong/unpassed.json"),
         "{report}"
     );
 }
 
 #[test]
-fn a_plugin_whose_declared_dependencies_assumes_workspace_filtered_manifests_passes() {
+fn a_plugin_whose_analyze_manifests_filters_invalid_manifests_in_one_pass_passes() {
     assert_language_passes(
         "strict_declared_deps_language_plugin.wasm",
-        &[
-            ("workspace-packages", "pass"),
-            ("declared-dependencies", "pass"),
-            ("end-to-end", "pass"),
-        ],
+        &[("analyze-manifests", "pass"), ("end-to-end", "pass")],
     );
 }
 
@@ -464,9 +460,8 @@ fn a_plugin_without_imports_skips_every_import_check_and_passes() {
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     for id in [
         "manifest-paths",
-        "workspace-packages",
+        "analyze-manifests",
         "resolve-imports",
-        "declared-dependencies",
         "entry-points",
     ] {
         assert_eq!(check_status(&report, id), "skipped", "{id}");

@@ -19,7 +19,7 @@ use crate::wasm::{
 
 const METRIC_CONTRACT: ContractSpec = ContractSpec {
     interface_prefix: "codeint:plugin/metric@",
-    expected_interface: "codeint:plugin/metric@0.4.0",
+    expected_interface: "codeint:plugin/metric@0.5.0",
 };
 
 pub(crate) fn verify_metric_component(
@@ -368,6 +368,17 @@ fn to_guest_file_model(model: &FileModel) -> guest_language::FileModel {
             .collect(),
         runtime_imports: model.runtime_imports.clone(),
         program_start: model.program_start,
+        is_tooling_file: model.is_tooling_file,
+        diagnostics: model
+            .diagnostics
+            .iter()
+            .map(|diagnostic| guest_language::FileDiagnostic {
+                line: diagnostic.line,
+                kind: diagnostic.kind.clone(),
+                message: diagnostic.message.clone(),
+            })
+            .collect(),
+        scope_artifact: model.scope_artifact.clone(),
     }
 }
 

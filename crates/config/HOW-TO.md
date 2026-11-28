@@ -28,7 +28,7 @@ let configuration = read_configuration(repository.root())?;
 ```rust
 use codeint_model::settle_source_set;
 
-let mut model = plugins[0].lower(&path, text)?;
+let mut model = plugins[0].lower(&path, text, None)?;
 model.source_set = configuration
     .source_set_overrides
     .source_set(&path, settle_source_set(&path, text, model.source_set));

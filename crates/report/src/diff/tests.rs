@@ -98,6 +98,9 @@ fn single_file_model(
                 hazard_lines: Vec::new(),
                 runtime_imports: Vec::new(),
                 program_start,
+                is_tooling_file: false,
+                diagnostics: Vec::new(),
+                scope_artifact: None,
             },
         }],
         languages: vec![LanguageFacts {
@@ -252,6 +255,9 @@ fn diff_report_evaluates_new_file_budgets_and_round_trips_saved_report() {
                 hazard_lines: Vec::new(),
                 runtime_imports: Vec::new(),
                 program_start: false,
+                is_tooling_file: false,
+                diagnostics: Vec::new(),
+                scope_artifact: None,
             },
         }],
         languages: vec![LanguageFacts {

@@ -26,7 +26,11 @@ impl Guest for DuplicateExtensionLanguagePlugin {
         vec!["dup".to_string(), "dup".to_string()]
     }
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+    fn lower(
+        path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
         if !path.ends_with(".dup") {
             return Err(LowerError::UnsupportedFile("unsupported".to_string()));
         }

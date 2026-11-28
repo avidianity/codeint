@@ -9,7 +9,7 @@ fn repo_path(path: &str) -> RepoPath {
 
 fn hazards_for(dialect: SqlDialect, sql: &str) -> Vec<HazardLine> {
     Sql::with_dialect(dialect)
-        .lower(&repo_path("query.sql"), sql)
+        .lower(&repo_path("query.sql"), sql, None)
         .unwrap_or_else(|err| panic!("failed to lower SQL ({dialect}): {err}"))
         .hazard_lines
 }

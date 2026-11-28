@@ -235,12 +235,16 @@ fn flutter_fallback_import_hints_preserve_flutter_external_and_handle_generated_
     })
     .collect();
 
+    let flutter_profiles = vec![codeint_model::PackageFrameworkProfiles {
+        package_root: String::new(),
+        active_profiles: vec!["flutter".to_string()],
+    }];
     let with_flutter = Dart
         .resolve_imports(
             &base_paths,
             manifest.clone(),
             requests.clone(),
-            &["flutter".to_string()],
+            &flutter_profiles,
         )
         .unwrap();
     assert_eq!(with_flutter[0], Resolution::External("flutter".to_string()));
@@ -278,7 +282,7 @@ fn flutter_fallback_import_hints_preserve_flutter_external_and_handle_generated_
                 importer: "lib/main.dart".to_string(),
                 specifier: "package:flutter_gen/gen_l10n/app_localizations.dart".to_string(),
             }],
-            &["flutter".to_string()],
+            &flutter_profiles,
         )
         .unwrap();
     assert_eq!(

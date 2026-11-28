@@ -1648,16 +1648,16 @@ fn a_result_cached_under_plugin_interface_0_2_0_or_cache_version_7_is_not_reused
         assert_eq!(entries, 2);
     }
 
-    assert_eq!(current_settings["plugin_interface_version"], json!("0.4.0"));
+    assert_eq!(current_settings["plugin_interface_version"], json!("0.5.0"));
     assert_eq!(current_settings["cache_version"], json!(9));
 }
 
 #[test]
-fn a_result_cached_under_plugin_interface_0_4_0_is_reused_on_subsequent_runs() {
+fn a_result_cached_under_plugin_interface_0_5_0_is_reused_on_subsequent_runs() {
     let fixture = Fixture::with_an_eroded_file_removed_since_main();
     let first = fixture.diff_json("main");
     let (settings, _) = read_cached_settings_and_result(fixture.result_cache.path());
-    assert_eq!(settings["plugin_interface_version"], json!("0.4.0"));
+    assert_eq!(settings["plugin_interface_version"], json!("0.5.0"));
 
     fixture.forget_committed_file("main:src/removed.ts");
     let second = fixture.diff_json("main");

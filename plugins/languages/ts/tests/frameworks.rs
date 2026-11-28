@@ -45,10 +45,13 @@ fn resolve_single_import(
         importer: importer.to_owned(),
         specifier: specifier.to_owned(),
     }];
-    let profiles: Vec<String> = active_profiles
-        .iter()
-        .map(|name| (*name).to_owned())
-        .collect();
+    let profiles = vec![codeint_model::PackageFrameworkProfiles {
+        package_root: String::new(),
+        active_profiles: active_profiles
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect(),
+    }];
     TypeScriptAndJavaScript
         .resolve_imports(&files, Vec::new(), request, &profiles)
         .expect("resolve import")

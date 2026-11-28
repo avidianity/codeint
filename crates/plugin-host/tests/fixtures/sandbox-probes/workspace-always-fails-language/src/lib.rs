@@ -25,12 +25,14 @@ impl Guest for Probe {
     probe_runtime::faulty_import_language! {
         extensions: vec!["probe".to_string()],
         manifest_paths: vec!["package.json".to_string()],
-        workspace_packages: |manifests| {
+        analyze_manifests: |manifests| {
             let _ = &manifests;
-            Err(WorkspaceError {
+            let mut analysis = probe_runtime::empty_manifest_analysis!();
+            analysis.invalid_manifests.push(WorkspaceError {
                 path: "package.json".to_string(),
                 message: "always fails".to_string(),
-            })
+            });
+            analysis
         },
         framework_profiles: |selection| {
             let _ = &selection;

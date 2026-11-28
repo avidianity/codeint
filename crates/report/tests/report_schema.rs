@@ -140,6 +140,9 @@ fn sample_model(has_coverage: bool, has_hazard_rules: bool) -> CodeModel {
                 hazard_lines,
                 runtime_imports: Vec::new(),
                 program_start: false,
+                is_tooling_file: false,
+                diagnostics: Vec::new(),
+                scope_artifact: None,
             },
         }],
         languages: vec![LanguageFacts {

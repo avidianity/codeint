@@ -12,7 +12,7 @@ fn plugin() -> &'static dyn LanguagePlugin {
 }
 
 fn lower(path: &str, text: &str) -> Result<FileModel, LowerError> {
-    plugin().lower(&RepoPath::new(path).expect("a valid path"), text)
+    plugin().lower(&RepoPath::new(path).expect("a valid path"), text, None)
 }
 
 fn source_lines(path: &str, text: &str) -> u32 {
@@ -1668,8 +1668,15 @@ fn package_roots(root_manifest: &str, package_folders: &[&str]) -> Vec<String> {
             .iter()
             .map(|folder| manifest(&format!("{folder}/package.json"), "{}")),
     );
-    let mut roots: Vec<String> = match plugin().workspace_packages(manifests) {
-        Ok(roots) => roots.iter().map(ToString::to_string).collect(),
+    let mut roots: Vec<String> = match plugin().analyze_manifests(manifests) {
+        Ok(analysis) => {
+            assert!(
+                analysis.invalid_manifests.is_empty(),
+                "unexpected invalid manifests: {:?}",
+                analysis.invalid_manifests
+            );
+            analysis.workspace_packages
+        }
         Err(error) => panic!("workspace packages not found: {error}"),
     };
     roots.sort();
@@ -1724,14 +1731,14 @@ fn the_plugin_reads_the_pnpm_workspace_yaml_at_the_repository_root_and_no_other(
 #[test]
 fn a_tsconfig_manifest_beside_the_package_manifests_never_makes_a_workspace_package() {
     let roots = plugin()
-        .workspace_packages(vec![
+        .analyze_manifests(vec![
             manifest("package.json", r#"{"workspaces": ["packages/*"]}"#),
             manifest("tsconfig.json", "{}"),
             manifest("packages/app/package.json", "{}"),
             manifest("packages/lib/tsconfig.json", "{}"),
         ])
-        .expect("the workspace packages");
-    let roots: Vec<String> = roots.iter().map(ToString::to_string).collect();
+        .expect("the workspace packages")
+        .workspace_packages;
 
     assert_eq!(roots, ["packages/app"]);
 }
@@ -1780,25 +1787,22 @@ fn a_package_inside_node_modules_is_never_a_workspace_package() {
 fn a_root_manifest_without_workspaces_or_no_root_manifest_means_no_workspace_packages() {
     assert!(package_roots(r#"{"name": "single"}"#, &["packages/app"]).is_empty());
     let without_root = plugin()
-        .workspace_packages(vec![manifest("packages/app/package.json", "{}")])
+        .analyze_manifests(vec![manifest("packages/app/package.json", "{}")])
         .expect("no root manifest is not an error");
-    assert!(without_root.is_empty());
+    assert!(without_root.workspace_packages.is_empty());
 }
 
 #[test]
 fn a_manifest_that_is_not_the_root_manifest_is_not_parsed() {
     let roots = package_roots(r#"{"workspaces": ["packages/*"]}"#, &[]);
     assert!(roots.is_empty());
-    let broken_member = plugin().workspace_packages(vec![
-        manifest("package.json", r#"{"workspaces": ["packages/*"]}"#),
-        manifest("packages/app/package.json", "{ not json"),
-    ]);
-    let roots: Vec<String> = broken_member
-        .expect("a broken member manifest is not an error")
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    assert_eq!(roots, ["packages/app"]);
+    let broken_member = plugin()
+        .analyze_manifests(vec![
+            manifest("package.json", r#"{"workspaces": ["packages/*"]}"#),
+            manifest("packages/app/package.json", "{ not json"),
+        ])
+        .expect("a broken member manifest is not an error");
+    assert_eq!(broken_member.workspace_packages, ["packages/app"]);
 }
 
 fn workspace_error(root_manifest: &str) -> String {
@@ -1806,10 +1810,15 @@ fn workspace_error(root_manifest: &str) -> String {
 }
 
 fn manifest_workspace_error(path: &str, text: &str) -> String {
-    match plugin().workspace_packages(vec![manifest(path, text)]) {
-        Ok(roots) => panic!("expected an error, found {roots:?}"),
-        Err(error) => error.to_string(),
-    }
+    let analysis = plugin()
+        .analyze_manifests(vec![manifest(path, text)])
+        .expect("analyze_manifests succeeds");
+    let first = analysis
+        .invalid_manifests
+        .first()
+        .cloned()
+        .unwrap_or_else(|| panic!("expected an invalid manifest, found {analysis:?}"));
+    codeint_model::WorkspaceError::from(first).to_string()
 }
 
 #[test]
@@ -2058,11 +2067,9 @@ fn workspaces_and_cross_package_imports_work_for_bun_npm_yarn_and_pnpm() {
             })
             .collect();
         let mut packages: Vec<String> = plugin()
-            .workspace_packages(manifest_vec)
+            .analyze_manifests(manifest_vec)
             .unwrap_or_else(|error| panic!("{name}: {error}"))
-            .into_iter()
-            .map(|p| p.as_str().to_owned())
-            .collect();
+            .workspace_packages;
         packages.sort();
         assert_eq!(packages, vec!["packages/core", "packages/web"], "{name}");
 
@@ -2221,13 +2228,14 @@ fn cognitive_complexity_handles_else_if_boolean_sequences_labels_recursion_and_n
 
 fn declared_deps(manifests: &[(&str, &str)]) -> Vec<DeclaredDep> {
     plugin()
-        .declared_dependencies(
+        .analyze_manifests(
             manifests
                 .iter()
                 .map(|(path, text)| manifest(path, text))
                 .collect(),
         )
         .expect("declared dependencies")
+        .declared_dependencies
 }
 
 fn expected_declared(rows: &[(&str, &str, DepKind)]) -> Vec<DeclaredDep> {

@@ -28,45 +28,26 @@ impl Guest for Probe {
 
     probe_runtime::probe_extension_lower!();
 
-    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
-        repository_paths
-            .into_iter()
-            .filter(|path| path == "package.json" || path.ends_with("/package.json"))
-            .collect()
-    }
+    probe_runtime::filter_manifest_paths!("package.json");
 
-    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+    fn analyze_manifests(
+        manifests: Vec<Manifest>,
+    ) -> exports::codeint::plugin::language::ManifestAnalysis {
+        let mut analysis = probe_runtime::empty_manifest_analysis!();
         for manifest in &manifests {
             if !manifest.text.trim_start().starts_with('{') {
-                return Err(WorkspaceError {
+                analysis.invalid_manifests.push(WorkspaceError {
                     path: manifest.path.clone(),
                     message: "not valid json".to_string(),
                 });
             }
         }
-        Ok(Vec::new())
+        analysis
     }
 
     probe_runtime::unresolved_imports_stub!();
-
-    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        for manifest in &manifests {
-            if !manifest.text.trim_start().starts_with('{') {
-                panic!("received invalid manifest that workspace-packages already rejected");
-            }
-        }
-        Vec::new()
-    }
-
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
-    }
-
+    probe_runtime::empty_entry_points_and_ranges!();
     probe_runtime::empty_framework_profile_stubs!();
-
     probe_runtime::hazard_free_language_facts!(true);
+    probe_runtime::v05_extra_language_stubs!();
 }

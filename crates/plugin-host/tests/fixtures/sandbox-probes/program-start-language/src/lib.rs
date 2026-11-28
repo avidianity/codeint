@@ -23,14 +23,7 @@ struct ProgramStartLanguagePlugin;
 export!(ProgramStartLanguagePlugin);
 
 impl Guest for ProgramStartLanguagePlugin {
-    fn extensions() -> Vec<String> {
-        vec!["prog".to_string()]
-    }
-
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
-        if !path.ends_with(".prog") {
-            return Err(LowerError::UnsupportedFile("unsupported".to_string()));
-        }
+    probe_runtime::lower_with_extension!("prog", |path, text| {
         let source_set = if path.ends_with("_test.prog") || path.ends_with(".test.prog") {
             SourceSet::Test
         } else {
@@ -50,21 +43,15 @@ impl Guest for ProgramStartLanguagePlugin {
             runtime_imports: runtime_imports,
             program_start: program_start,
         ))
-    }
+    });
 
-    fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(Vec::new())
-    }
+    probe_runtime::common_empty_language_metadata_stubs!();
 
     fn resolve_imports(
         repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        _package_profiles: Vec<exports::codeint::plugin::language::PackageFrameworkProfiles>,
     ) -> Vec<Resolution> {
         requests
             .into_iter()
@@ -90,29 +77,7 @@ impl Guest for ProgramStartLanguagePlugin {
             .collect()
     }
 
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
-    }
-
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
-    }
-
     probe_runtime::empty_framework_profile_stubs!();
-
-    fn has_hazard_rules() -> bool {
-        false
-    }
-
-    fn hazard_rules() -> Vec<String> {
-        Vec::new()
-    }
-
-    fn has_imports() -> bool {
-        true
-    }
+    probe_runtime::hazard_free_language_facts!(true);
+    probe_runtime::v05_extra_language_stubs!();
 }

@@ -54,14 +54,7 @@ fn parse_noimp_line(
 }
 
 impl Guest for NoImportsLanguagePlugin {
-    fn extensions() -> Vec<String> {
-        vec!["noimp".to_string()]
-    }
-
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
-        if !path.ends_with(".noimp") {
-            return Err(LowerError::UnsupportedFile("unsupported".to_string()));
-        }
+    probe_runtime::lower_with_extension!("noimp", |path, text| {
         if text.contains("SYNTAX_ERROR") {
             return Err(LowerError::Unparsable("syntax error".to_string()));
         }
@@ -87,7 +80,7 @@ impl Guest for NoImportsLanguagePlugin {
             functions: functions,
             tokens: tokens,
         ))
-    }
+    });
 
     probe_runtime::panic_no_imports_stubs!();
     probe_runtime::fixture_erosion_ranges!("no-imports language fixture", false);

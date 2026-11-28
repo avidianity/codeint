@@ -15,6 +15,9 @@ fn file(path: &str, functions: Vec<Function>, tokens: Vec<Token>) -> SourceFile 
             hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
+            is_tooling_file: false,
+            diagnostics: Vec::new(),
+            scope_artifact: None,
         },
     }
 }

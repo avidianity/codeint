@@ -6,7 +6,7 @@ use codeint_model::{LanguagePlugin, LowerError, RepoPath, SourceSet};
 fn vue_2_options_api_extracts_script_and_preserves_line_numbers() {
     let src = "<template>\n  <div>{{ count }}</div>\n</template>\n\n<script>\nimport { helper } from './helper';\nexport default {\n  data() {\n    return { count: 0 };\n  },\n  methods: {\n    check(x) {\n      if (x > 0) {\n        return true;\n      } else {\n        return false;\n      }\n    }\n  }\n};\n</script>\n\n<style scoped>\n.box { color: red; }\n</style>\n";
     let model = TypeScriptAndJavaScript
-        .lower(&RepoPath::new("src/Counter.vue").unwrap(), src)
+        .lower(&RepoPath::new("src/Counter.vue").unwrap(), src, None)
         .unwrap();
     assert_eq!(model.source_set, SourceSet::Production);
     assert_eq!(model.runtime_imports, ["./helper"]);
@@ -29,7 +29,7 @@ fn vue_2_options_api_extracts_script_and_preserves_line_numbers() {
 fn vue_3_dual_script_setup_ts_merges_both_blocks() {
     let src = "<script lang=\"ts\">\nimport { shared } from './shared';\nexport const version: number = shared();\n</script>\n\n<script setup lang=\"ts\">\nimport Child from './Child.vue';\nconst props = defineProps<{ count: number }>();\nfunction doubled(n: number): number {\n  return n > 0 ? n * 2 : 0;\n}\n</script>\n\n<template><Child :n=\"doubled(props.count)\" /></template>\n";
     let model = TypeScriptAndJavaScript
-        .lower(&RepoPath::new("src/App.vue").unwrap(), src)
+        .lower(&RepoPath::new("src/App.vue").unwrap(), src, None)
         .unwrap();
     assert_eq!(model.runtime_imports, ["./shared", "./Child.vue"]);
     assert_eq!(model.functions.len(), 1);
@@ -43,7 +43,7 @@ fn vue_3_dual_script_setup_ts_merges_both_blocks() {
 fn svelte_module_and_instance_scripts_and_cross_file_resolution() {
     let src = "<script context=\"module\" lang=\"ts\">\nexport const prerender = true;\n</script>\n<script lang=\"ts\">\nimport Panel from './Panel.svelte';\nlet count = 0;\n$: doubled = count > 0 ? count * 2 : 0;\nfunction inc() {\n  count += 1;\n}\n</script>\n<Panel {doubled} on:click={inc} />\n";
     let model = TypeScriptAndJavaScript
-        .lower(&RepoPath::new("src/Page.svelte").unwrap(), src)
+        .lower(&RepoPath::new("src/Page.svelte").unwrap(), src, None)
         .unwrap();
     assert_eq!(model.runtime_imports, ["./Panel.svelte"]);
     assert_eq!(model.functions.len(), 1);
@@ -88,6 +88,7 @@ fn sfc_without_script_is_empty_and_unclosed_script_is_unparsable() {
         .lower(
             &RepoPath::new("src/Icon.vue").unwrap(),
             "<template><svg /></template>\n<style>.i {}</style>\n",
+            None,
         )
         .unwrap();
     assert_eq!(empty.source_lines, 0);
@@ -96,6 +97,7 @@ fn sfc_without_script_is_empty_and_unclosed_script_is_unparsable() {
     let broken = TypeScriptAndJavaScript.lower(
         &RepoPath::new("src/Broken.vue").unwrap(),
         "<template><div /></template>\n<script>\nconst x = 1;\n",
+        None,
     );
     assert!(
         matches!(broken, Err(LowerError::Unparsable { message }) if message.contains("line 2"))
@@ -105,6 +107,7 @@ fn sfc_without_script_is_empty_and_unclosed_script_is_unparsable() {
         .lower(
             &RepoPath::new("src/Unicode.vue").unwrap(),
             "<template><中文>你好</中文></template>\n<script>\nexport const ok = 1;\n</script>\n",
+            None,
         )
         .unwrap();
     assert_eq!(unicode.source_lines, 1);

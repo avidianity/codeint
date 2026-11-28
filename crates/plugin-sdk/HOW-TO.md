@@ -16,7 +16,11 @@ impl LanguagePlugin for MyLanguage {
         vec!["mylang".to_string()]
     }
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+    fn lower(
+        path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
         if !path.ends_with(".mylang") {
             return Err(LowerError::UnsupportedFile(format!(
                 "{path} does not end with .mylang"
@@ -67,7 +71,7 @@ codeint_plugin_sdk::export_metric_plugin!(MyMetric);
 
 ## Rules and Cargo features
 
-- `codeint-plugin-sdk` wraps the `codeint:plugin@0.4.0` WIT contract (`wit/language.wit` and `wit/metric.wit`) behind safe `LanguagePlugin` and `MetricPlugin` traits with sensible defaults.
+- `codeint-plugin-sdk` wraps the `codeint:plugin@0.5.0` WIT contract (`wit/language.wit` and `wit/metric.wit`) behind safe `LanguagePlugin` and `MetricPlugin` traits with sensible defaults.
 - Default features (`default-allocator`, `panic-handler`) supply a freeing `dlmalloc::GlobalDlmalloc` allocator, panic handler, `cabi_realloc`, and C `mem*` shims on `wasm32-wasip2` with zero WASI imports.
 - Enable `features = ["std"]` (with `default-features = false`) only when targeting `wasm32-unknown-unknown` plus `wasm-tools component new`; enabling the SDK `std` feature on `wasm32-wasip2` fails at compile time, because WASI imports violate codeint's empty-`Linker` sandbox.
 - The SDK cannot see whether your own crate uses `std`: with `default-features = false` and no `no_std` attribute, a `wasm32-wasip2` build compiles and imports `wasi:*` interfaces, and codeint rejects that component at load time.

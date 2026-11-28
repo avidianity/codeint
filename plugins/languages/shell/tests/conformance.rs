@@ -14,7 +14,7 @@ fn repo_path(path: &str) -> RepoPath {
 
 fn lower_ok(path: &str, src: &str) -> codeint_model::FileModel {
     let model = Shell
-        .lower(&repo_path(path), src)
+        .lower(&repo_path(path), src, None)
         .unwrap_or_else(|err| panic!("expected {path} to lower cleanly: {err}"));
     let known_hazards: BTreeSet<String> = Shell.hazard_rules().into_iter().collect();
     let total_lines = src.lines().count().max(1) as u32;
@@ -106,18 +106,30 @@ fn plugin_metadata_capabilities_and_no_imports_contract() {
             .expect("manifest paths")
             .is_empty()
     );
-    assert!(Shell.workspace_packages(Vec::new()).unwrap().is_empty());
+    assert!(
+        Shell
+            .analyze_manifests(Vec::new())
+            .unwrap()
+            .workspace_packages
+            .is_empty()
+    );
     assert!(
         Shell
             .resolve_imports(&paths, Vec::new(), Vec::new(), &[])
             .unwrap()
             .is_empty()
     );
-    assert!(Shell.declared_dependencies(Vec::new()).unwrap().is_empty());
+    assert!(
+        Shell
+            .analyze_manifests(Vec::new())
+            .unwrap()
+            .declared_dependencies
+            .is_empty()
+    );
     assert!(Shell.entry_points(&paths, Vec::new()).unwrap().is_empty());
 
     for bad in ["notes.txt", "main.py", "Makefile", "README"] {
-        let res = Shell.lower(&repo_path(bad), "echo hi\n");
+        let res = Shell.lower(&repo_path(bad), "echo hi\n", None);
         assert!(
             matches!(res, Err(LowerError::UnsupportedFile { .. })),
             "expected UnsupportedFile for {bad}, got {res:?}"
@@ -238,7 +250,7 @@ printf '%s %s %s %s\\n' \"$ansi\" \"$case_sub\" \"$hashes\" \"$joined\"
         ("unclosed_arith.sh", "echo $((1 + 2\n"),
         ("unclosed_heredoc.sh", "cat <<EOF\nhello\n"),
     ] {
-        let res = Shell.lower(&repo_path(name), bad);
+        let res = Shell.lower(&repo_path(name), bad, None);
         assert!(
             matches!(res, Err(LowerError::Unparsable { .. })),
             "expected Unparsable for {name}, got {res:?}"

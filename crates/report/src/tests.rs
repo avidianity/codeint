@@ -33,6 +33,9 @@ fn tiny_positive_min_similarity_preserves_nonzero_json_toon_and_markdown_display
             hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
+            is_tooling_file: false,
+            diagnostics: Vec::new(),
+            scope_artifact: None,
         },
     });
     let report = Report::summarize_with_config(
@@ -106,6 +109,9 @@ fn parallel_measured_report_is_byte_identical_across_repeated_runs() {
                 hazard_lines: Vec::new(),
                 runtime_imports: Vec::new(),
                 program_start: false,
+                is_tooling_file: false,
+                diagnostics: Vec::new(),
+                scope_artifact: None,
             },
         });
     }

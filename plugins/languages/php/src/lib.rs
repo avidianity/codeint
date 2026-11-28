@@ -15,7 +15,6 @@ mod workspaces;
 
 use std::collections::BTreeSet;
 
-use codeint_model::language::LowerError;
 use codeint_model::scan::CoreReferenceRanges;
 use codeint_model::{FileModel, Token, TokenKind, token_text_hash};
 
@@ -57,40 +56,31 @@ fn classify_token(raw: &RawToken, is_import: bool) -> TokenKind {
     }
 }
 
-fn lower_php(
-    _plugin: &Php,
-    path: &codeint_model::RepoPath,
-    text: &str,
-) -> Result<FileModel, codeint_model::LowerError> {
-    let path = path.as_str();
-    if !path.ends_with(".php") {
-        return Err(LowerError::UnsupportedFile(format!("{path} is not a PHP source file")).into());
-    }
+fn lower_php(path: &str, text: &str) -> Result<FileModel, codeint_model::LowerError> {
     let lexed = lexer::lex(text).map_err(codeint_model::LowerError::from)?;
     let extracted = imports::extract(&lexed.tokens);
     let source_lines =
         u32::try_from(lexed.code_lines.len()).map_err(|_| codeint_model::LowerError::TooLarge)?;
     Ok(FileModel {
-        source_set: source_set::classify(path, &lexed.header_comments),
         source_lines,
         functions: functions::functions(&lexed.tokens, &lexed.code_lines),
         tokens: build_tokens(&lexed.tokens, &extracted.import_token_indices),
         flagged_lines: rules::flag(&lexed.tokens, &lexed.code_lines),
-        hazard_lines: Vec::new(),
         runtime_imports: extracted.specifiers,
-        program_start: false,
+        ..codeint_model::empty_file_model(source_set::classify(path, &lexed.header_comments))
     })
 }
 
 codeint_model::impl_builtin_language_plugin!(
     Php,
     ["php"],
-    lower_php,
+    lower_ext(lower_php, ".php", "PHP"),
     PHP_RANGES.build("codeint stratified panel of 100 PHP repositories, ADR 0035, codeint 0.8.0"),
+    flagged_lines(flagged_line_rules()),
     imports(
         find_manifest_paths,
         workspaces::workspace_packages,
-        resolve_batch_with_profiles,
+        by_profile(resolve_batch_with_profiles),
         extract_declared,
         extract_entry_points,
     ),

@@ -118,14 +118,12 @@ impl Sql {
 
         Ok(SqlLowerOutput {
             file_model: FileModel {
-                runtime_imports: Vec::new(),
                 flagged_lines,
                 hazard_lines,
                 tokens: duplication_tokens,
                 functions,
                 source_lines,
-                source_set,
-                program_start: false,
+                ..codeint_model::empty_file_model(source_set)
             },
             rejected_statements,
             parsed_statements,
@@ -141,8 +139,26 @@ const SQL_RANGES: CoreReferenceRanges = CoreReferenceRanges::new(
     None,
 );
 
-fn lower_sql(plugin: &Sql, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
-    plugin
+fn lower_sql(
+    plugin: &Sql,
+    path: &RepoPath,
+    text: &str,
+    dialect: Option<&str>,
+) -> Result<FileModel, LowerError> {
+    let selected = match dialect {
+        Some("postgresql") => SqlDialect::Postgresql,
+        Some("mysql") => SqlDialect::Mysql,
+        Some("sqlite") => SqlDialect::Sqlite,
+        Some("duckdb") => SqlDialect::Duckdb,
+        Some("generic") => SqlDialect::Generic,
+        Some(other) => {
+            return Err(LowerError::UnsupportedFile {
+                message: format!("unknown SQL dialect {other:?}"),
+            });
+        }
+        None => plugin.dialect,
+    };
+    Sql::with_dialect(selected)
         .lower_with_details(path, text)
         .map(|output| output.file_model)
 }
@@ -152,6 +168,7 @@ codeint_model::impl_builtin_language_plugin!(
     ["sql"],
     lower_sql,
     SQL_RANGES.build("codeint stratified panel of 77 SQL repositories, ADR 0035, codeint 0.8.0"),
+    flagged_lines(flagged_line_rules()),
     imports(none),
     frameworks(none),
     hazards(SQL_HAZARD_RULES),

@@ -26,7 +26,11 @@ impl Guest for StaleReferenceRangeLanguagePlugin {
         vec!["stale".to_string()]
     }
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+    fn lower(
+        path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
         if path.ends_with(".stale") {
             let lines = probe_runtime::count_non_empty_lines(&text);
             Ok(probe_runtime::blank_file_model!(SourceSet::Production, lines))
@@ -39,20 +43,18 @@ impl Guest for StaleReferenceRangeLanguagePlugin {
         Vec::new()
     }
 
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(Vec::new())
+    fn analyze_manifests(
+        _manifests: Vec<Manifest>,
+    ) -> exports::codeint::plugin::language::ManifestAnalysis {
+        probe_runtime::empty_manifest_analysis!()
     }
 
     fn resolve_imports(
         _repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         _requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        _package_profiles: Vec<exports::codeint::plugin::language::PackageFrameworkProfiles>,
     ) -> Vec<Resolution> {
-        Vec::new()
-    }
-
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
         Vec::new()
     }
 
@@ -90,4 +92,6 @@ impl Guest for StaleReferenceRangeLanguagePlugin {
     fn has_imports() -> bool {
         true
     }
+
+    probe_runtime::v05_extra_language_stubs!();
 }

@@ -25,9 +25,9 @@ impl Guest for Probe {
     probe_runtime::faulty_import_language! {
         extensions: vec!["probe".to_string()],
         manifest_paths: Vec::new(),
-        workspace_packages: |manifests| {
+        analyze_manifests: |manifests| {
             let _ = manifests;
-            Ok(Vec::new())
+            probe_runtime::empty_manifest_analysis!()
         },
         framework_profiles: |selection| {
             if let FrameworkProfileSelection::Exclude(_) = selection {

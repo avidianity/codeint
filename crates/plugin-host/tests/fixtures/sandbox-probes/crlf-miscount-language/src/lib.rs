@@ -26,7 +26,11 @@ impl Guest for CrlfMiscountLanguagePlugin {
         vec!["crl".to_string()]
     }
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+    fn lower(
+        path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
         let Some((_, "crl")) = path.rsplit_once('.') else {
             return Err(LowerError::UnsupportedFile(path));
         };

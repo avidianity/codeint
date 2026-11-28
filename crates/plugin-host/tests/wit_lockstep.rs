@@ -347,12 +347,13 @@ fn assert_mutated_wit_drift(case: WitDriftCase<'_>) {
 
 fn exercise_language_plugin_contract(plugin: &dyn LanguagePlugin) {
     assert!(!plugin.extensions().is_empty());
+    let _ = plugin.known_dialects();
     let sample_path = RepoPath::new("nonexistent.invalid_ext").expect("valid repo path");
-    let _ = plugin.lower(&sample_path, "");
+    let _ = plugin.lower(&sample_path, "", None);
+    let _ = plugin.flagged_line_rules();
     let _ = plugin.manifest_paths(&[]);
-    let _ = plugin.workspace_packages(Vec::new());
+    let _ = plugin.analyze_manifests(Vec::new());
     let _ = plugin.resolve_imports(&[], Vec::new(), Vec::new(), &[]);
-    let _ = plugin.declared_dependencies(Vec::new());
     let _ = plugin.entry_points(&[], Vec::new());
     assert!(plugin.reference_ranges().is_ok());
     let _ = plugin.known_framework_profiles();
@@ -367,6 +368,8 @@ fn exercise_language_plugin_contract(plugin: &dyn LanguagePlugin) {
         assert!(rules.is_empty());
     }
     let _ = plugin.has_imports();
+    let _ = plugin.has_scope_analysis();
+    let _ = plugin.analyze_scope("", None, Vec::new());
 }
 
 fn exercise_metric_plugin_contract(plugin: &dyn MetricPlugin) {

@@ -1,12 +1,13 @@
 use super::language::{
     DeclaredDep, DepKind, FileModel, FrameworkProfileResult, Guest, ImportRequest, LowerError,
-    Manifest, ReferenceRange, Resolution, SourceSet, WorkspaceError,
+    Manifest, ManifestAnalysis, PackageFrameworkProfiles, ReferenceRange, Resolution, SourceSet,
 };
 use super::{
     CodeModel, FunctionCoverage, ImportResolution, InvalidReferenceRange, LanguageFacts,
     LanguagePlugin, LanguagePluginError, ManifestUsedDep, Package, ReferenceRanges, RepoPath,
-    RuntimeImport, SourceFile, Workspace, empty_framework_profile_result, token_text_hash,
-    validate_declared_dependencies, validate_entry_points, validate_framework_profile_result,
+    RuntimeImport, SourceFile, Workspace, empty_file_model, empty_framework_profile_result,
+    empty_manifest_analysis, token_text_hash, validate_declared_dependencies,
+    validate_entry_points, validate_framework_profile_result,
 };
 
 fn path(text: &str) -> RepoPath {
@@ -52,50 +53,44 @@ fn production_file_model(text: &str) -> Result<FileModel, LowerError> {
     let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
     Ok(FileModel {
         source_lines,
-        source_set: SourceSet::Production,
-        program_start: false,
-        runtime_imports: Vec::new(),
-        flagged_lines: Vec::new(),
-        hazard_lines: Vec::new(),
-        tokens: Vec::new(),
-        functions: Vec::new(),
+        ..empty_file_model(SourceSet::Production)
     })
 }
 
 struct MeasuredLanguage;
 
 impl Guest for MeasuredLanguage {
-    fn extensions() -> Vec<String> {
-        vec!["measured".to_owned()]
-    }
-
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        production_file_model(&text)
-    }
-
     fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
         repository_paths
     }
 
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(Vec::new())
+    fn extensions() -> Vec<String> {
+        vec!["measured".to_owned()]
+    }
+
+    fn lower(
+        _path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
+        production_file_model(&text)
+    }
+
+    fn analyze_manifests(_manifests: Vec<Manifest>) -> ManifestAnalysis {
+        empty_manifest_analysis()
     }
 
     fn resolve_imports(
         _repository_paths: Vec<String>,
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        _package_profiles: Vec<PackageFrameworkProfiles>,
     ) -> Vec<Resolution> {
         let reason = format!("{} manifests name no module", manifests.len());
         requests
             .iter()
             .map(|_| Resolution::Unresolved(reason.clone()))
             .collect()
-    }
-
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
     }
 
     fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
@@ -119,6 +114,8 @@ impl Guest for MeasuredLanguage {
     fn has_imports() -> bool {
         true
     }
+
+    crate::empty_v05_guest_methods!();
 }
 
 fn range(metric: &str, low: f64, high: f64, source: &str) -> ReferenceRange {
@@ -220,14 +217,8 @@ fn file_in(path: &str, source_set: SourceSet) -> SourceFile {
     SourceFile {
         path: RepoPath::new(path).expect("a valid path"),
         model: FileModel {
-            source_set,
             source_lines: 1,
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
-            hazard_lines: Vec::new(),
-            runtime_imports: Vec::new(),
-            program_start: false,
+            ..empty_file_model(source_set)
         },
     }
 }

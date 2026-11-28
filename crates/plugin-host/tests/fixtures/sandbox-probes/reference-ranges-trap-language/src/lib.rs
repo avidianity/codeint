@@ -26,41 +26,37 @@ impl Guest for Probe {
         vec!["probe".to_string()]
     }
 
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        Ok(FileModel {
-            source_set: SourceSet::Production,
-            source_lines: u32::try_from(text.lines().count()).unwrap_or(u32::MAX),
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
-            hazard_lines: Vec::new(),
-            runtime_imports: Vec::new(),
-            program_start: false,
-        })
+    fn lower(
+        _path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
+        Ok(probe_runtime::blank_file_model!(
+            SourceSet::Production,
+            u32::try_from(text.lines().count()).unwrap_or(u32::MAX),
+        ))
     }
 
     fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
         Vec::new()
     }
 
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(Vec::new())
+    fn analyze_manifests(
+        _manifests: Vec<Manifest>,
+    ) -> exports::codeint::plugin::language::ManifestAnalysis {
+        probe_runtime::empty_manifest_analysis!()
     }
 
     fn resolve_imports(
         _repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        _package_profiles: Vec<exports::codeint::plugin::language::PackageFrameworkProfiles>,
     ) -> Vec<Resolution> {
         requests
             .into_iter()
             .map(|request| Resolution::External(request.specifier))
             .collect()
-    }
-
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
     }
 
     fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
@@ -71,34 +67,9 @@ impl Guest for Probe {
         panic!("reference-ranges trapped")
     }
 
-    fn known_framework_profiles() -> Vec<String> {
-        Vec::new()
-    }
+    probe_runtime::empty_framework_profile_stubs!();
 
-    fn resolve_framework_profiles(
-        _package_root: String,
-        _files: Vec<String>,
-        _manifests: Vec<Manifest>,
-        _selection: FrameworkProfileSelection,
-    ) -> Result<FrameworkProfileResult, String> {
-        Ok(FrameworkProfileResult {
-            active_profiles: Vec::new(),
-            entry_points: Vec::new(),
-            generated_paths: Vec::new(),
-            reference_ranges: Vec::new(),
-            reference_range_note: None,
-        })
-    }
+    probe_runtime::hazard_free_language_facts!(false);
 
-    fn has_hazard_rules() -> bool {
-        false
-    }
-
-    fn hazard_rules() -> Vec<String> {
-        Vec::new()
-    }
-
-    fn has_imports() -> bool {
-        false
-    }
+    probe_runtime::v05_extra_language_stubs!();
 }

@@ -31,13 +31,18 @@ fn dartdoc_mentioning_generated_code_remains_production() {
         .lower(
             &RepoPath::new("lib/internal/helper.dart").unwrap(),
             doc_only,
+            None,
         )
         .unwrap();
     assert_eq!(model.source_set, SourceSet::Production);
 
     let banner = "// GENERATED CODE - DO NOT MODIFY BY HAND\nint id(int x) => x;\n";
     let gen_model = Dart
-        .lower(&RepoPath::new("lib/internal/schema.dart").unwrap(), banner)
+        .lower(
+            &RepoPath::new("lib/internal/schema.dart").unwrap(),
+            banner,
+            None,
+        )
         .unwrap();
     assert_eq!(gen_model.source_set, SourceSet::Generated);
 }

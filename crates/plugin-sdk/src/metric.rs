@@ -4,8 +4,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 pub use crate::runtime::__bindings::metric::codeint::plugin::language::{
-    FileModel, FlaggedLine, Function, FunctionCoverage, HazardLine, Resolution, SourceSet, Token,
-    TokenKind,
+    FileDiagnostic, FileModel, FlaggedLine, Function, FunctionCoverage, HazardLine, Resolution,
+    SourceSet, Token, TokenKind,
 };
 pub use crate::runtime::__bindings::metric::exports::codeint::plugin::metric::{
     CodeModel, Finding, LanguageFacts, Measurement, RuntimeImport, SourceFile,

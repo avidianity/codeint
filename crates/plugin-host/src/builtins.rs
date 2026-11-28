@@ -98,43 +98,10 @@ pub fn built_in_language_hazard_rules() -> BTreeMap<String, Vec<String>> {
 }
 
 pub fn built_in_language_flagged_line_rules() -> BTreeMap<String, Vec<String>> {
-    fn owned(names: impl Iterator<Item = &'static str>) -> Vec<String> {
-        names.map(str::to_owned).collect()
-    }
-    BTreeMap::from([
-        (
-            TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME.to_owned(),
-            owned(codeint_lang_ts::flagged_line_rules()),
-        ),
-        (
-            "rust".to_owned(),
-            owned(codeint_lang_rust::flagged_line_rules()),
-        ),
-        (
-            "php".to_owned(),
-            owned(codeint_lang_php::flagged_line_rules()),
-        ),
-        (
-            "dart".to_owned(),
-            owned(codeint_lang_dart::flagged_line_rules()),
-        ),
-        (
-            "python".to_owned(),
-            owned(codeint_lang_python::flagged_line_rules()),
-        ),
-        (
-            "go".to_owned(),
-            owned(codeint_lang_go::flagged_line_rules()),
-        ),
-        (
-            SQL_PLUGIN_NAME.to_owned(),
-            owned(codeint_lang_sql::flagged_line_rules()),
-        ),
-        (
-            "shell".to_owned(),
-            owned(codeint_lang_shell::flagged_line_rules()),
-        ),
-    ])
+    BUILT_IN_LANGUAGE_PLUGINS
+        .iter()
+        .map(|named| (named.name.to_owned(), named.plugin.flagged_line_rules()))
+        .collect()
 }
 
 pub fn built_in_language_framework_profiles() -> BTreeMap<String, Vec<String>> {

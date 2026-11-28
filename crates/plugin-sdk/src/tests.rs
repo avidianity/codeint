@@ -2,7 +2,7 @@
 
 use crate::language::{
     FileModel, FrameworkProfileResult, FrameworkProfileSelection, LanguagePlugin, LowerError,
-    SourceSet,
+    ManifestAnalysis, ScopeAnalysis, SourceSet,
 };
 use crate::metric::{CodeModel, Finding, Measurement, MetricPlugin};
 use crate::prelude::*;
@@ -15,7 +15,11 @@ impl LanguagePlugin for MinimalLanguage {
         vec!["tiny".to_string()]
     }
 
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+    fn lower(
+        _path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
         Ok(FileModel {
             source_lines: text.lines().count() as u32,
             ..FileModel::empty(SourceSet::Production)
@@ -47,7 +51,9 @@ impl MetricPlugin for MinimalMetric {
 #[test]
 fn language_plugin_trait_provides_safe_sensible_defaults() {
     assert_eq!(MinimalLanguage::extensions(), vec!["tiny"]);
-    let lowered = MinimalLanguage::lower("src/a.tiny".to_string(), "one\ntwo\n".to_string())
+    assert!(MinimalLanguage::known_dialects().is_empty());
+    assert!(MinimalLanguage::flagged_line_rules().is_empty());
+    let lowered = MinimalLanguage::lower("src/a.tiny".to_string(), "one\ntwo\n".to_string(), None)
         .expect("lower succeeds");
     assert_eq!(lowered.source_set, SourceSet::Production);
     assert_eq!(lowered.source_lines, 2);
@@ -57,17 +63,19 @@ fn language_plugin_trait_provides_safe_sensible_defaults() {
     assert!(lowered.hazard_lines.is_empty());
     assert!(lowered.runtime_imports.is_empty());
     assert!(!lowered.program_start);
+    assert!(!lowered.is_tooling_file);
+    assert!(lowered.diagnostics.is_empty());
+    assert!(lowered.scope_artifact.is_none());
 
     assert!(!MinimalLanguage::has_imports());
     assert!(MinimalLanguage::manifest_paths(vec!["a.toml".to_string()]).is_empty());
     assert_eq!(
-        MinimalLanguage::workspace_packages(Vec::new()),
-        Ok(Vec::new())
+        MinimalLanguage::analyze_manifests(Vec::new()),
+        ManifestAnalysis::empty()
     );
     assert!(
         MinimalLanguage::resolve_imports(Vec::new(), Vec::new(), Vec::new(), Vec::new()).is_empty()
     );
-    assert!(MinimalLanguage::declared_dependencies(Vec::new()).is_empty());
     assert!(MinimalLanguage::entry_points(Vec::new(), Vec::new()).is_empty());
     assert!(MinimalLanguage::reference_ranges().is_empty());
     assert!(MinimalLanguage::known_framework_profiles().is_empty());
@@ -82,11 +90,16 @@ fn language_plugin_trait_provides_safe_sensible_defaults() {
     );
     assert!(!MinimalLanguage::has_hazard_rules());
     assert!(MinimalLanguage::hazard_rules().is_empty());
+    assert!(!MinimalLanguage::has_scope_analysis());
+    assert_eq!(
+        MinimalLanguage::analyze_scope(String::new(), None, Vec::new()),
+        ScopeAnalysis::empty()
+    );
 }
 
 #[test]
 fn metric_plugin_trait_defaults_version_to_one_and_builds_measurements() {
-    assert_eq!(PLUGIN_INTERFACE_VERSION, "0.4.0");
+    assert_eq!(PLUGIN_INTERFACE_VERSION, "0.5.0");
     assert_eq!(MinimalMetric::key(), "tiny_metric");
     assert_eq!(MinimalMetric::name(), "Tiny metric");
     assert_eq!(MinimalMetric::version(), 1);

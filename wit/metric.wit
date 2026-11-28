@@ -1,4 +1,4 @@
-package codeint:plugin@0.4.0;
+package codeint:plugin@0.5.0;
 
 /// The interface a Metric plugin exports: metadata for one Metric and a function that measures a Code model.
 interface metric {

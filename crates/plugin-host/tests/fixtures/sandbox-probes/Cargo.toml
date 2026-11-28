@@ -14,6 +14,8 @@ members = [
     "legacy-v0-2-0-metric",
     "legacy-v0-3-0-language",
     "legacy-v0-3-0-metric",
+    "legacy-v0-4-0-language",
+    "legacy-v0-4-0-metric",
     "dual-version-language",
     "coverage-reader-metric",
     "coverage-trap-metric",

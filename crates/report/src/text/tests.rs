@@ -43,6 +43,9 @@ fn sample_file(path: &str, decision_points: u32, flagged: bool) -> SourceFile {
             hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
+            is_tooling_file: false,
+            diagnostics: Vec::new(),
+            scope_artifact: None,
         },
     }
 }
@@ -253,6 +256,9 @@ fn workspace_package_fail_line_includes_failing_non_core_metrics() {
             hazard_lines: hazards,
             runtime_imports: Vec::new(),
             program_start: false,
+            is_tooling_file: false,
+            diagnostics: Vec::new(),
+            scope_artifact: None,
         },
     };
 

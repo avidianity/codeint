@@ -2,7 +2,7 @@ use codeint_lang_php::Php;
 use codeint_model::{LanguagePlugin, RepoPath, TokenKind};
 
 fn lower_php(path: &str, text: &str) -> codeint_model::FileModel {
-    Php.lower(&RepoPath::new(path).expect("valid repo path"), text)
+    Php.lower(&RepoPath::new(path).expect("valid repo path"), text, None)
         .expect("lower php")
 }
 

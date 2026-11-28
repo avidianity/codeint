@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use crate::{LanguagePlugin, LanguagePluginError, Manifest, RepoPath, SourceFile, language};
+use crate::{
+    LanguagePlugin, LanguagePluginError, Manifest, PackageFrameworkProfiles, RepoPath, SourceFile,
+    language,
+};
 
 #[cfg(test)]
 mod tests;
@@ -76,7 +79,7 @@ pub fn resolve_runtime_imports(
     repository_paths: &[RepoPath],
     manifests: Vec<Manifest>,
     importers: &[&SourceFile],
-    active_profiles: &[String],
+    package_profiles: &[PackageFrameworkProfiles],
 ) -> Result<Vec<RuntimeImport>, ResolveError> {
     if !plugin.has_imports() {
         return Ok(Vec::new());
@@ -101,7 +104,7 @@ pub fn resolve_runtime_imports(
         })
         .collect();
     let resolutions =
-        plugin.resolve_imports(repository_paths, manifests, requests, active_profiles)?;
+        plugin.resolve_imports(repository_paths, manifests, requests, package_profiles)?;
     if resolutions.len() != pending.len() {
         return Err(ResolveError::WrongCount {
             asked: pending.len(),

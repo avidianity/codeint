@@ -25,14 +25,17 @@ impl Guest for Probe {
     probe_runtime::faulty_import_language! {
         extensions: vec!["probe".to_string()],
         manifest_paths: Vec::new(),
-        workspace_packages: |manifests| {
-            match manifests.iter().find(|manifest| manifest.path != "Cargo.toml") {
-                Some(manifest) => Err(WorkspaceError {
-                    path: manifest.path.clone(),
-                    message: "not a Cargo manifest".to_string(),
-                }),
-                None => Ok(Vec::new()),
+        analyze_manifests: |manifests| {
+            let mut analysis = probe_runtime::empty_manifest_analysis!();
+            for manifest in manifests {
+                if manifest.path != "Cargo.toml" {
+                    analysis.invalid_manifests.push(WorkspaceError {
+                        path: manifest.path,
+                        message: "not a Cargo manifest".to_string(),
+                    });
+                }
             }
+            analysis
         },
         framework_profiles: |selection| {
             let _ = &selection;

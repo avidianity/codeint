@@ -24,7 +24,7 @@
 
 - [CLI and Configuration Reference](docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and schema key.
 - [Programmatic API](docs/programmatic.md): JavaScript/TypeScript SDK (`codeint` npm package) and Rust library API (`codeint-cli`).
-- [Plugins](docs/plugins.md): build external WebAssembly Language and Metric plugins against `codeint:plugin@0.4.0` using `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`, zero WASI imports), pin SHA-256 digests, declare in config, and test.
+- [Plugins](docs/plugins.md): build external WebAssembly Language and Metric plugins against `codeint:plugin@0.5.0` using `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`, zero WASI imports), pin SHA-256 digests, declare in config, and test.
 - [Plugin SDK HOW-TO](crates/plugin-sdk/HOW-TO.md): call contract and Cargo features for `codeint-plugin-sdk`.
 - [JSON Schema](schema/codeint.schema.json): JSON Schema for `codeint` JSON, JSONC, TOML, and YAML configuration files.
 - [Glossary](GLOSSARY.md): canonical domain terminology.
@@ -65,3 +65,4 @@
 - [ADR 0033: Configurable default output format and concise `text` output](docs/adr/0033-default-output-format-and-text.md)
 - [ADR 0034: Support TOML and YAML configuration files alongside JSON and JSONC](docs/adr/0034-config-file-formats.md)
 - [ADR 0035: Stratified 100-repository Reference panels with round-robin star bands](docs/adr/0035-stratified-100-repository-reference-panels.md)
+- [ADR 0036: Plugin contract 0.5.0](docs/adr/0036-plugin-contract-0-5-0.md)

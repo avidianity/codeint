@@ -70,6 +70,7 @@ fn loads_sample_external_plugin_with_zero_capabilities_and_valid_hash() {
         .lower(
             &RepoPath::new("src/app.mini").expect("valid repo path"),
             "import \"./util\"\nfn main() {\n  if x {\n    pass;\n  }\n}\n",
+            None,
         )
         .expect("valid mini file lowers");
     assert_eq!(model.source_set, SourceSet::Production);
@@ -83,7 +84,11 @@ fn loads_sample_external_plugin_with_zero_capabilities_and_valid_hash() {
     assert_eq!(model.flagged_lines[0].rule, "redundant-pass");
 
     assert!(matches!(
-        plugin.lower(&RepoPath::new("src/types.d.mini").unwrap(), "fn x() {}\n"),
+        plugin.lower(
+            &RepoPath::new("src/types.d.mini").unwrap(),
+            "fn x() {}\n",
+            None,
+        ),
         Err(LowerError::DeclarationOnly)
     ));
 
@@ -98,13 +103,16 @@ fn loads_sample_external_plugin_with_zero_capabilities_and_valid_hash() {
             .expect("manifest paths succeed"),
         vec!["mini.workspace"]
     );
-    let packages = plugin
-        .workspace_packages(vec![Manifest {
+    let analysis = plugin
+        .analyze_manifests(vec![Manifest {
             path: "mini.workspace".to_owned(),
             text: "packages/core\n".to_owned(),
         }])
-        .expect("workspace packages");
-    assert_eq!(packages, vec![RepoPath::new("packages/core").unwrap()]);
+        .expect("analyze manifests");
+    assert_eq!(
+        analysis.workspace_packages,
+        vec!["packages/core".to_owned()]
+    );
 
     let requests: Vec<ImportRequest> = ["./util", "external-pkg", "std:io"]
         .into_iter()
@@ -213,10 +221,7 @@ fn loads_sample_external_metric_plugin_with_zero_capabilities_and_measures_code_
                     text_hash: token_text_hash("return"),
                     line: 6,
                 }],
-                flagged_lines: Vec::new(),
-                hazard_lines: Vec::new(),
-                runtime_imports: Vec::new(),
-                program_start: false,
+                ..codeint_model::empty_file_model(SourceSet::Production)
             },
         }],
         ..CodeModel::default()
@@ -343,27 +348,52 @@ fn refuses_non_https_url_and_missing_cache_dir_for_url_plugins() {
     );
 }
 
-#[test]
-fn language_plugin_that_loops_forever_hits_time_limit_and_still_lowers_other_files() {
-    let wasm_path = sandbox_probe_wasm("loop_language_plugin.wasm");
-    let declaration = declaration_for("loop-lang", &wasm_path);
+fn load_sandbox_language_with_limits(
+    name: &str,
+    wasm_file: &str,
+    memory_mb: u64,
+    timeout_ms: u64,
+) -> WasmLanguagePlugin {
+    let wasm_path = sandbox_probe_wasm(wasm_file);
+    let declaration = declaration_for(name, &wasm_path);
     let limits = PluginLimits {
-        memory_mb: 4,
-        timeout_ms: 50,
+        memory_mb,
+        timeout_ms,
     };
-    let plugin = load_language_plugin_with_limits(
+    load_language_plugin_with_limits(
         Path::new("."),
         &declaration,
         &PluginHostConfig::default(),
         limits,
     )
-    .expect("loop language plugin loads");
+    .expect("sandbox language plugin loads")
+}
 
-    let error = plugin
-        .lower(
-            &RepoPath::new("src/hang.loop").expect("valid repo path"),
-            "LOOP_FOREVER\n",
-        )
+fn lower_file(
+    plugin: &WasmLanguagePlugin,
+    path: &str,
+    text: &str,
+) -> Result<FileModel, LowerError> {
+    plugin.lower(&RepoPath::new(path).expect("valid repo path"), text, None)
+}
+
+fn make_repo_paths(paths: &[&str]) -> Vec<RepoPath> {
+    paths
+        .iter()
+        .map(|p| RepoPath::new(*p).expect("valid repo path"))
+        .collect()
+}
+
+fn assert_lower_source_lines(plugin: &WasmLanguagePlugin, path: &str, text: &str, expected: u32) {
+    let model = lower_file(plugin, path, text).expect("healthy file lowers");
+    assert_eq!(model.source_lines, expected);
+}
+
+#[test]
+fn language_plugin_that_loops_forever_hits_time_limit_and_still_lowers_other_files() {
+    let plugin = load_sandbox_language_with_limits("loop-lang", "loop_language_plugin.wasm", 4, 50);
+
+    let error = lower_file(&plugin, "src/hang.loop", "LOOP_FOREVER\n")
         .expect_err("infinite loop must hit time limit");
     assert!(
         matches!(
@@ -376,36 +406,14 @@ fn language_plugin_that_loops_forever_hits_time_limit_and_still_lowers_other_fil
         "unexpected error: {error}"
     );
 
-    let ok = plugin
-        .lower(
-            &RepoPath::new("src/ok.loop").expect("valid repo path"),
-            "line 1\nline 2\n",
-        )
-        .expect("healthy file lowers after time-limit trap");
-    assert_eq!(ok.source_lines, 2);
+    assert_lower_source_lines(&plugin, "src/ok.loop", "line 1\nline 2\n", 2);
 }
 
 #[test]
 fn language_plugin_that_exceeds_memory_cap_fails_under_tight_cap_and_succeeds_when_raised() {
-    let wasm_path = sandbox_probe_wasm("memory_hog_language_plugin.wasm");
-    let declaration = declaration_for("hog-lang", &wasm_path);
-
-    let tight = PluginLimits {
-        memory_mb: 2,
-        timeout_ms: 1_000,
-    };
-    let tight_plugin = load_language_plugin_with_limits(
-        Path::new("."),
-        &declaration,
-        &PluginHostConfig::default(),
-        tight,
-    )
-    .expect("memory hog plugin loads under 2 MiB cap");
-    let error = tight_plugin
-        .lower(
-            &RepoPath::new("src/big.hog").expect("valid repo path"),
-            "ALLOC_2MB\n",
-        )
+    let tight_plugin =
+        load_sandbox_language_with_limits("hog-lang", "memory_hog_language_plugin.wasm", 2, 1_000);
+    let error = lower_file(&tight_plugin, "src/big.hog", "ALLOC_2MB\n")
         .expect_err("2 MiB allocation must exceed 2 MiB cap");
     assert!(
         matches!(
@@ -417,32 +425,11 @@ fn language_plugin_that_exceeds_memory_cap_fails_under_tight_cap_and_succeeds_wh
         ),
         "unexpected error: {error}"
     );
-    let ok = tight_plugin
-        .lower(
-            &RepoPath::new("src/small.hog").expect("valid repo path"),
-            "small\n",
-        )
-        .expect("small file lowers after memory-limit trap");
-    assert_eq!(ok.source_lines, 1);
+    assert_lower_source_lines(&tight_plugin, "src/small.hog", "small\n", 1);
 
-    let raised = PluginLimits {
-        memory_mb: 8,
-        timeout_ms: 1_000,
-    };
-    let raised_plugin = load_language_plugin_with_limits(
-        Path::new("."),
-        &declaration,
-        &PluginHostConfig::default(),
-        raised,
-    )
-    .expect("memory hog plugin loads under 8 MiB cap");
-    let measured = raised_plugin
-        .lower(
-            &RepoPath::new("src/big.hog").expect("valid repo path"),
-            "ALLOC_2MB\n",
-        )
-        .expect("2 MiB allocation succeeds when memory cap is raised to 8 MiB");
-    assert_eq!(measured.source_lines, 1);
+    let raised_plugin =
+        load_sandbox_language_with_limits("hog-lang", "memory_hog_language_plugin.wasm", 8, 1_000);
+    assert_lower_source_lines(&raised_plugin, "src/big.hog", "ALLOC_2MB\n", 1);
 }
 
 #[test]
@@ -479,14 +466,8 @@ fn metric_plugin_that_loops_forever_or_exceeds_memory_cap_returns_limit_error() 
         files: vec![SourceFile {
             path: RepoPath::new("src/hog_metric.ts").expect("valid repo path"),
             model: FileModel {
-                source_set: SourceSet::Production,
                 source_lines: 1,
-                functions: Vec::new(),
-                tokens: Vec::new(),
-                flagged_lines: Vec::new(),
-                hazard_lines: Vec::new(),
-                runtime_imports: Vec::new(),
-                program_start: false,
+                ..codeint_model::empty_file_model(SourceSet::Production)
             },
         }],
         ..CodeModel::default()
@@ -523,7 +504,7 @@ fn built_in_and_sample_plugins_fit_comfortably_within_default_limits() {
     let ts_path = RepoPath::new("src/large.ts").expect("valid repo path");
     let ts_start = Instant::now();
     let ts_model = TypeScriptAndJavaScript
-        .lower(&ts_path, &large_ts)
+        .lower(&ts_path, &large_ts, None)
         .expect("built-in TS/JS lowers 1000-line file");
     let ts_elapsed = ts_start.elapsed();
     assert_eq!(ts_model.functions.len(), 100);
@@ -545,7 +526,7 @@ fn built_in_and_sample_plugins_fit_comfortably_within_default_limits() {
     .expect("sample language plugin loads under default limits");
     let mini_start = Instant::now();
     let mini_model = mini_plugin
-        .lower(&mini_path, &large_mini)
+        .lower(&mini_path, &large_mini, None)
         .expect("sample language plugin lowers 600-line file under default limits");
     let mini_elapsed = mini_start.elapsed();
     let mini_peak = mini_plugin.peak_memory_bytes();
@@ -581,17 +562,25 @@ fn built_in_and_sample_plugins_fit_comfortably_within_default_limits() {
 }
 
 #[test]
-fn verifies_0_4_0_contract_fields_and_methods_across_wasm_boundary() {
-    assert_eq!(PLUGIN_INTERFACE_VERSION, "0.4.0");
+fn verifies_0_5_0_contract_fields_and_methods_across_wasm_boundary() {
+    assert_eq!(PLUGIN_INTERFACE_VERSION, "0.5.0");
     let wasm_path = sample_plugin_wasm();
     let declaration = declaration_for("sample-mini", wasm_path);
     let plugin = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
-        .expect("0.4.0 sample plugin loads");
+        .expect("0.5.0 sample plugin loads");
+
+    assert_eq!(
+        plugin.flagged_line_rules(),
+        vec!["redundant-pass".to_owned()]
+    );
+    assert!(plugin.known_dialects().is_empty());
+    assert!(!plugin.has_scope_analysis());
 
     let lowered = plugin
         .lower(
             &RepoPath::new("src/main.mini").expect("valid repo path"),
             "fn outer(x) {\n  if x {\n    while x {\n      return x\n    }\n  }\n}\nfn() {\n  return 1\n}\n",
+            None,
         )
         .expect("lowers named and anonymous functions");
     assert_eq!(lowered.functions.len(), 2);
@@ -604,21 +593,26 @@ fn verifies_0_4_0_contract_fields_and_methods_across_wasm_boundary() {
     assert_eq!(lowered.functions[1].coverage, None);
     assert!(lowered.hazard_lines.is_empty());
     assert!(!lowered.program_start);
+    assert!(!lowered.is_tooling_file);
+    assert!(lowered.diagnostics.is_empty());
+    assert!(lowered.scope_artifact.is_none());
 
-    let repo_paths = vec![
-        RepoPath::new("mini.workspace").expect("valid repo path"),
-        RepoPath::new("src/main.mini").expect("valid repo path"),
-        RepoPath::new("src/util.mini").expect("valid repo path"),
-    ];
+    let repo_paths = make_repo_paths(&["mini.workspace", "src/main.mini", "src/util.mini"]);
     let manifests = vec![Manifest {
         path: "mini.workspace".to_owned(),
         text: "packages/core\ndep:serde\ndev-dep:testkit\nopt-dep:extras\nentry:src/main.mini\nentry:src/missing.mini\n".to_owned(),
     }];
 
+    let analysis = plugin
+        .analyze_manifests(manifests.clone())
+        .expect("valid manifest analysis");
     assert_eq!(
-        plugin
-            .declared_dependencies(manifests.clone())
-            .expect("valid declared dependencies"),
+        analysis.workspace_packages,
+        vec!["packages/core".to_owned()]
+    );
+    assert!(analysis.invalid_manifests.is_empty());
+    assert_eq!(
+        analysis.declared_dependencies,
         vec![
             DeclaredDep {
                 package_root: String::new(),
@@ -685,13 +679,13 @@ fn verifies_0_4_0_contract_fields_and_methods_across_wasm_boundary() {
             "mini-app".to_owned()
         ]
     );
-    let fw_paths = vec![
-        RepoPath::new("mini.workspace").expect("valid repo path"),
-        RepoPath::new("src/main.mini").expect("valid repo path"),
-        RepoPath::new("src/util.mini").expect("valid repo path"),
-        RepoPath::new("pages/home.mini").expect("valid repo path"),
-        RepoPath::new("gen/routes.mini").expect("valid repo path"),
-    ];
+    let fw_paths = make_repo_paths(&[
+        "mini.workspace",
+        "src/main.mini",
+        "src/util.mini",
+        "pages/home.mini",
+        "gen/routes.mini",
+    ]);
     let fw_manifests = vec![Manifest {
         path: "mini.workspace".to_owned(),
         text: "framework:mini-web\nframework:mini-cli\n".to_owned(),
@@ -770,7 +764,10 @@ fn verifies_0_4_0_contract_fields_and_methods_across_wasm_boundary() {
                 &fw_paths,
                 Vec::new(),
                 alias_request,
-                &["mini-web".to_owned()],
+                &[codeint_model::PackageFrameworkProfiles {
+                    package_root: String::new(),
+                    active_profiles: vec!["mini-web".to_owned()],
+                }],
             )
             .expect("resolve with mini-web active profile"),
         vec![Resolution::Resolved(vec!["src/util.mini".to_owned()])]
@@ -782,7 +779,7 @@ fn verifies_0_4_0_contract_fields_and_methods_across_wasm_boundary() {
         &declaration_with_kind("sample-metric", PluginKind::Metric, metric_wasm),
         &PluginHostConfig::default(),
     )
-    .expect("0.4.0 sample metric plugin loads");
+    .expect("0.5.0 sample metric plugin loads");
     assert_eq!(metric_plugin.version(), 1);
 }
 
@@ -823,12 +820,12 @@ fn rejects_v0_1_0_language_plugin_with_actionable_version_mismatch_error() {
 
     let error = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .err()
-        .expect("0.1.0 Language plugin must be rejected by 0.4.0 host");
+        .expect("0.1.0 Language plugin must be rejected by 0.5.0 host");
 
     assert_incompatible_contract_error(
         error,
         "legacy-lang",
-        "codeint:plugin/language@0.4.0",
+        "codeint:plugin/language@0.5.0",
         "codeint:plugin/language@0.1.0",
     );
 }
@@ -840,12 +837,12 @@ fn rejects_v0_1_0_metric_plugin_with_actionable_version_mismatch_error() {
 
     let error = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .err()
-        .expect("0.1.0 Metric plugin must be rejected by 0.4.0 host");
+        .expect("0.1.0 Metric plugin must be rejected by 0.5.0 host");
 
     assert_incompatible_contract_error(
         error,
         "legacy-metric",
-        "codeint:plugin/metric@0.4.0",
+        "codeint:plugin/metric@0.5.0",
         "codeint:plugin/metric@0.1.0",
     );
 }
@@ -869,11 +866,11 @@ fn rejects_v0_2_0_and_v0_3_0_language_and_metric_plugins_with_actionable_version
         let lang_err =
             load_language_plugin(Path::new("."), &lang_decl, &PluginHostConfig::default())
                 .err()
-                .expect("legacy Language plugin must be rejected by 0.4.0 host");
+                .expect("legacy Language plugin must be rejected by 0.5.0 host");
         assert_incompatible_contract_error(
             lang_err,
             label,
-            "codeint:plugin/language@0.4.0",
+            "codeint:plugin/language@0.5.0",
             expected_found,
         );
         let legacy_lang_bytes = std::fs::read(&lang_path).expect("read legacy language wasm");
@@ -883,7 +880,7 @@ fn rejects_v0_2_0_and_v0_3_0_language_and_metric_plugins_with_actionable_version
         assert_incompatible_contract_error(
             verify_lang_err,
             label,
-            "codeint:plugin/language@0.4.0",
+            "codeint:plugin/language@0.5.0",
             expected_found,
         );
     }
@@ -905,11 +902,11 @@ fn rejects_v0_2_0_and_v0_3_0_language_and_metric_plugins_with_actionable_version
         let metric_err =
             load_metric_plugin(Path::new("."), &metric_decl, &PluginHostConfig::default())
                 .err()
-                .expect("legacy Metric plugin must be rejected by 0.4.0 host");
+                .expect("legacy Metric plugin must be rejected by 0.5.0 host");
         assert_incompatible_contract_error(
             metric_err,
             label,
-            "codeint:plugin/metric@0.4.0",
+            "codeint:plugin/metric@0.5.0",
             expected_found,
         );
         let legacy_metric_bytes = std::fs::read(&metric_path).expect("read legacy metric wasm");
@@ -923,7 +920,7 @@ fn rejects_v0_2_0_and_v0_3_0_language_and_metric_plugins_with_actionable_version
         assert_incompatible_contract_error(
             verify_metric_err,
             label,
-            "codeint:plugin/metric@0.4.0",
+            "codeint:plugin/metric@0.5.0",
             expected_found,
         );
     }
@@ -948,6 +945,43 @@ fn rejects_v0_2_0_and_v0_3_0_language_and_metric_plugins_with_actionable_version
             &sample_metric_bytes,
         )
         .is_ok()
+    );
+}
+
+#[test]
+fn rejects_v0_4_0_language_and_metric_plugins_with_actionable_version_mismatch_error() {
+    let lang_path = sandbox_probe_wasm("legacy_v0_4_0_language_plugin.wasm");
+    let lang_decl = declaration_for("legacy-v04-lang", &lang_path);
+    let lang_err = load_language_plugin(Path::new("."), &lang_decl, &PluginHostConfig::default())
+        .err()
+        .expect("0.4.0 Language plugin must be rejected by 0.5.0 host");
+    let lang_rendered = lang_err.to_string();
+    assert!(
+        !lang_rendered.contains("codeint.json"),
+        "expected format-neutral configuration wording, got: {lang_rendered}"
+    );
+    assert_incompatible_contract_error(
+        lang_err,
+        "legacy-v04-lang",
+        "codeint:plugin/language@0.5.0",
+        "codeint:plugin/language@0.4.0",
+    );
+
+    let metric_path = sandbox_probe_wasm("legacy_v0_4_0_metric_plugin.wasm");
+    let metric_decl = declaration_with_kind("legacy-v04-metric", PluginKind::Metric, &metric_path);
+    let metric_err = load_metric_plugin(Path::new("."), &metric_decl, &PluginHostConfig::default())
+        .err()
+        .expect("0.4.0 Metric plugin must be rejected by 0.5.0 host");
+    let metric_rendered = metric_err.to_string();
+    assert!(
+        !metric_rendered.contains("codeint.json"),
+        "expected format-neutral configuration wording, got: {metric_rendered}"
+    );
+    assert_incompatible_contract_error(
+        metric_err,
+        "legacy-v04-metric",
+        "codeint:plugin/metric@0.5.0",
+        "codeint:plugin/metric@0.4.0",
     );
 }
 
@@ -1005,7 +1039,7 @@ fn assert_memory_err<T: std::fmt::Debug>(
 }
 
 #[test]
-fn declared_dependencies_and_entry_points_propagate_timeout_trap_and_oom_and_recover() {
+fn analyze_manifests_and_entry_points_propagate_timeout_trap_and_oom_and_recover() {
     let loop_plugin = load_probe(
         "loop-lang",
         "loop_language_plugin.wasm",
@@ -1017,24 +1051,25 @@ fn declared_dependencies_and_entry_points_propagate_timeout_trap_and_oom_and_rec
     let repo_paths = vec![RepoPath::new("src/main.loop").expect("valid repo path")];
 
     assert!(matches!(
-        loop_plugin.declared_dependencies(trigger_manifest("LOOP_FOREVER")),
+        loop_plugin.analyze_manifests(trigger_manifest("LOOP_FOREVER")),
         Err(LanguagePluginError::TimeLimitExceeded {
             ref plugin,
             timeout_ms: 150,
         }) if plugin == "loop-lang"
     ));
     assert!(matches!(
-        loop_plugin.declared_dependencies(trigger_manifest("PANIC_TRAP")),
+        loop_plugin.analyze_manifests(trigger_manifest("PANIC_TRAP")),
         Err(LanguagePluginError::Call {
             ref plugin,
-            call: "declared-dependencies",
+            call: "analyze-manifests",
             ..
         }) if plugin == "loop-lang"
     ));
     assert_eq!(
         loop_plugin
-            .declared_dependencies(Vec::new())
-            .expect("healthy declared_dependencies succeeds after trap")
+            .analyze_manifests(Vec::new())
+            .expect("healthy analyze_manifests succeeds after trap")
+            .declared_dependencies
             .len(),
         1
     );
@@ -1072,7 +1107,7 @@ fn declared_dependencies_and_entry_points_propagate_timeout_trap_and_oom_and_rec
     let hog_paths = vec![RepoPath::new("src/main.hog").expect("valid repo path")];
 
     assert_memory_err(
-        hog_plugin.declared_dependencies(trigger_manifest("ALLOC_2MB")),
+        hog_plugin.analyze_manifests(trigger_manifest("ALLOC_2MB")),
         "hog-lang",
         2,
     );
@@ -1107,7 +1142,7 @@ fn rejects_canonical_abi_aliased_string_amplification_bomb() {
         2,
     );
     assert_memory_err(
-        plugin.declared_dependencies(trigger_manifest("ALIASED_BOMB")),
+        plugin.analyze_manifests(trigger_manifest("ALIASED_BOMB")),
         "hog-lang",
         2,
     );
@@ -1144,7 +1179,7 @@ fn rejects_invalid_entry_points_and_declared_dependencies_from_wasm_plugin() {
 
     for directive in ["INVALID_EMPTY_NAME", "INVALID_WHITESPACE_NAME"] {
         assert!(matches!(
-            plugin.declared_dependencies(trigger_manifest(directive)),
+            plugin.analyze_manifests(trigger_manifest(directive)),
             Err(LanguagePluginError::EmptyDependencyName { .. })
         ));
     }
@@ -1154,7 +1189,7 @@ fn rejects_invalid_entry_points_and_declared_dependencies_from_wasm_plugin() {
         ("INVALID_BACKSLASH_ROOT", "packages\\app"),
     ] {
         assert!(matches!(
-            plugin.declared_dependencies(trigger_manifest(directive)),
+            plugin.analyze_manifests(trigger_manifest(directive)),
             Err(LanguagePluginError::InvalidDependencyPackageRoot { ref package_root })
                 if package_root == expected
         ));
@@ -1162,7 +1197,7 @@ fn rejects_invalid_entry_points_and_declared_dependencies_from_wasm_plugin() {
 }
 
 #[test]
-fn loads_dual_version_language_plugin_exporting_0_3_0_and_0_4_0() {
+fn loads_dual_version_language_plugin_exporting_0_4_0_and_0_5_0() {
     let plugin = load_probe(
         "dual-lang",
         "dual_version_language_plugin.wasm",
@@ -1178,8 +1213,9 @@ fn loads_dual_version_language_plugin_exporting_0_3_0_and_0_4_0() {
     );
     assert_eq!(
         plugin
-            .declared_dependencies(Vec::new())
-            .expect("dual plugin declared_dependencies"),
+            .analyze_manifests(Vec::new())
+            .expect("dual plugin analyze_manifests")
+            .declared_dependencies,
         vec![DeclaredDep {
             package_root: String::new(),
             name: "dual-dep".to_owned(),
@@ -1193,14 +1229,9 @@ fn coverage_model_with(functions: Vec<Function>) -> CodeModel {
         files: vec![SourceFile {
             path: RepoPath::new("src/work.ts").expect("valid repo path"),
             model: FileModel {
-                source_set: SourceSet::Production,
                 source_lines: 30,
                 functions,
-                tokens: Vec::new(),
-                flagged_lines: Vec::new(),
-                hazard_lines: Vec::new(),
-                runtime_imports: Vec::new(),
-                program_start: false,
+                ..codeint_model::empty_file_model(SourceSet::Production)
             },
         }],
         ..CodeModel::default()
@@ -1393,10 +1424,10 @@ fn language_plugin_sets_program_start_mark_and_metric_plugin_reads_it() {
     let lib_path = RepoPath::new("internal/util/helper.prog").expect("valid repo path");
 
     let main_model = language
-        .lower(&main_path, "program main\nrun()\n")
+        .lower(&main_path, "program main\nrun()\n", None)
         .expect("lowers program-start file");
     let lib_model = language
-        .lower(&lib_path, "library util\nhelper()\n")
+        .lower(&lib_path, "library util\nhelper()\n", None)
         .expect("lowers library file");
 
     assert!(main_model.program_start);
@@ -1472,7 +1503,7 @@ fn built_in_language_plugins_never_set_program_start() {
 
     for (name, plugin, path, source) in cases {
         let model = plugin
-            .lower(&RepoPath::new(path).expect("valid repo path"), source)
+            .lower(&RepoPath::new(path).expect("valid repo path"), source, None)
             .unwrap_or_else(|error| panic!("{name}: lower failed: {error}"));
         assert!(
             !model.program_start,
@@ -1545,14 +1576,8 @@ fn metric_plugin_reads_per_language_coverage_statement() {
         files: vec![SourceFile {
             path: RepoPath::new("src/lib.rs").expect("valid repo path"),
             model: FileModel {
-                source_set: SourceSet::Production,
                 source_lines: 10,
-                functions: Vec::new(),
-                tokens: Vec::new(),
-                flagged_lines: Vec::new(),
-                hazard_lines: Vec::new(),
-                runtime_imports: Vec::new(),
-                program_start: false,
+                ..codeint_model::empty_file_model(SourceSet::Production)
             },
         }],
         languages: vec![LanguageFacts {
@@ -1686,7 +1711,7 @@ fn language_plugin_resolves_multi_file_imports_and_metric_plugin_reads_them() {
     let repo_paths = vec![main_path.clone(), alpha_path.clone(), beta_path.clone()];
 
     let main_model = language
-        .lower(&main_path, "use pkg/util\nfn main()\n")
+        .lower(&main_path, "use pkg/util\nfn main()\n", None)
         .expect("lower main.fld");
     let main_file = SourceFile {
         path: main_path.clone(),
@@ -1719,7 +1744,7 @@ fn language_plugin_resolves_multi_file_imports_and_metric_plugin_reads_them() {
 
     let resolve_error_for = |source: &str| {
         let model = language
-            .lower(&main_path, source)
+            .lower(&main_path, source, None)
             .expect("lower probe file");
         let file = SourceFile {
             path: main_path.clone(),
@@ -1762,10 +1787,10 @@ fn language_plugin_reports_hazard_lines_and_metric_plugin_reads_them() {
     let clean_source = "SELECT id FROM users WHERE id = 1;\n";
 
     let unsafe_model = language
-        .lower(&unsafe_path, unsafe_source)
+        .lower(&unsafe_path, unsafe_source, None)
         .expect("lowers file with hazard lines");
     let clean_model = language
-        .lower(&clean_path, clean_source)
+        .lower(&clean_path, clean_source, None)
         .expect("lowers clean file");
 
     assert_eq!(
@@ -1877,6 +1902,7 @@ fn language_plugin_exports_has_imports_false_across_wasm_boundary() {
         .lower(
             &RepoPath::new("queries/select.noimp").expect("valid repo path"),
             "fn select_users()\n",
+            None,
         )
         .expect("no-imports Language plugin lowers .noimp file");
     assert_eq!(lowered.source_lines, 1);
@@ -1973,12 +1999,12 @@ fn concurrent_plugin_loads_keep_independent_memory_and_time_limits_on_shared_eng
 
     let hog_file = RepoPath::new("src/big.hog").expect("valid repo path");
     assert!(matches!(
-        tight_hog.lower(&hog_file, "ALLOC_2MB\n"),
+        tight_hog.lower(&hog_file, "ALLOC_2MB\n", None),
         Err(LowerError::MemoryLimitExceeded { memory_mb: 2, .. })
     ));
     assert_eq!(
         generous_hog
-            .lower(&hog_file, "ALLOC_2MB\n")
+            .lower(&hog_file, "ALLOC_2MB\n", None)
             .expect("raised memory cap succeeds while tight-cap instance is loaded")
             .source_lines,
         1
@@ -1988,6 +2014,7 @@ fn concurrent_plugin_loads_keep_independent_memory_and_time_limits_on_shared_eng
         short_timeout_loop.lower(
             &RepoPath::new("src/hang.loop").expect("valid repo path"),
             "LOOP_FOREVER\n",
+            None,
         ),
         Err(LowerError::TimeLimitExceeded { timeout_ms: 50, .. })
     ));
@@ -2052,7 +2079,7 @@ fn sdk_language_and_metric_plugins_reclaim_linear_memory_across_pooled_calls_and
     let repo_path = RepoPath::new("src/pooled.mini").expect("valid repo path");
     for _ in 0..200 {
         let model = language
-            .lower(&repo_path, &source)
+            .lower(&repo_path, &source, None)
             .expect("pooled calls reclaim linear memory under 2 MiB cap");
         assert_eq!(model.functions.len(), 80);
     }
@@ -2066,7 +2093,7 @@ fn sdk_language_and_metric_plugins_reclaim_linear_memory_across_pooled_calls_and
     .expect("sdk metric plugin loads under 2 MiB cap");
 
     let sample_model = language
-        .lower(&repo_path, &source)
+        .lower(&repo_path, &source, None)
         .expect("lower sample model");
     let code_model = CodeModel {
         files: (0..20)
@@ -2165,10 +2192,10 @@ fn sequential_calls_to_stateful_wasm_plugins_execute_in_fresh_stores() {
     .expect("stateful language plugin loads");
     let path = RepoPath::new("src/a.stateful").expect("valid repo path");
     let first_lang = lang_plugin
-        .lower(&path, "first\n")
+        .lower(&path, "first\n", None)
         .expect("first lower call succeeds");
     let second_lang = lang_plugin
-        .lower(&path, "second\n")
+        .lower(&path, "second\n", None)
         .expect("second lower call succeeds");
     assert_eq!(first_lang.source_lines, 1);
     assert_eq!(

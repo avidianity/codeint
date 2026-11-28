@@ -917,17 +917,20 @@ codeint agent help
 It needs no repository, no `codeint.json`, and no network access.
 The runner checks a Language plugin for the following rules:
 
-- It is a valid WebAssembly component that exports `codeint:plugin/language@0.4.0` and imports no WASI or host interface.
+- It is a valid WebAssembly component that exports `codeint:plugin/language@0.5.0` and imports no WASI or host interface.
 - It claims at least one valid extension: not empty, no leading dot, and no `/` or whitespace, because such an extension never matches a repository file.
   Duplicate extensions are allowed.
+- Its `known-dialects` list holds no empty or duplicate dialect names.
+- Its `flagged-line-rules` list holds no empty or duplicate rule names.
 - Its Hazard rule list matches `has-hazard-rules` and holds no empty rule name.
 - Its Framework profile names are not empty, because an empty name can never be selected in config.
-- `lower` is deterministic and stateless on built-in probe sources, which the runner writes once for every extension the Plugin claims, and on every `--source` file, returns lines counted from 1 inside the file for both LF and CRLF line endings, returns functions and tokens in source order, lists every Hazard rule it uses in `hazard-rules`, and rejects a file it does not claim.
-- Its Framework profiles resolve for the disabled, auto, exclude, and only selections, for the root package and a member package, with every known profile, with each profile alone, and, for three or more profiles, with the first two, sent the real package files and only the manifests `manifest-paths` chose, each with the content of the probe file it names, for the packages of the workspace that `workspace-packages` reports and for a fixed member package, with entry points and generated paths that are files of the repository, the same inputs and checks `codeint check` uses.
+- `lower` is deterministic and stateless on built-in probe sources, which the runner writes once for every extension the Plugin claims, and on every `--source` file (and for each known dialect), returns lines counted from 1 inside the file for both LF and CRLF line endings, returns functions and tokens in source order, reports valid diagnostics, lists every Hazard rule it uses in `hazard-rules`, and rejects a file it does not claim.
+- Its Framework profiles resolve for the disabled, auto, exclude, and only selections, for the root package and a member package, with every known profile, with each profile alone, and, for three or more profiles, with the first two, sent the real package files and only the manifests `manifest-paths` chose, each with the content of the probe file it names, for the packages of the workspace that `analyze-manifests` reports and for a fixed member package, with entry points and generated paths that are files of the repository, the same inputs and checks `codeint check` uses.
   When `known-framework-profiles` is empty, codeint never resolves Framework profiles, so the runner reports `framework-profiles` as skipped.
-- When `has-imports` is true, it answers `manifest-paths`, `workspace-packages`, `resolve-imports` (with no Framework profile active, with each known profile active, and, for two or more profiles, with every known profile active at once), `declared-dependencies`, and `entry-points` without a trap and with valid data; `workspace-packages` returns only package roots that `codeint check` accepts, and returns no `workspace-error` for no manifests or for a manifest it chose with valid content, and `plugin test` sends it only manifests that `manifest-paths` chose, because `codeint check` skips a manifest that a `workspace-error` names, with a warning, and stops on any other `workspace-error`.
+- When `has-imports` is true, it answers `manifest-paths`, `analyze-manifests`, `resolve-imports` (with per-package active Framework profiles: none, each known profile, and, for two or more profiles, every known profile active at once), and `entry-points` without a trap and with valid data; `analyze-manifests` returns only package roots that `codeint check` accepts, and returns no `invalid-manifests` entry for no manifests or for a manifest it chose with valid content, and `plugin test` sends it only manifests that `manifest-paths` chose, because `codeint check` skips each invalid manifest with a warning and stops on any unknown path or trap.
   The `end-to-end` check fails when `codeint check` skips a valid probe manifest with a warning.
-  When `has-imports` is false, codeint never calls these five, so the runner reports them as skipped.
+  When `has-imports` is false, codeint never calls these four, so the runner reports them as skipped.
+- When `has-scope-analysis` is true, it answers `analyze-scope` without a trap and with valid extra Hazard lines and scope summaries; when `has-scope-analysis` is false, the runner reports `scope-analysis` as skipped.
 - It answers `reference-ranges` with valid data: bounds within `0..=1`, at most one range per Metric, and every range for a built-in Metric at that Metric's current `metric_version`.
   A stale range (version 0 or a mismatch) fails with a hint to recalibrate or update it, because `codeint check` hides such a range behind a note.
   Ranges for keys that are not built-in Metrics are not version-checked.
@@ -937,7 +940,7 @@ The runner checks a Language plugin for the following rules:
 
 The runner checks a Metric plugin for the following rules:
 
-- It is a valid WebAssembly component that exports `codeint:plugin/metric@0.4.0` and imports no WASI or host interface.
+- It is a valid WebAssembly component that exports `codeint:plugin/metric@0.5.0` and imports no WASI or host interface.
 - Its key is a valid snake_case key that collides with no built-in Metric or reserved report key, its version is 1 or higher, and its name and description are not empty.
 - `measure` is deterministic and stateless on an empty Code model and on Code models with functions, tokens, Hazard lines, runtime imports, several Production and Test files, and a Code model with function Coverage, Generated and Vendored files, anonymous functions, every token kind, and a program start, and it returns a ratio between 0 and 1, finite and non-negative numbers, Findings with a non-empty id, lines counted from 1, and paths relative to the repository root.
 - `codeint check` accepts it end to end: the real measurement pipeline measures a small TypeScript probe repository in a temporary Git repository that declares only this Plugin, and any error that makes `codeint check` exit with code 2 fails `end-to-end`.
@@ -1517,8 +1520,8 @@ In a multi-language repository, list each built-in Language plugin with its own 
 ### Plugins
 
 Each entry of `plugins` declares an external WebAssembly component Language plugin or Metric plugin loaded from either a local `path` or an HTTPS `url`, with a required 64-character hexadecimal SHA-256 digest.
-External Plugins implement `codeint:plugin@0.4.0` (`codeint:plugin/language@0.4.0` or `codeint:plugin/metric@0.4.0`).
-A Plugin built for another interface version (such as `0.2.0`) stops the run with exit code 2, naming the Plugin, both interface versions, and how to rebuild it.
+External Plugins implement `codeint:plugin@0.5.0` (`codeint:plugin/language@0.5.0` or `codeint:plugin/metric@0.5.0`).
+A Plugin built for another interface version (such as `0.4.0`) stops the run with exit code 2, naming the Plugin, both interface versions, and how to rebuild it.
 See [docs/plugins.md](./plugins.md) to build, hash, test, version, and upgrade external Plugins.
 Set `kind` to `"language"` (the default) for a Language plugin, or `"metric"` for a Metric plugin.
 Set either `path` or `url` on each entry, never both.
@@ -1956,7 +1959,7 @@ codeint check
 ### Framework profiles
 
 A **Framework profile** is a package-level rule set inside a Language plugin that adds framework detection, convention entry points, framework-generated Source set paths, fallback import hints, and optional Reference ranges while keeping per-file lowering framework-blind ([ADR 0025](./adr/0025-framework-profiles.md)).
-`typescript-javascript` ships built-in Framework profiles for `react`, `vue2`, `vue3`, `svelte`, `nextjs`, `nuxt`, `sveltekit`, `angular`, and `nestjs`, `php` ships `laravel`, `symfony`, `cakephp`, and `codeigniter`, `python` ships `django`, `fastapi`, and `flask`, `dart` ships `flutter`, and external WebAssembly Language plugins may expose their own Framework profiles through `codeint:plugin@0.4.0`.
+`typescript-javascript` ships built-in Framework profiles for `react`, `vue2`, `vue3`, `svelte`, `nextjs`, `nuxt`, `sveltekit`, `angular`, and `nestjs`, `php` ships `laravel`, `symfony`, `cakephp`, and `codeigniter`, `python` ships `django`, `fastapi`, and `flask`, `dart` ships `flutter`, and external WebAssembly Language plugins may expose their own Framework profiles through `codeint:plugin@0.5.0`.
 Active Framework profile names appear under `framework_profiles` per language and per Workspace package in TOON, JSON, Markdown, and text reports (omitted when none are active).
 
 - **Automatic detection (default)**: each Workspace package resolves Framework profiles strictly from its own local manifest and files; a monorepo root manifest never activates a profile on a child package without a local signal, and `peerDependencies`-only UI libraries do not activate app-only conventions (`svelte`, `sveltekit`, and `nuxt` allow `devDependencies`).

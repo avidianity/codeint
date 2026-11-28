@@ -45,8 +45,8 @@ let summaries = apply_sql_schema_pass(&mut sql_model, &parsed_by_path);
 
 ## Resolve Framework profiles
 
-- Built-in and external Language plugins resolve package-level Framework profiles, convention entry points, framework-generated Source set paths, and framework Reference ranges through `LanguagePlugin::known_framework_profiles` and `LanguagePlugin::resolve_framework_profiles` (`codeint:plugin@0.4.0`).
-- Resolved active profile names are then passed into `LanguagePlugin::resolve_imports` so fallback import hints stay coupled to active profiles.
+- Built-in and external Language plugins resolve package-level Framework profiles, convention entry points, framework-generated Source set paths, and framework Reference ranges through `LanguagePlugin::known_framework_profiles` and `LanguagePlugin::resolve_framework_profiles` (`codeint:plugin@0.5.0`).
+- Resolved active profile names are passed per package (`Vec<PackageFrameworkProfiles>`) into `LanguagePlugin::resolve_imports` so fallback import hints stay coupled to each package's active profiles.
 
 ## Load external plugins declared in codeint.json
 
@@ -64,7 +64,7 @@ let external = load_language_plugins(repository.root(), &configuration.plugins, 
 - `PluginSource::HttpsUrl` downloads through `curl` with `--proto =https --tlsv1.2 --proto-redir =https --max-filesize <max_download_bytes>` and a bounded streaming reader (50 MiB default via `PluginHostConfig::max_download_bytes`, overridden by `CODEINT_PLUGIN_MAX_DOWNLOAD_MB`), verifies the SHA-256 digest of the downloaded bytes before atomically renaming into `<cache_dir>/<sha256>.wasm`, and reuses a valid cached entry without network I/O.
 - Every `WasmLanguagePlugin` is instantiated with an empty `wasmtime::component::Linker` with zero host capabilities (no WASI, no filesystem, no network, no environment variables, no clocks).
   A component that imports any host interface fails to instantiate with `PluginHostError::Instantiate`.
-- Every `WasmLanguagePlugin` and `WasmMetricPlugin` validates its exported WIT interface version against `codeint:plugin@0.4.0` before instantiation; an incompatible version (such as `codeint:plugin@0.3.0` or `codeint:plugin@0.2.0`) fails with `PluginHostError::IncompatibleContractVersion`.
+- Every `WasmLanguagePlugin` and `WasmMetricPlugin` validates its exported WIT interface version against `codeint:plugin@0.5.0` before instantiation; an incompatible version (such as `codeint:plugin@0.4.0`, `codeint:plugin@0.3.0`, or `codeint:plugin@0.2.0`) fails with `PluginHostError::IncompatibleContractVersion`.
 - Every `WasmMetricPlugin` also validates its `version()` export at load time through `validate_metric_version`, rejecting `0` with `PluginHostError::InvalidMetricVersion`.
 - `verify_plugin_component` compiles component bytes and checks the exported WIT contract version and zero-capability sandbox requirements without instantiating or running untrusted guest code.
 - Every `WasmLanguagePlugin` and `WasmMetricPlugin` enforces `codeint_config::PluginLimits` (linear memory cap via `wasmtime::ResourceLimiter`, host lifted-size budget via `enforce_lifted_budget`, and wall-clock time limit via `wasmtime` epoch interruption).
@@ -109,7 +109,7 @@ if !report.passed() {
 - It returns `Err(PluginHostError::Read)` only when the file cannot be read; every contract violation is a failed check, never an `Err`.
 - A check that depends on a failed load or an earlier fail is `Skipped`, and so is every import check of a Language plugin whose `has-imports` is false.
 - The report lists every check exactly once, in a fixed order.
-- `WasmLanguagePlugin::manifest_paths_checked` and `WasmLanguagePlugin::workspace_packages_checked` expose a trap or a limit hit as `Err(PluginHostError)`; `LanguagePlugin::manifest_paths` and `LanguagePlugin::reference_ranges` propagate traps and limit hits as `Err(LanguagePluginError)`.
+- `WasmLanguagePlugin::manifest_paths_checked` and `WasmLanguagePlugin::analyze_manifests_checked` expose a trap or a limit hit as `Err(PluginHostError)`; `LanguagePlugin::manifest_paths`, `LanguagePlugin::analyze_manifests`, `LanguagePlugin::analyze_scope`, and `LanguagePlugin::reference_ranges` propagate traps and limit hits as `Err(LanguagePluginError)`.
 - `sources` adds Language plugin probe sources to the built-in ones; each file name carries the extension that the Plugin claims.
 - `run_conformance` leaves `end-to-end` as `Skipped` and attaches an `EndToEndProbe` in `report.end_to_end` when earlier checks pass; callers such as `codeint-cli` run `codeint check` on that probe and fill in the `end-to-end` entry.
 - `codeint plugin test` is the command-line front end; see [docs/reference.md](../../docs/reference.md#codeint-plugin).

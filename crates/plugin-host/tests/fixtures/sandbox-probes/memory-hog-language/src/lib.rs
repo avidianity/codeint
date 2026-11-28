@@ -62,7 +62,11 @@ impl Guest for MemoryHogLanguagePlugin {
         vec!["hog".to_string()]
     }
 
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+    fn lower(
+        _path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
         if text.contains("HOG_MEMORY") {
             let mut chunks: Vec<Vec<u8>> = Vec::new();
             loop {
@@ -87,23 +91,13 @@ impl Guest for MemoryHogLanguagePlugin {
         vec![]
     }
 
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(vec![])
-    }
-
-    fn resolve_imports(
-        _paths: Vec<String>,
-        _manifests: Vec<Manifest>,
-        _requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
-    ) -> Vec<Resolution> {
-        vec![]
-    }
-
-    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+    fn analyze_manifests(
+        manifests: Vec<Manifest>,
+    ) -> exports::codeint::plugin::language::ManifestAnalysis {
         alloc_2mb_if_requested(&manifests);
+        let mut analysis = probe_runtime::empty_manifest_analysis!();
         if has_directive(&manifests, "ALIASED_BOMB") {
-            return aliased_strings(256, 32 * 1024)
+            analysis.declared_dependencies = aliased_strings(256, 32 * 1024)
                 .into_iter()
                 .map(|name| DeclaredDep {
                     package_root: String::new(),
@@ -111,23 +105,31 @@ impl Guest for MemoryHogLanguagePlugin {
                     kind: DepKind::Runtime,
                 })
                 .collect();
+            return analysis;
         }
-        if has_directive(&manifests, "INVALID_EMPTY_NAME") {
-            return vec![dep("", "")];
-        }
-        if has_directive(&manifests, "INVALID_WHITESPACE_NAME") {
-            return vec![dep("", "   ")];
-        }
-        if has_directive(&manifests, "INVALID_TRAVERSAL_ROOT") {
-            return vec![dep("../escape", "serde")];
-        }
-        if has_directive(&manifests, "INVALID_ABSOLUTE_ROOT") {
-            return vec![dep("/etc/shadow", "serde")];
-        }
-        if has_directive(&manifests, "INVALID_BACKSLASH_ROOT") {
-            return vec![dep("packages\\app", "serde")];
-        }
-        vec![dep("", "healthy-dep")]
+        analysis.declared_dependencies = if has_directive(&manifests, "INVALID_EMPTY_NAME") {
+            vec![dep("", "")]
+        } else if has_directive(&manifests, "INVALID_WHITESPACE_NAME") {
+            vec![dep("", "   ")]
+        } else if has_directive(&manifests, "INVALID_TRAVERSAL_ROOT") {
+            vec![dep("../escape", "serde")]
+        } else if has_directive(&manifests, "INVALID_ABSOLUTE_ROOT") {
+            vec![dep("/etc/shadow", "serde")]
+        } else if has_directive(&manifests, "INVALID_BACKSLASH_ROOT") {
+            vec![dep("packages\\app", "serde")]
+        } else {
+            vec![dep("", "healthy-dep")]
+        };
+        analysis
+    }
+
+    fn resolve_imports(
+        _paths: Vec<String>,
+        _manifests: Vec<Manifest>,
+        _requests: Vec<ImportRequest>,
+        _package_profiles: Vec<exports::codeint::plugin::language::PackageFrameworkProfiles>,
+    ) -> Vec<Resolution> {
+        vec![]
     }
 
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
@@ -164,4 +166,6 @@ impl Guest for MemoryHogLanguagePlugin {
     fn has_imports() -> bool {
         true
     }
+
+    probe_runtime::v05_extra_language_stubs!();
 }

@@ -29,7 +29,7 @@ fn pnpm_package_roots(patterns: &[&str], package_folders: &[&str]) -> Vec<String
     );
     let mut roots = match workspace_packages(&manifests) {
         Ok(roots) => roots,
-        Err(error) => panic!("workspace packages not found: {error}"),
+        Err(error) => panic!("workspace packages not found: {error:?}"),
     };
     roots.sort();
     roots

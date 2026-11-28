@@ -8,11 +8,55 @@ use codeint_plugin_sdk::fnv1a_64;
 use codeint_plugin_sdk::language::{
     DeclaredDep, DepKind, FileModel, FlaggedLine, FrameworkProfileResult,
     FrameworkProfileSelection, Function, ImportRequest, LanguagePlugin, LowerError, Manifest,
-    ReferenceRange, Resolution, SourceSet, Token, TokenKind, WorkspaceError,
+    ManifestAnalysis, PackageFrameworkProfiles, ReferenceRange, Resolution, SourceSet, Token,
+    TokenKind, WorkspaceError,
 };
 use codeint_plugin_sdk::prelude::*;
 
 struct SampleMiniPlugin;
+
+fn parse_manifest_dep(trimmed: &str) -> Option<(&str, DepKind)> {
+    if let Some(name) = trimmed.strip_prefix("dep:") {
+        Some((name.trim(), DepKind::Runtime))
+    } else if let Some(name) = trimmed.strip_prefix("dev-dep:") {
+        Some((name.trim(), DepKind::Dev))
+    } else {
+        trimmed
+            .strip_prefix("opt-dep:")
+            .map(|name| (name.trim(), DepKind::Optional))
+    }
+}
+
+fn analyze_workspace_manifest(manifest: &Manifest, analysis: &mut ManifestAnalysis) {
+    let mut packages = Vec::new();
+    let mut deps = Vec::new();
+    for line in manifest.text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some(message) = trimmed.strip_prefix("INVALID:") {
+            analysis.invalid_manifests.push(WorkspaceError {
+                path: manifest.path.clone(),
+                message: message.trim().to_string(),
+            });
+            return;
+        }
+        if let Some((name, kind)) = parse_manifest_dep(trimmed) {
+            if !name.is_empty() {
+                deps.push(DeclaredDep {
+                    package_root: String::new(),
+                    name: name.to_string(),
+                    kind,
+                });
+            }
+        } else if !is_workspace_directive(trimmed) {
+            packages.push(trimmed.to_string());
+        }
+    }
+    analysis.workspace_packages.extend(packages);
+    analysis.declared_dependencies.extend(deps);
+}
 
 codeint_plugin_sdk::export_language_plugin!(SampleMiniPlugin);
 
@@ -414,12 +458,38 @@ fn select_profile_ranges(
     }
 }
 
+fn active_profiles_for<'a>(
+    package_profiles: &'a [PackageFrameworkProfiles],
+    path: &str,
+) -> &'a [String] {
+    let mut best: Option<(usize, &'a [String])> = None;
+    for entry in package_profiles {
+        let matches = entry.package_root.is_empty()
+            || path == entry.package_root
+            || path
+                .strip_prefix(entry.package_root.as_str())
+                .is_some_and(|rest| rest.starts_with('/'));
+        if matches && best.is_none_or(|(depth, _)| entry.package_root.len() >= depth) {
+            best = Some((entry.package_root.len(), entry.active_profiles.as_slice()));
+        }
+    }
+    best.map_or(&[], |(_, profiles)| profiles)
+}
+
 impl LanguagePlugin for SampleMiniPlugin {
     fn extensions() -> Vec<String> {
         vec!["mini".to_string()]
     }
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+    fn flagged_line_rules() -> Vec<String> {
+        vec!["redundant-pass".to_string()]
+    }
+
+    fn lower(
+        path: String,
+        text: String,
+        _dialect: Option<String>,
+    ) -> Result<FileModel, LowerError> {
         let file_name = path.rsplit('/').next().unwrap_or(&path);
         if !file_name.ends_with(".mini") {
             return Err(LowerError::UnsupportedFile(format!(
@@ -456,71 +526,29 @@ impl LanguagePlugin for SampleMiniPlugin {
             .collect()
     }
 
-    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        let mut packages = Vec::new();
+    fn analyze_manifests(manifests: Vec<Manifest>) -> ManifestAnalysis {
+        let mut analysis = ManifestAnalysis::empty();
         for manifest in manifests {
-            if manifest.path != "mini.workspace" {
-                continue;
-            }
-            for line in manifest.text.lines() {
-                let trimmed = line.trim();
-                if trimmed.is_empty() || trimmed.starts_with('#') || is_workspace_directive(trimmed)
-                {
-                    continue;
-                }
-                if let Some(message) = trimmed.strip_prefix("INVALID:") {
-                    return Err(WorkspaceError {
-                        path: manifest.path,
-                        message: message.trim().to_string(),
-                    });
-                }
-                packages.push(trimmed.to_string());
+            if manifest.path == "mini.workspace" {
+                analyze_workspace_manifest(&manifest, &mut analysis);
             }
         }
-        Ok(packages)
+        analysis
     }
 
     fn resolve_imports(
         repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        active_profiles: Vec<String>,
+        package_profiles: Vec<PackageFrameworkProfiles>,
     ) -> Vec<Resolution> {
         requests
             .into_iter()
-            .map(|request| resolve_single_import(&repository_paths, request, &active_profiles))
+            .map(|request| {
+                let active = active_profiles_for(&package_profiles, &request.importer);
+                resolve_single_import(&repository_paths, request, active)
+            })
             .collect()
-    }
-
-    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        let mut deps = Vec::new();
-        for manifest in manifests {
-            if manifest.path != "mini.workspace" {
-                continue;
-            }
-            for line in manifest.text.lines() {
-                let trimmed = line.trim();
-                let entry = if let Some(name) = trimmed.strip_prefix("dep:") {
-                    Some((name.trim(), DepKind::Runtime))
-                } else if let Some(name) = trimmed.strip_prefix("dev-dep:") {
-                    Some((name.trim(), DepKind::Dev))
-                } else {
-                    trimmed
-                        .strip_prefix("opt-dep:")
-                        .map(|name| (name.trim(), DepKind::Optional))
-                };
-                if let Some((name, kind)) = entry
-                    && !name.is_empty()
-                {
-                    deps.push(DeclaredDep {
-                        package_root: String::new(),
-                        name: name.to_string(),
-                        kind,
-                    });
-                }
-            }
-        }
-        deps
     }
 
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {

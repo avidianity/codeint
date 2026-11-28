@@ -51,6 +51,7 @@ fn lower_ts(
     _plugin: &TypeScriptAndJavaScript,
     path: &codeint_model::RepoPath,
     text: &str,
+    _dialect: Option<&str>,
 ) -> Result<FileModel, codeint_model::LowerError> {
     let path = path.as_str();
     if sfc::is_sfc(path) {
@@ -70,20 +71,36 @@ fn ts_entry_points(
     discover_entry_points(paths, manifests, &EXTENSIONS)
 }
 
+fn resolve_ts_batch(
+    paths: &[codeint_model::RepoPath],
+    manifests: &[codeint_model::Manifest],
+    requests: &[codeint_model::language::ImportRequest],
+    profiles: &[String],
+) -> Vec<codeint_model::language::Resolution> {
+    let resolver = ProjectResolver::new(paths, manifests.to_vec(), profiles);
+    requests
+        .iter()
+        .map(|request| resolver.resolve(request))
+        .collect()
+}
+
 codeint_model::impl_builtin_language_plugin!(
     TypeScriptAndJavaScript,
     EXTENSIONS,
     lower_ts,
     TS_RANGES.build(REFERENCE_RANGE_SOURCE),
+    flagged_lines(flagged_line_rules()),
     imports(
         manifest_paths,
         workspaces::workspace_packages,
-        |paths, manifests, requests, profiles| {
-            let resolver = ProjectResolver::new(paths, manifests.to_vec(), profiles);
-            requests
-                .iter()
-                .map(|request| resolver.resolve(request))
-                .collect()
+        |paths, manifests, requests, package_profiles| {
+            codeint_model::resolve_imports_by_package_profiles(
+                paths,
+                manifests,
+                requests,
+                package_profiles,
+                resolve_ts_batch,
+            )
         },
         extract_declared,
         ts_entry_points,
@@ -127,14 +144,12 @@ fn lower_script(path: &str, text: &str, source_type: SourceType) -> Result<FileM
     let header_comments = header_comments(text, &parsed.program.comments, &parsed.tokens);
     let code_lines = CodeLines::new(&code);
     Ok(FileModel {
-        source_set: source_set(path, header_comments),
         source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
         functions: functions(&parsed.program, &code_lines),
         tokens: tokens(text, &parsed.tokens, &parsed.program)?,
         flagged_lines: rules::flag(&parsed.program, &code, &code_lines)?,
-        hazard_lines: Vec::new(),
         runtime_imports: runtime_import_specifiers(&parsed.program),
-        program_start: false,
+        ..codeint_model::empty_file_model(source_set(path, header_comments))
     })
 }
 
@@ -142,16 +157,7 @@ fn lower_sfc(path: &str, text: &str) -> Result<FileModel, LowerError> {
     let extracted = sfc::extract(path, text)?;
     let mut base_source_set = source_set(path, extracted.header_comments.into_iter());
     if extracted.scripts.is_empty() {
-        return Ok(FileModel {
-            source_set: base_source_set,
-            source_lines: 0,
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
-            hazard_lines: Vec::new(),
-            runtime_imports: Vec::new(),
-            program_start: false,
-        });
+        return Ok(codeint_model::empty_file_model(base_source_set));
     }
     let mut total_lines = 0u32;
     let mut all_functions = Vec::new();
@@ -180,14 +186,12 @@ fn lower_sfc(path: &str, text: &str) -> Result<FileModel, LowerError> {
     all_functions.sort_by_key(|f| (f.line, f.end_line));
     all_flagged.sort_by(|a, b| a.line.cmp(&b.line).then_with(|| a.rule.cmp(&b.rule)));
     Ok(FileModel {
-        source_set: base_source_set,
         source_lines: total_lines,
         functions: all_functions,
         tokens: all_tokens,
         flagged_lines: all_flagged,
-        hazard_lines: Vec::new(),
         runtime_imports: all_imports,
-        program_start: false,
+        ..codeint_model::empty_file_model(base_source_set)
     })
 }
 

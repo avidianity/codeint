@@ -39,12 +39,11 @@ fn lower_file(path: &str, text: &str) -> Result<FileModel, LowerError> {
     Ok(FileModel {
         runtime_imports: scanned_imports.specifiers,
         flagged_lines,
-        hazard_lines: Vec::new(),
         tokens,
         functions: extracted.functions,
         source_lines,
-        source_set,
         program_start: scanned_imports.is_package_main,
+        ..codeint_model::empty_file_model(source_set)
     })
 }
 
@@ -78,6 +77,7 @@ fn lower_go(
     _plugin: &Go,
     path: &codeint_model::RepoPath,
     text: &str,
+    _dialect: Option<&str>,
 ) -> Result<FileModel, codeint_model::LowerError> {
     lower_file(path.as_str(), text).map_err(codeint_model::LowerError::from)
 }
@@ -95,10 +95,11 @@ codeint_model::impl_builtin_language_plugin!(
     ["go"],
     lower_go,
     GO_RANGES.build("codeint stratified panel of 100 Go repositories, ADR 0035, codeint 0.8.0"),
+    flagged_lines(flagged_line_rules()),
     imports(
         resolution::find_go_mods,
         workspaces::discover,
-        resolution::resolve_all,
+        |paths, manifests, requests, _| resolution::resolve_all(paths, manifests, requests, &[]),
         dependencies::extract_declared,
         entry_points::discover,
     ),

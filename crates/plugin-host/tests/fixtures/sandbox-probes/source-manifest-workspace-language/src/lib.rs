@@ -25,14 +25,15 @@ impl Guest for Probe {
     probe_runtime::faulty_import_language! {
         extensions: vec!["probe".to_string()],
         manifest_paths: vec!["src/main.probe".to_string()],
-        workspace_packages: |manifests| {
-            if let Some(binary) = manifests.iter().find(|manifest| manifest.text.contains('\0')) {
-                return Err(WorkspaceError {
-                    path: binary.path.clone(),
+        analyze_manifests: |manifests| {
+            let mut analysis = probe_runtime::empty_manifest_analysis!();
+            for binary in manifests.into_iter().filter(|manifest| manifest.text.contains('\0')) {
+                analysis.invalid_manifests.push(WorkspaceError {
+                    path: binary.path,
                     message: "binary manifest".to_string(),
                 });
             }
-            Ok(Vec::new())
+            analysis
         },
         framework_profiles: |selection| {
             let _ = &selection;
