@@ -65,6 +65,7 @@ dependencies:
     - lefthook
     - markdownlint-cli2
     - skills
+    - typescript
 
 boundaries:
   strict_zones: true
