@@ -51,6 +51,7 @@ const DIFF_SPECS = [["opt", "--head", "headRef"], ...REPORT_SCOPE_SPECS];
 
 const TREND_SPECS = [
   ["opt", "--since", "since"],
+  ["opt", "--commits", "commits"],
   ["opt", "--output", "output"],
 ];
 

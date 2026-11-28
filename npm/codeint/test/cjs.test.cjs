@@ -35,6 +35,10 @@ test("CommonJS require exports all 18 operations, CodeintError, and resolveBinar
     assert.equal(typeof api[name], "function", `CJS export ${name} must be a function`);
   }
   assert.equal(api.resolveBinary(), path.resolve(binaryPath));
+  assert.throws(
+    () => api.resolveBinary(path.join(__dirname, "nonexistent-codeint-binary")),
+    (err) => err instanceof api.CodeintError && err.exitCode === 2 && err.cause instanceof Error
+  );
   const manifest = await api.schema();
   assert.equal(manifest.name, "codeint");
   assert.ok(Array.isArray(manifest.metrics));

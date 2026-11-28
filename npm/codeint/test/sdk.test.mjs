@@ -65,6 +65,19 @@ function makeRepo(prefix = "codeint-js-sdk-") {
   return dir;
 }
 
+function makeRepoWithCommits(commitCount, prefix = "codeint-js-sdk-trend-") {
+  const dir = makeRepo(prefix);
+  for (let i = 2; i <= commitCount; i += 1) {
+    fs.writeFileSync(
+      path.join(dir, "src/leaf.ts"),
+      `export function value(x: boolean): boolean {\n  return x && ${i} > 0;\n}\n`
+    );
+    git(dir, ["add", "src/leaf.ts"]);
+    git(dir, ["commit", "-m", `commit ${i}`]);
+  }
+  return dir;
+}
+
 function withRepo(fn, prefix) {
   const repo = makeRepo(prefix);
   return Promise.resolve()
@@ -266,5 +279,118 @@ test("agentStatus, agentInstall, and pluginTest gated exit 1 vs exit 2", async (
       () => pluginTest(path.join(dir, "missing.wasm"), { binaryPath }),
       (err) => err instanceof CodeintError && err.exitCode === 2
     );
+  });
+});
+
+test("trend forwards commits option across below, at, and above 20 and rejects invalid combinations", async () => {
+  const repo = makeRepoWithCommits(25);
+  try {
+    const five = await trend({ cwd: repo, binaryPath, commits: 5 });
+    assert.equal(five.commits, 5);
+    assert.equal(five.source_sets.production.length, 5);
+
+    const twenty = await trend({ cwd: repo, binaryPath, commits: 20 });
+    assert.equal(twenty.commits, 20);
+    assert.equal(twenty.source_sets.production.length, 20);
+
+    const twentyFive = await trend({ cwd: repo, binaryPath, commits: 25 });
+    assert.equal(twentyFive.commits, 25);
+    assert.equal(twentyFive.source_sets.production.length, 25);
+
+    await assert.rejects(
+      () => trend({ cwd: repo, binaryPath, commits: 0 }),
+      (err) => err instanceof CodeintError && err.exitCode === 2
+    );
+
+    await assert.rejects(
+      () => trend({ cwd: repo, binaryPath, since: "2020-01-01", commits: 5 }),
+      (err) => err instanceof CodeintError && err.exitCode === 2
+    );
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("binary resolution failures throw and asynchronously reject with CodeintError exitCode 2 and cause", async () => {
+  await withTempDir("codeint-bin-res-", async (dir) => {
+    const missingOverride = path.join(dir, "missing-codeint");
+    assert.throws(
+      () => resolveBinary(missingOverride),
+      (err) => err instanceof CodeintError && err.exitCode === 2 && err.cause instanceof Error
+    );
+
+    const overridePromise = check({ cwd: dir, binaryPath: missingOverride });
+    assert.ok(overridePromise instanceof Promise);
+    await assert.rejects(
+      () => overridePromise,
+      (err) => err instanceof CodeintError && err.exitCode === 2 && err.cause instanceof Error
+    );
+
+    const savedEnv = process.env.CODEINT_BIN;
+    delete process.env.CODEINT_BIN;
+    try {
+      assert.throws(
+        () => resolveBinary(),
+        (err) => err instanceof CodeintError && err.exitCode === 2 && err.cause instanceof Error
+      );
+
+      for (const invoke of [
+        () => check({ cwd: dir }),
+        () => init({ cwd: dir }),
+        () => trend({ cwd: dir }),
+        () => report("missing.json", { cwd: dir }),
+      ]) {
+        const promise = invoke();
+        assert.ok(promise instanceof Promise);
+        await assert.rejects(
+          () => promise,
+          (err) => err instanceof CodeintError && err.exitCode === 2 && err.cause instanceof Error
+        );
+      }
+
+      const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+      Object.defineProperty(process, "platform", { value: "freebsd", configurable: true });
+      try {
+        assert.throws(
+          () => resolveBinary(),
+          (err) => err instanceof CodeintError && err.exitCode === 2
+        );
+
+        const unsupportedPromise = check({ cwd: dir });
+        assert.ok(unsupportedPromise instanceof Promise);
+        await assert.rejects(
+          () => unsupportedPromise,
+          (err) => err instanceof CodeintError && err.exitCode === 2
+        );
+      } finally {
+        Object.defineProperty(process, "platform", originalPlatform);
+      }
+    } finally {
+      if (savedEnv !== undefined) {
+        process.env.CODEINT_BIN = savedEnv;
+      }
+    }
+
+    const platformPkg = `@avidian/codeint-${process.platform}-${process.arch}`;
+    const fakeNodeModules = path.join(dir, "node_modules");
+    const fakePkgDir = path.join(fakeNodeModules, ...platformPkg.split("/"));
+    fs.mkdirSync(fakePkgDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(fakePkgDir, "package.json"),
+      JSON.stringify({ name: platformPkg, version: "0.9.0" })
+    );
+
+    const sdkEntry = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../lib/index.cjs");
+    const childEnv = { ...process.env, NODE_PATH: fakeNodeModules };
+    delete childEnv.CODEINT_BIN;
+    const probeScript = [
+      `const assert = require("node:assert/strict");`,
+      `const { CodeintError, check, resolveBinary } = require(${JSON.stringify(sdkEntry)});`,
+      `assert.throws(() => resolveBinary(), (err) => err instanceof CodeintError && err.exitCode === 2 && err.cause instanceof Error);`,
+      `const p = check({ cwd: ${JSON.stringify(dir)} });`,
+      `assert.ok(p instanceof Promise);`,
+      `p.then(() => { process.exit(1); }, (err) => { assert.ok(err instanceof CodeintError && err.exitCode === 2 && err.cause instanceof Error); });`,
+    ].join("\n");
+    execFileSync(process.execPath, ["-e", probeScript], { env: childEnv, stdio: "pipe" });
   });
 });

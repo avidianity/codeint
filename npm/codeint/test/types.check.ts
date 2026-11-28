@@ -91,8 +91,9 @@ async function verifyCoreTypes(): Promise<void> {
   void diffed.report.regressions;
 
   const history: TrendReport = await trend({ since: "2026-01-01", resultCache: ".cache" });
+  const recentHistory: TrendReport = await trend({ commits: 25, resultCache: ".cache" });
   const initialized: InitResult = await init({ format: "yaml", adopt: true });
-  void [history.metric_versions, initialized.adopted];
+  void [history.metric_versions, recentHistory.commits, initialized.adopted];
 }
 
 async function verifyExtendedTypes(): Promise<void> {

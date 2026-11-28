@@ -40,6 +40,7 @@ export interface DiffOptions extends CommonOptions, OutputOptions, ResultCacheOp
 
 export interface TrendOptions extends CommonOptions, OutputOptions, ResultCacheOptions {
   since?: string;
+  commits?: number;
 }
 
 export interface ImpactOptions extends CommonOptions, OutputOptions {

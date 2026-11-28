@@ -4,15 +4,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { resolveBinary } = require("./binary.cjs");
-
-class CodeintError extends Error {
-  constructor(message, exitCode, stderr, options) {
-    super(message, options);
-    this.name = "CodeintError";
-    this.exitCode = exitCode;
-    this.stderr = stderr;
-  }
-}
+const { CodeintError } = require("./error.cjs");
 
 function parseFailureLines(stderr) {
   return stderr
@@ -32,7 +24,7 @@ function buildSpawnEnv(options, cwd) {
   };
 }
 
-function runCommand(args, options) {
+async function runCommand(args, options) {
   const opts = options || {};
   const binary = resolveBinary(opts.binaryPath);
   const cwd = opts.cwd || process.cwd();
