@@ -1,138 +1,225 @@
 "use strict";
 
-const { spawn } = require("node:child_process");
-const path = require("node:path");
 const { resolveBinary } = require("./binary.cjs");
+const { init } = require("./init.cjs");
+const {
+  CodeintError,
+  buildArgs,
+  runGatedCommand,
+  runJsonCommand,
+  runTextCommand,
+} = require("./runner.cjs");
 
-class CodeintError extends Error {
-  constructor(message, exitCode, stderr) {
-    super(message);
-    this.name = "CodeintError";
-    this.exitCode = exitCode;
-    this.stderr = stderr;
-  }
+const REPORT_SCOPE_SPECS = [
+  ["opt", "--package", "package"],
+  ["opt", "--owner", "owner"],
+  ["opt", "--output", "output"],
+  ["flag", "--all", "all"],
+];
+
+const HISTORY_SPECS = [
+  ["opt", "--since", "since"],
+  ["opt", "--commits", "commits"],
+  ["opt", "--output", "output"],
+  ["flag", "--all", "all"],
+];
+
+const PLUGIN_LIMIT_SPECS = [
+  ["opt", "--plugin-memory-mb", "pluginMemoryMb"],
+  ["opt", "--plugin-timeout-ms", "pluginTimeoutMs"],
+];
+
+const AGENT_SPECS = [
+  ["opt", "--client", "client"],
+  ["opt", "--config-root", "configRoot"],
+];
+
+const STATE_UPDATE_SPECS = [
+  ["flag", "--reset", "reset"],
+  ["rep", "--coverage-report", "coverageReports"],
+  ["pos", "", "path"],
+];
+
+const CHECK_SPECS = [
+  ...REPORT_SCOPE_SPECS,
+  ["rep", "--coverage-report", "coverageReports"],
+  ["flag", "--ignore-baseline", "ignoreBaseline"],
+  ["pos", "", "path"],
+];
+
+const DIFF_SPECS = [["opt", "--head", "headRef"], ...REPORT_SCOPE_SPECS];
+
+const TREND_SPECS = [
+  ["opt", "--since", "since"],
+  ["opt", "--output", "output"],
+];
+
+const IMPACT_SPECS = [
+  ["opt", "--changed", "changed"],
+  ["opt", "--depth", "depth"],
+  ["opt", "--package", "package"],
+  ["opt", "--output", "output"],
+  ["spread", "", "paths"],
+];
+
+const TRACE_SPECS = [
+  ["flag", "--all", "all"],
+  ["opt", "--max-paths", "maxPaths"],
+  ["opt", "--package", "package"],
+  ["opt", "--output", "output"],
+];
+
+const CONFIG_SPECS = [
+  ...PLUGIN_LIMIT_SPECS,
+  ["rep", "--budget", "budgets"],
+  ["rep", "--source-set", "sourceSets"],
+  ["pos", "", "path"],
+];
+
+const REPORT_SPECS = [
+  ["flag", "--all", "all"],
+  ["opt", "--format", "format"],
+  ["opt", "--output", "output"],
+];
+
+const COUPLING_SPECS = [
+  ...HISTORY_SPECS,
+  ["opt", "--max-commit-files", "maxCommitFiles"],
+  ["opt", "--min-co-changes", "minCoChanges"],
+  ["opt", "--min-ratio", "minRatio"],
+  ["flag", "--include-tests", "includeTests"],
+];
+
+const PLUGIN_TEST_SPECS = [
+  ["opt", "--kind", "kind"],
+  ["rep", "--source", "sources"],
+  ...PLUGIN_LIMIT_SPECS,
+];
+
+function check(options) {
+  return runGatedCommand(buildArgs(["check", "--format", "json"], options, CHECK_SPECS), options);
 }
 
-function parseFailureLines(stderr) {
-  return stderr
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => line.replace(/^codeint:\s*/, ""));
+function diff(baseRef, options) {
+  return runGatedCommand(
+    buildArgs(["diff", baseRef, "--format", "json"], options, DIFF_SPECS),
+    options
+  );
 }
 
-function runCommand(args, options) {
-  const opts = options || {};
-  const binary = opts.binaryPath ? path.resolve(opts.binaryPath) : resolveBinary();
-  const cwd = opts.cwd || process.cwd();
-  return new Promise((resolve, reject) => {
-    const child = spawn(binary, args, {
-      cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const outChunks = [];
-    const errChunks = [];
-    child.stdout.on("data", (chunk) => outChunks.push(chunk));
-    child.stderr.on("data", (chunk) => errChunks.push(chunk));
-    child.on("error", (err) => {
-      reject(new CodeintError(`failed to execute ${binary}: ${err.message}`, 2, ""));
-    });
-    child.on("close", (code) => {
-      resolve({
-        exitCode: code ?? 2,
-        stdout: Buffer.concat(outChunks).toString("utf8"),
-        stderr: Buffer.concat(errChunks).toString("utf8"),
-      });
-    });
-  });
+function trend(options) {
+  return runJsonCommand(buildArgs(["trend", "--format", "json"], options, TREND_SPECS), options);
 }
 
-function parseJsonReport(stdout, stderr, exitCode) {
-  try {
-    return JSON.parse(stdout);
-  } catch (error) {
-    throw new CodeintError(
-      `codeint returned invalid JSON (${error.message})`,
-      exitCode,
-      stderr
-    );
-  }
+function impact(options) {
+  return runJsonCommand(buildArgs(["impact", "--format", "json"], options, IMPACT_SPECS), options);
 }
 
-function assertGateExit(result) {
-  if (result.exitCode === 0 || result.exitCode === 1) {
-    return;
-  }
-  const message = result.stderr.trim() || `codeint exited with code ${result.exitCode}`;
-  throw new CodeintError(message, result.exitCode, result.stderr);
+function trace(from, to, options) {
+  return runJsonCommand(
+    buildArgs(["trace", from, to, "--format", "json"], options, TRACE_SPECS),
+    options
+  );
 }
 
-async function runGatedReport(args, opts) {
-  const result = await runCommand(args, opts);
-  assertGateExit(result);
-  return {
-    passed: result.exitCode === 0,
-    exitCode: result.exitCode,
-    failures: result.exitCode === 1 ? parseFailureLines(result.stderr) : [],
-    report: parseJsonReport(result.stdout, result.stderr, result.exitCode),
-  };
+function guard(targetPath, options) {
+  return runJsonCommand(["guard", targetPath, "--format", "json"], options);
 }
 
-async function check(options) {
-  const opts = options || {};
-  const args = ["check", "--format", "json"];
-  if (opts.all) {
-    args.push("--all");
-  }
-  if (opts.path) {
-    args.push(opts.path);
-  }
-  return runGatedReport(args, opts);
+function schema(options) {
+  return runJsonCommand(
+    buildArgs(["schema", "--format", "json"], options, [["opt", "--output", "output"]]),
+    options
+  );
 }
 
-async function diff(baseRef, options) {
-  const opts = options || {};
-  const args = ["diff", baseRef, "--format", "json"];
-  if (opts.headRef) {
-    args.push("--head", opts.headRef);
-  }
-  if (opts.all) {
-    args.push("--all");
-  }
-  return runGatedReport(args, opts);
+function config(options) {
+  return runJsonCommand(
+    buildArgs(["config", "--resolved", "--format", "json"], options, CONFIG_SPECS),
+    options
+  );
 }
 
-async function trend(options) {
-  const opts = options || {};
-  const args = ["trend", "--format", "json"];
-  if (opts.since) {
-    args.push("--since", opts.since);
-  }
-  const result = await runCommand(args, opts);
-  if (result.exitCode !== 0) {
-    const message = result.stderr.trim() || `codeint exited with code ${result.exitCode}`;
-    throw new CodeintError(message, result.exitCode, result.stderr);
-  }
-  return parseJsonReport(result.stdout, result.stderr, result.exitCode);
+function report(input, options) {
+  return runTextCommand(buildArgs(["report", input], options, REPORT_SPECS), options);
 }
 
-async function init(options) {
-  const opts = options || {};
-  const result = await runCommand(["init"], opts);
-  if (result.exitCode !== 0) {
-    const message = result.stderr.trim() || `codeint exited with code ${result.exitCode}`;
-    throw new CodeintError(message, result.exitCode, result.stderr);
-  }
-  const raw = result.stdout.trim().replace(/^Wrote\s+/, "");
-  const configPath = raw || path.join(opts.cwd || process.cwd(), "codeint.jsonc");
-  return { configPath };
+function doctor(options) {
+  return runGatedCommand(
+    buildArgs(["doctor", "--format", "json"], options, [["pos", "", "path"]]),
+    options
+  );
+}
+
+function agentStatus(options) {
+  return runJsonCommand(
+    buildArgs(["agent", "status", "--format", "json"], options, AGENT_SPECS),
+    options
+  );
+}
+
+function agentInstall(options) {
+  return runJsonCommand(
+    buildArgs(
+      ["agent", "install", "--format", "json"],
+      options,
+      [["flag", "--dry-run", "dryRun"], ...AGENT_SPECS]
+    ),
+    options
+  );
+}
+
+function churn(options) {
+  return runJsonCommand(buildArgs(["churn", "--format", "json"], options, HISTORY_SPECS), options);
+}
+
+function coupling(options) {
+  return runJsonCommand(
+    buildArgs(["coupling", "--format", "json"], options, COUPLING_SPECS),
+    options
+  );
+}
+
+function ratchetUpdate(options) {
+  return runJsonCommand(
+    buildArgs(["ratchet", "update", "--format", "json"], options, STATE_UPDATE_SPECS),
+    options
+  );
+}
+
+function baselineUpdate(options) {
+  return runJsonCommand(
+    buildArgs(["baseline", "update", "--format", "json"], options, STATE_UPDATE_SPECS),
+    options
+  );
+}
+
+function pluginTest(pluginPath, options) {
+  return runGatedCommand(
+    buildArgs(["plugin", "test", pluginPath, "--format", "json"], options, PLUGIN_TEST_SPECS),
+    options
+  );
 }
 
 module.exports = {
   CodeintError,
+  agentInstall,
+  agentStatus,
+  baselineUpdate,
   check,
+  churn,
+  config,
+  coupling,
   diff,
-  trend,
+  doctor,
+  guard,
+  impact,
   init,
+  pluginTest,
+  ratchetUpdate,
+  report,
   resolveBinary,
+  schema,
+  trace,
+  trend,
 };

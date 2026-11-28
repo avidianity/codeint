@@ -12,7 +12,22 @@ const PLATFORMS = {
   "win32-x64": { pkg: "@avidian/codeint-win32-x64", bin: "bin/codeint.exe" },
 };
 
-function resolveBinary() {
+function resolveOverridePath(overridePath) {
+  if (typeof overridePath === "string" && overridePath.trim().length > 0) {
+    return path.resolve(overridePath);
+  }
+  const envBinary = process.env.CODEINT_BIN;
+  if (typeof envBinary === "string" && envBinary.trim().length > 0) {
+    return path.resolve(envBinary);
+  }
+  return null;
+}
+
+function resolveBinary(overridePath) {
+  const overridden = resolveOverridePath(overridePath);
+  if (overridden) {
+    return overridden;
+  }
   const platformKey = `${process.platform}-${process.arch}`;
   const target = PLATFORMS[platformKey];
   if (!target) {
@@ -26,7 +41,8 @@ function resolveBinary() {
     packageJsonPath = require.resolve(`${target.pkg}/package.json`);
   } catch (error) {
     throw new Error(
-      `missing platform package "${target.pkg}" for ${platformKey} (${error.message}). Reinstall codeint with optional dependencies enabled.`
+      `missing platform package "${target.pkg}" for ${platformKey} (${error.message}). Reinstall codeint with optional dependencies enabled.`,
+      { cause: error }
     );
   }
   const binaryPath = path.join(path.dirname(packageJsonPath), target.bin);
