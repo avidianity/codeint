@@ -56,7 +56,7 @@ Subprocess SDKs also accept common execution options:
 
 ## Built-in Metrics, custom Metric plugins, and report JSON Schemas
 
-Typed report models across TypeScript, Rust, and Dart expose all 12 built-in Metrics:
+Typed report models in TypeScript and Dart, and serialized JSON reports rendered by Rust (`Report::render`, `DiffReport::render`, `TrendReport::render`), expose all 12 built-in Metrics:
 
 - Per Source set (`source_sets.<name>`): `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles`, `boundaries`, `orphan_files`, `test_gap`, and `hazards`.
 - Top-level Dependency hygiene (`dependencies`): `unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`.
@@ -64,7 +64,7 @@ Typed report models across TypeScript, Rust, and Dart expose all 12 built-in Met
 External WebAssembly Metric plugins appear alongside built-in Metrics in an extensible custom-Metric map:
 
 - TypeScript/JavaScript exposes custom Metric keys through `[customMetric: string]` index signatures on `SourceSetReport` (`ExternalMetricSection`), `SourceSetChanges` (`ExternalMetricChanges`), and `TrendRow` (`number`).
-- Rust exposes typed `external_metrics` maps on `codeint-report` structs.
+- Rust emits custom Metric plugin keys in serialized report output from `.render(...)` (such as `ReportFormat::Json` or `TrendFormat::Json`), matching the exported report JSON Schemas.
 - Dart exposes `externalMetrics` getters on `SourceSetReport`, `SourceSetChanges`, and `TrendRow`.
 
 codeint exports 16 JSON Schemas for all JSON report payloads from `codeint-report` (`all_report_schemas()`, `report_schema()`, `schema_for()`):
