@@ -331,9 +331,17 @@ fn assigns_stable_finding_ids_and_merges_across_languages() {
     assert!((merged.ratio() - 0.5).abs() < 1e-9);
 }
 
+fn mark_tooling_files(model: &mut CodeModel, paths: &[&str]) {
+    for file in &mut model.files {
+        if paths.contains(&file.path.as_str()) {
+            file.model.is_tooling_file = true;
+        }
+    }
+}
+
 #[test]
 fn excludes_non_runtime_tooling_files_from_orphan_evaluation_while_keeping_runtime_orphans() {
-    let model = workspace_production_model(
+    let mut model = workspace_production_model(
         &[
             "packages/tools/src/index.ts",
             "packages/tools/src/dead.ts",
@@ -344,10 +352,14 @@ fn excludes_non_runtime_tooling_files_from_orphan_evaluation_while_keeping_runti
             "docs/conf.py",
             "examples/demo.dart",
             "vite.config.ts",
-            ".opencode/plugins/no-hook-bypass.js",
+            ".github/scripts/check.mjs",
         ],
         &[],
         &["packages/tools"],
+    );
+    mark_tooling_files(
+        &mut model,
+        &["packages/tools/vite.config.ts", "vite.config.ts"],
     );
 
     let measured = OrphanFiles::measure(&model, &[repo_path("packages/tools/src/index.ts")])
@@ -441,6 +453,10 @@ fn excludes_non_workspace_subdirectory_manifest_tooling_files_from_orphans() {
         dep_manifest("frontend", "frontend/package.json"),
         dep_manifest("pkgs/foo", "pkgs/foo/pubspec.yaml"),
     ];
+    mark_tooling_files(
+        &mut model,
+        &["frontend/vite.config.ts", "pkgs/foo/tool/jnigen.dart"],
+    );
 
     let measured = OrphanFiles::measure(
         &model,
@@ -472,6 +488,7 @@ fn excludes_nested_example_subpackage_from_orphan_roots_and_evaluated_files() {
         dep_manifest("pkgs/foo", "pkgs/foo/pubspec.yaml"),
         dep_manifest("pkgs/foo/example", "pkgs/foo/example/pubspec.yaml"),
     ];
+    mark_tooling_files(&mut model, &["pkgs/foo/example/lib/main.dart"]);
 
     assert_tooling_entry_ignored(
         &model,
@@ -479,6 +496,65 @@ fn excludes_nested_example_subpackage_from_orphan_roots_and_evaluated_files() {
         &["pkgs/foo/example/lib/main.dart"],
         "pkgs/foo/lib/dead.dart",
     );
+}
+
+#[test]
+fn explicit_entry_points_override_tooling_file_exclusion_and_keep_imported_files_live() {
+    let mut model = production_model(
+        &[
+            "src/index.ts",
+            "src/dead.ts",
+            "src/script_helper.ts",
+            "src/config_helper.ts",
+            "scripts/worker.ts",
+            "custom.config.ts",
+        ],
+        &[
+            ("scripts/worker.ts", "src/script_helper.ts"),
+            ("custom.config.ts", "src/config_helper.ts"),
+        ],
+    );
+    mark_tooling_files(&mut model, &["custom.config.ts"]);
+
+    let discovered = OrphanFiles::measure(
+        &model,
+        &[
+            repo_path("src/index.ts"),
+            repo_path("scripts/worker.ts"),
+            repo_path("custom.config.ts"),
+        ],
+    )
+    .expect("runtime entry point activates detection");
+    assert_eq!(discovered.entry_points(), &[repo_path("src/index.ts")]);
+    assert_eq!(discovered.evaluated_files(), 4);
+    assert_eq!(
+        orphan_paths(&discovered),
+        vec![
+            "src/config_helper.ts",
+            "src/dead.ts",
+            "src/script_helper.ts"
+        ]
+    );
+
+    let overridden = OrphanFiles::measure_with_explicit_entry_points(
+        &model,
+        &[repo_path("src/index.ts")],
+        &[
+            repo_path("scripts/worker.ts"),
+            repo_path("custom.config.ts"),
+        ],
+    )
+    .expect("explicit tooling entry points override exclusion");
+    assert_eq!(
+        overridden.entry_points(),
+        &[
+            repo_path("custom.config.ts"),
+            repo_path("scripts/worker.ts"),
+            repo_path("src/index.ts"),
+        ]
+    );
+    assert_eq!(overridden.evaluated_files(), 6);
+    assert_eq!(orphan_paths(&overridden), vec!["src/dead.ts"]);
 }
 
 #[test]

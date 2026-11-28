@@ -66,6 +66,7 @@ fn lower_php(path: &str, text: &str) -> Result<FileModel, codeint_model::LowerEr
         tokens: build_tokens(&lexed.tokens, &extracted.import_token_indices),
         flagged_lines: rules::flag(&lexed.tokens, &lexed.code_lines),
         runtime_imports: extracted.specifiers,
+        is_tooling_file: source_set::is_tooling_file(path),
         ..codeint_model::empty_file_model(source_set::classify(path, &lexed.header_comments))
     })
 }

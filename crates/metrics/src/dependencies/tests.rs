@@ -434,9 +434,17 @@ fn measure_filtered_preserves_workspace_hoisting_for_member_and_root_scopes() {
     assert!(!missing.has_activity());
 }
 
+fn mark_tooling(model: &mut CodeModel, paths: &[&str]) {
+    for file in &mut model.files {
+        if paths.contains(&file.path.as_str()) {
+            file.model.is_tooling_file = true;
+        }
+    }
+}
+
 #[test]
 fn non_runtime_tooling_files_mark_dev_deps_used_without_dev_in_production_findings() {
-    let model = model_with(
+    let mut model = model_with(
         source_files(&[
             ("src/app.ts", SourceSet::Production),
             ("vite.config.ts", SourceSet::Production),
@@ -465,6 +473,7 @@ fn non_runtime_tooling_files_mark_dev_deps_used_without_dev_in_production_findin
             ("examples/demo/main.dart", "shelf"),
         ]),
     );
+    mark_tooling(&mut model, &["vite.config.ts", "tool/jnigen.dart"]);
 
     let result = DependencyHygiene::measure(&model, &BTreeSet::new());
 
@@ -480,7 +489,7 @@ fn non_runtime_tooling_files_mark_dev_deps_used_without_dev_in_production_findin
 
 #[test]
 fn monorepo_tooling_named_packages_and_nested_app_configs_still_flag_dev_in_production() {
-    let model = model_with(
+    let mut model = model_with(
         source_files(&[
             ("packages/tools/src/index.ts", SourceSet::Production),
             ("packages/tools/app/app.config.ts", SourceSet::Production),
@@ -501,6 +510,7 @@ fn monorepo_tooling_named_packages_and_nested_app_configs_still_flag_dev_in_prod
             ("packages/tools/scripts/gen.ts", "esbuild"),
         ]),
     );
+    mark_tooling(&mut model, &["packages/tools/vite.config.ts"]);
 
     let result = DependencyHygiene::measure(&model, &BTreeSet::new());
 

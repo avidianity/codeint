@@ -144,6 +144,7 @@ fn lower_script(path: &str, text: &str, source_type: SourceType) -> Result<FileM
         tokens: tokens(text, &parsed.tokens, &parsed.program)?,
         flagged_lines: rules::flag(&parsed.program, &code, &code_lines)?,
         runtime_imports: runtime_import_specifiers(&parsed.program),
+        is_tooling_file: source_set::is_tooling_file(path),
         ..codeint_model::empty_file_model(source_set(path, header_comments))
     })
 }
@@ -151,8 +152,12 @@ fn lower_script(path: &str, text: &str, source_type: SourceType) -> Result<FileM
 fn lower_sfc(path: &str, text: &str) -> Result<FileModel, LowerError> {
     let extracted = sfc::extract(path, text)?;
     let mut base_source_set = source_set(path, extracted.header_comments.into_iter());
+    let is_tooling_file = source_set::is_tooling_file(path);
     if extracted.scripts.is_empty() {
-        return Ok(codeint_model::empty_file_model(base_source_set));
+        return Ok(FileModel {
+            is_tooling_file,
+            ..codeint_model::empty_file_model(base_source_set)
+        });
     }
     let mut total_lines = 0u32;
     let mut all_functions = Vec::new();
@@ -186,6 +191,7 @@ fn lower_sfc(path: &str, text: &str) -> Result<FileModel, LowerError> {
         tokens: all_tokens,
         flagged_lines: all_flagged,
         runtime_imports: all_imports,
+        is_tooling_file,
         ..codeint_model::empty_file_model(base_source_set)
     })
 }

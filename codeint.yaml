@@ -56,6 +56,9 @@ regression_limits:
 duplication:
   near_clones: true
 
+entry_points:
+  - .opencode/plugins/*.js
+
 dependencies:
   ignore:
     - jscpd

@@ -441,13 +441,145 @@ fn non_runtime_tooling_config_script_and_example_files_are_not_flagged_as_orphan
             ("scripts/release.ts", "export const release = () => 3;\n"),
             ("examples/demo.ts", "export const demo = () => 4;\n"),
             (
-                ".opencode/plugins/no-hook-bypass.js",
+                ".github/scripts/check.mjs",
                 "export const guard = () => 5;\n",
             ),
         ],
     );
 
     assert_production_orphans(repo.path(), 2, &["src/dead.ts"]);
+}
+
+fn assert_orphan_report(
+    report: &Value,
+    expected_entries: u64,
+    expected_evaluated: u64,
+    expected_paths: &[&str],
+) {
+    let orphan = production_orphans(report);
+    assert_eq!(orphan["entry_points"], expected_entries);
+    assert_eq!(orphan["evaluated_files"], expected_evaluated);
+    let actual: Vec<&str> = orphan["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(actual, expected_paths);
+}
+
+fn assert_production_counts_and_orphans(
+    report: &Value,
+    expected_files: u64,
+    expected_flagged: u64,
+    expected_entries: u64,
+    expected_evaluated: u64,
+    expected_paths: &[&str],
+) {
+    let production = &report["source_sets"]["production"];
+    assert_eq!(production["files"], expected_files);
+    assert_eq!(production["verbosity"]["flagged_lines"], expected_flagged);
+    assert_orphan_report(report, expected_entries, expected_evaluated, expected_paths);
+}
+
+fn write_wasm_fixture(repo_root: &Path, relative_path: &str, bytes: &[u8]) {
+    let target = repo_root.join(relative_path);
+    std::fs::create_dir_all(target.parent().expect("plugin parent")).expect("create plugins dir");
+    std::fs::write(&target, bytes).expect("write wasm plugin");
+}
+
+fn v05_plugin_config(entry_points: &[&str], digest: &str) -> String {
+    json!({
+        "entry_points": entry_points,
+        "plugins": [{
+            "name": "v05-lang",
+            "kind": "language",
+            "path": "plugins/v0_5_0_features_language_plugin.wasm",
+            "sha256": digest
+        }]
+    })
+    .to_string()
+}
+
+#[test]
+fn explicit_entry_points_override_tooling_exclusion_while_preserving_production_metrics() {
+    let repo = init_git_repo(&[
+        (
+            "package.json",
+            r#"{"name": "tooling-override", "main": "./src/index.ts"}"#,
+        ),
+        ("src/index.ts", "export const start = () => 1;\n"),
+        ("src/dead.ts", "export const dead = () => 2;\n"),
+        (
+            "src/script_helper.ts",
+            "export const scriptHelper = () => 3;\n",
+        ),
+        (
+            "src/config_helper.ts",
+            "export const configHelper = () => 4;\n",
+        ),
+        (
+            "scripts/cli.ts",
+            "import { scriptHelper } from '../src/script_helper';\nexport const run = () => scriptHelper();\n",
+        ),
+        (
+            "vite.config.ts",
+            "import { configHelper } from './src/config_helper';\nexport function pick(flag: boolean) {\n  if (flag) {\n    return configHelper();\n  } else {\n    return 0;\n  }\n}\n",
+        ),
+    ]);
+
+    let baseline = check_json(repo.path(), 0);
+    assert_production_counts_and_orphans(
+        &baseline,
+        6,
+        1,
+        1,
+        4,
+        &[
+            "src/config_helper.ts",
+            "src/dead.ts",
+            "src/script_helper.ts",
+        ],
+    );
+
+    write_file(
+        repo.path(),
+        "codeint.json",
+        r#"{ "entry_points": ["scripts/cli.ts", "vite.config.ts"] }"#,
+    );
+    let overridden = check_json(repo.path(), 0);
+    assert_orphan_report(&overridden, 3, 6, &["src/dead.ts"]);
+}
+
+#[test]
+fn compiled_v05_wasm_plugin_tooling_files_match_builtin_and_respect_entry_points_override() {
+    let wasm_bytes = sandbox_probe_bytes("v0_5_0_features_language_plugin.wasm");
+    let digest = sha256_hex(&sha256(&wasm_bytes));
+    let base_config = v05_plugin_config(&["src/main.v05"], &digest);
+    let repo = init_git_repo(&[
+        ("codeint.json", base_config.as_str()),
+        ("src/main.v05", "main\n"),
+        ("src/dead.v05", "dead\n"),
+        ("build.config.v05", "NOOP_FLAG\n"),
+        ("scripts/helper.v05", "helper\n"),
+    ]);
+    write_wasm_fixture(
+        repo.path(),
+        "plugins/v0_5_0_features_language_plugin.wasm",
+        &wasm_bytes,
+    );
+
+    let report = check_json(repo.path(), 0);
+    assert_production_counts_and_orphans(&report, 4, 1, 1, 2, &["src/dead.v05"]);
+
+    let override_config = v05_plugin_config(
+        &["src/main.v05", "build.config.v05", "scripts/helper.v05"],
+        &digest,
+    );
+    write_file(repo.path(), "codeint.json", &override_config);
+
+    let overridden = check_json(repo.path(), 0);
+    assert_orphan_report(&overridden, 3, 4, &["src/dead.v05"]);
 }
 
 #[test]

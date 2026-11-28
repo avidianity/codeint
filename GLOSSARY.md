@@ -112,7 +112,7 @@ One of four groups a source file belongs to: Production, Test, Generated, or Ven
 _Avoid_: file kind, file category
 
 **Tooling file**:
-A Production source file that builds, tests, lints, or configures the repository rather than shipping as application or library runtime code.
+A Production source file that builds, tests, lints, or configures the repository rather than shipping as application or library runtime code, classified either by its Language plugin (`is-tooling-file`) or by a universal repository tooling folder (`.github/`, `scripts/`, `docs/`, `examples/`, `tools/`, `benches/`).
 _Avoid_: build script, config file, helper script, non-runtime file
 
 **Budget**:
@@ -181,7 +181,7 @@ _Avoid_: analyzer, detector, rule
 - A **Baseline** stores the **Finding** identifiers and **Metric version** of each measured **Metric**; a **Budget** applies to the **Findings** that the **Baseline** does not hide.
 - Every source file belongs to exactly one **Source set**.
 - A **Tooling file** stays in the Production **Source set** for all Production **Metrics** and **Hazards** except **Orphan files** and **Dependency hygiene** dev-in-production checks.
-  Listing a **Tooling file** under `entry_points` overrides that exclusion.
+  Listing a **Tooling file** under `entry_points` overrides the **Orphan files** exclusion (not `dev_in_production_dependencies`).
 
 ## Flagged ambiguities
 

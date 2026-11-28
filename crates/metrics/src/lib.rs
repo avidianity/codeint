@@ -13,7 +13,6 @@ mod import_cycles;
 mod line_share;
 mod orphan_files;
 mod test_gap;
-mod tooling_paths;
 mod trace;
 mod verbosity;
 
@@ -47,13 +46,6 @@ pub use line_share::LineShare;
 pub use test_gap::{TEST_GAP_METRIC_KEY, TestGap, TestGapFinding, TestGapMasses};
 pub use trace::{DEFAULT_MAX_TRACE_PATHS, MultiFileImport, TraceError, TraceResult, trace_imports};
 pub use verbosity::{FlaggedLineFinding, Verbosity};
-
-pub fn is_non_runtime_tooling_path(
-    model: &codeint_model::CodeModel,
-    path: &codeint_model::RepoPath,
-) -> bool {
-    tooling_paths::ToolingPaths::from_model(model).is_non_runtime_tooling_path(path)
-}
 
 pub(crate) fn build_resolved_import_adjacency(
     model: &codeint_model::CodeModel,

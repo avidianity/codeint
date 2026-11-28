@@ -43,12 +43,14 @@ fn lower_python(path: &str, text: &str) -> Result<FileModel, codeint_model::Lowe
         .collect();
     let source_lines =
         u32::try_from(lexed.code_lines.len()).map_err(|_| codeint_model::LowerError::TooLarge)?;
+    let is_tooling_file = source_set::is_tooling_file(path, &runtime_imports);
     Ok(FileModel {
         functions: functions::extract(&lexed.tokens, &lexed.logical_lines, &lexed.code_lines),
         flagged_lines: rules::evaluate(&lexed.tokens, &lexed.logical_lines, &lexed.code_lines),
         runtime_imports,
         tokens,
         source_lines,
+        is_tooling_file,
         ..codeint_model::empty_file_model(source_set::classify(path, &lexed.header_comments))
     })
 }

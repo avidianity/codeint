@@ -52,7 +52,7 @@ HTTPS Plugin downloads also enforced a timeout without a maximum file-size cap.
    Each Language plugin owns its language-specific tooling rules.
    The core settles universal repository folders (`.github/`, `scripts/`, `docs/`, `examples/`, `tools/`, `benches/`).
    A Tooling file stays in the Production Source set for all Production Metrics and Hazards except Orphan files and Dependency hygiene dev-in-production checks.
-   Listing a Tooling file under `entry_points` overrides that exclusion.
+   Listing a Tooling file under `entry_points` overrides the Orphan files exclusion (not `dev_in_production_dependencies`).
 5. **Fresh per-call WebAssembly instances and download size cap**:
    Remove cross-call `Store` instance pooling in `crates/plugin-host`.
    Instantiate a fresh `Store` from pre-compiled `InstancePre` per call so linear memory never stays pinned and guest state cannot leak.
