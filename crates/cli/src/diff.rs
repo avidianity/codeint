@@ -90,19 +90,16 @@ pub(crate) fn diff_with_workspace(
             check_per_file,
         },
     )?;
-    let base_measurer = CommitMeasurer::for_package(
+    let base_measurer = CommitMeasurer::new(
         workspace.repository,
         workspace.configuration,
         workspace.plugins,
         result_cache,
         Some(&lowering_cache),
-        selected.as_ref().map(|pkg| pkg.as_str()),
-    );
-    let base_measurement = base_measurer.measure_selected_package_with_snapshot(
-        merge_base,
-        selected.as_ref(),
-        base_snapshot.as_ref(),
-    )?;
+    )
+    .with_package(selected.as_ref().map(|pkg| pkg.as_str()));
+    let base_measurement =
+        base_measurer.measure_with(merge_base, selected.as_ref(), base_snapshot.as_ref())?;
     let baseline = Baseline::load_optional(workspace.repository.root())?;
     let mut report = DiffReport::compare_with_options(
         BaseCommit {
@@ -115,7 +112,7 @@ pub(crate) fn diff_with_workspace(
         DiffReportOptions {
             findings,
             budgets: &workspace.configuration.budgets,
-            new_file_budgets: &workspace.configuration.new_file_budgets,
+            new_file_budgets: Some(&workspace.configuration.new_file_budgets),
             new_files: new_files_measurement,
             changed_files,
             limits: &workspace.configuration.regression_limits,
@@ -326,7 +323,7 @@ fn measure_head_without_new_files(
             result_cache,
             Some(lowering_cache),
         );
-        Ok((None, measurer.measure_with_snapshot(commit, head_snapshot)?))
+        Ok((None, measurer.measure_with(commit, None, head_snapshot)?))
     }
 }
 

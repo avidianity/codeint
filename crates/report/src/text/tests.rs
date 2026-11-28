@@ -1,8 +1,6 @@
-use std::collections::BTreeSet;
-
 use codeint_config::{
-    Baseline, Budgets, CalendarDay, DependenciesConfig, DuplicationConfig, FindingsShown, Ratchet,
-    RegressionLimits, ReportFormat, ReportRenderFormat, TrendFormat,
+    Baseline, Budgets, CalendarDay, DependenciesConfig, FindingsShown, Ratchet, RegressionLimits,
+    ReportFormat, ReportRenderFormat, TrendFormat,
 };
 use codeint_model::language::{FlaggedLine, Function, FunctionCoverage, HazardLine};
 use codeint_model::{
@@ -11,8 +9,8 @@ use codeint_model::{
 };
 
 use crate::{
-    BaseCommit, CommitMeasurement, DiffReport, DiffReportOptions, Head, MeasuredLanguage,
-    OwnershipOptions, Report, ReportExtras, ReportOptions, SavedReport, TrendPoint, TrendReport,
+    BaseCommit, CommitMeasurement, DiffReport, DiffReportOptions, Head, MeasuredLanguage, Report,
+    ReportOptions, SavedReport, TrendPoint, TrendReport,
 };
 
 fn sample_file(path: &str, decision_points: u32, flagged: bool) -> SourceFile {
@@ -93,7 +91,7 @@ fn check_text_snapshot_shows_status_header_reference_ranges_ratchet_baseline_and
     )
     .expect("ratchet");
 
-    let mut report = Report::summarize_with_extras(
+    let mut report = Report::summarize_with_options(
         vec![MeasuredLanguage::new(
             "typescript-javascript",
             model,
@@ -101,23 +99,9 @@ fn check_text_snapshot_shows_status_header_reference_ranges_ratchet_baseline_and
             true,
         )],
         Vec::new(),
-        ReportOptions {
-            findings: FindingsShown::default(),
-            budgets: &budgets,
-            metric_plugins: &[],
-            boundaries: None,
-            dependencies: &dependencies,
-            dependency_hygiene: None,
-            dependency_hygiene_by_language: None,
-            duplication: DuplicationConfig::default(),
-            orphan_files: None,
-            orphan_files_by_language: None,
-            ownership: OwnershipOptions::default(),
-            coverage_reports_named: false,
-            unmatched_coverage_paths: &[],
-            baseline: Some(&baseline),
-        },
-        ReportExtras::default(),
+        ReportOptions::new(FindingsShown::default(), &budgets)
+            .with_dependencies(&dependencies)
+            .with_baseline(Some(&baseline)),
     )
     .expect("report");
     report.apply_ratchet(&ratchet).expect("apply ratchet");
@@ -165,17 +149,8 @@ fn diff_and_trend_text_render_aligned_tables_and_respect_all_without_ansi() {
         Head::WorkingTree,
         CommitMeasurement::of(base_model.clone()),
         CommitMeasurement::of(head_model.clone()),
-        DiffReportOptions {
-            findings: FindingsShown::default(),
-            budgets: &budgets,
-            new_file_budgets: &budgets,
-            new_files: None,
-            changed_files: BTreeSet::new(),
-            limits: &limits,
-            ownership: OwnershipOptions::default(),
-            baseline: None,
-            include_test_gap_note: false,
-        },
+        DiffReportOptions::new(FindingsShown::default(), &budgets, &limits)
+            .with_new_file_budgets(&budgets),
     );
     let diff_text = diff.render(ReportFormat::Text).expect("diff text");
     assert!(!diff_text.contains('\u{1b}'));
@@ -196,17 +171,8 @@ fn diff_and_trend_text_render_aligned_tables_and_respect_all_without_ansi() {
         Head::WorkingTree,
         CommitMeasurement::of(base_model.clone()),
         CommitMeasurement::of(head_model.clone()),
-        DiffReportOptions {
-            findings: FindingsShown::All,
-            budgets: &budgets,
-            new_file_budgets: &budgets,
-            new_files: None,
-            changed_files: BTreeSet::new(),
-            limits: &limits,
-            ownership: OwnershipOptions::default(),
-            baseline: None,
-            include_test_gap_note: false,
-        },
+        DiffReportOptions::new(FindingsShown::All, &budgets, &limits)
+            .with_new_file_budgets(&budgets),
     );
     let diff_all_text = diff_all.render(ReportFormat::Text).expect("diff all text");
     assert!(diff_all_text.contains("Resolved Production Erosion findings (1):"));
@@ -331,7 +297,10 @@ fn workspace_package_fail_line_includes_failing_non_core_metrics() {
     )
     .expect("ratchet");
 
-    let mut report = Report::summarize_with_extras(
+    let mut options =
+        ReportOptions::new(FindingsShown::default(), &budgets).with_dependencies(&dependencies);
+    options.coverage_reports_named = true;
+    let mut report = Report::summarize_with_options(
         vec![MeasuredLanguage::new(
             "typescript-javascript",
             model,
@@ -339,23 +308,7 @@ fn workspace_package_fail_line_includes_failing_non_core_metrics() {
             true,
         )],
         Vec::new(),
-        ReportOptions {
-            findings: FindingsShown::default(),
-            budgets: &budgets,
-            metric_plugins: &[],
-            boundaries: None,
-            dependencies: &dependencies,
-            dependency_hygiene: None,
-            dependency_hygiene_by_language: None,
-            duplication: DuplicationConfig::default(),
-            orphan_files: None,
-            orphan_files_by_language: None,
-            ownership: OwnershipOptions::default(),
-            coverage_reports_named: true,
-            unmatched_coverage_paths: &[],
-            baseline: None,
-        },
-        ReportExtras::default(),
+        options,
     )
     .expect("report");
     report.apply_ratchet(&ratchet).expect("apply ratchet");

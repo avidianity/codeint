@@ -66,6 +66,43 @@ macro_rules! crate_structs {
     };
 }
 
+macro_rules! with_fields {
+    (
+        $(
+            $method:ident($field:ident: $ty:ty) => $expr:expr
+        ),* $(,)?
+    ) => {
+        $(
+            pub fn $method(mut self, $field: $ty) -> Self {
+                self.$field = $expr;
+                self
+            }
+        )*
+    };
+}
+
+macro_rules! impl_ratchet_metrics_source {
+    ($($ty:ty => $ratio:ident),* $(,)?) => {
+        $(
+            impl crate::ratchet::RatchetMetricsSource for $ty {
+                fn push_ratchet_metrics(
+                    &self,
+                    source_set: Option<codeint_model::SourceSet>,
+                    out: &mut Vec<codeint_config::MeasuredRatchetMetric>,
+                ) {
+                    crate::ratchet::push_ratchet_entries(
+                        out,
+                        source_set,
+                        self.metric_summaries()
+                            .into_iter()
+                            .map(|s| (s.key, s.$ratio.0, s.metric_version)),
+                    );
+                }
+            }
+        )*
+    };
+}
+
 mod agent;
 mod baseline;
 mod baseline_listing;
@@ -258,17 +295,12 @@ pub(crate) fn dependency_over_budget(
 
 impl DependenciesSection {
     fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
+        let [unused, unlisted, dev_in_production] = self.metric_summaries();
         dependency_over_budget(
             budgets,
-            self.unused_dependencies
-                .findings
-                .budgeted(self.unused_dependencies.header.ratio),
-            self.unlisted_dependencies
-                .findings
-                .budgeted(self.unlisted_dependencies.header.ratio),
-            self.dev_in_production_dependencies
-                .findings
-                .budgeted(self.dev_in_production_dependencies.header.ratio),
+            unused.budgeted_ratio,
+            unlisted.budgeted_ratio,
+            dev_in_production.budgeted_ratio,
         )
     }
 }
@@ -278,85 +310,10 @@ impl SourceSetSections {
         over_budget(
             budgets,
             self.iter().flat_map(|(source_set, section)| {
-                [
-                    (
-                        source_set,
-                        Metric::Erosion.key(),
-                        section
-                            .erosion
-                            .findings
-                            .budgeted(section.erosion.header.ratio),
-                    ),
-                    (
-                        source_set,
-                        Metric::CognitiveComplexity.key(),
-                        section
-                            .cognitive_complexity
-                            .findings
-                            .budgeted(section.cognitive_complexity.header.ratio),
-                    ),
-                    (
-                        source_set,
-                        Metric::Duplication.key(),
-                        section
-                            .duplication
-                            .clone_groups
-                            .budgeted(section.duplication.header.ratio),
-                    ),
-                    (
-                        source_set,
-                        Metric::Verbosity.key(),
-                        section
-                            .verbosity
-                            .findings
-                            .budgeted(section.verbosity.header.ratio),
-                    ),
-                ]
-                .into_iter()
-                .chain(section.import_cycles.iter().map(move |import_cycles| {
-                    (
-                        source_set,
-                        Metric::ImportCycles.key(),
-                        import_cycles.findings.budgeted(import_cycles.header.ratio),
-                    )
-                }))
-                .chain(section.boundaries.iter().map(move |boundaries| {
-                    (
-                        source_set,
-                        Metric::Boundaries.key(),
-                        boundaries.findings.budgeted(boundaries.header.ratio),
-                    )
-                }))
-                .chain(section.orphan_files.iter().map(move |orphans| {
-                    (
-                        source_set,
-                        Metric::OrphanFiles.key(),
-                        orphans.findings.budgeted(orphans.header.ratio),
-                    )
-                }))
-                .chain(section.test_gap.iter().map(move |test_gap| {
-                    (
-                        source_set,
-                        Metric::TestGap.key(),
-                        test_gap.findings.budgeted(test_gap.header.ratio),
-                    )
-                }))
-                .chain(section.hazards.iter().map(move |hazards| {
-                    (
-                        source_set,
-                        Metric::Hazards.key(),
-                        hazards.findings.budgeted(hazards.header.ratio),
-                    )
-                }))
-                .chain(section.external_metrics.iter().map(
-                    move |(key, metric)| {
-                        (
-                            source_set,
-                            key.as_str(),
-                            metric.findings.budgeted(metric.header.ratio),
-                        )
-                    },
-                ))
+                section
+                    .metric_summaries()
+                    .into_iter()
+                    .map(move |summary| (source_set, summary.key, summary.budgeted_ratio))
             }),
         )
     }
@@ -403,7 +360,7 @@ pub struct ReportOptions<'a> {
     pub budgets: &'a Budgets,
     pub metric_plugins: &'a [&'a dyn MetricPlugin],
     pub boundaries: Option<&'a BoundariesConfig>,
-    pub dependencies: &'a DependenciesConfig,
+    pub dependencies: Option<&'a DependenciesConfig>,
     pub dependency_hygiene: Option<&'a DependencyHygiene>,
     pub dependency_hygiene_by_language: Option<&'a BTreeMap<String, DependencyHygiene>>,
     pub duplication: DuplicationConfig,
@@ -413,22 +370,17 @@ pub struct ReportOptions<'a> {
     pub coverage_reports_named: bool,
     pub unmatched_coverage_paths: &'a [String],
     pub baseline: Option<&'a Baseline>,
+    pub extras: ReportExtras,
 }
 
 impl<'a> ReportOptions<'a> {
-    fn basic(
-        findings: FindingsShown,
-        budgets: &'a Budgets,
-        metric_plugins: &'a [&'a dyn MetricPlugin],
-        boundaries: Option<&'a BoundariesConfig>,
-        dependencies: &'a DependenciesConfig,
-    ) -> ReportOptions<'a> {
+    pub fn new(findings: FindingsShown, budgets: &'a Budgets) -> ReportOptions<'a> {
         ReportOptions {
             findings,
             budgets,
-            metric_plugins,
-            boundaries,
-            dependencies,
+            metric_plugins: &[],
+            boundaries: None,
+            dependencies: None,
             dependency_hygiene: None,
             dependency_hygiene_by_language: None,
             duplication: DuplicationConfig::default(),
@@ -438,17 +390,18 @@ impl<'a> ReportOptions<'a> {
             coverage_reports_named: false,
             unmatched_coverage_paths: &[],
             baseline: None,
+            extras: ReportExtras::default(),
         }
     }
 
-    fn with_duplication(mut self, duplication: DuplicationConfig) -> ReportOptions<'a> {
-        self.duplication = duplication;
-        self
-    }
-
-    fn with_ownership(mut self, ownership: OwnershipOptions<'a>) -> ReportOptions<'a> {
-        self.ownership = ownership;
-        self
+    with_fields! {
+        with_metric_plugins(metric_plugins: &'a [&'a dyn MetricPlugin]) => metric_plugins,
+        with_boundaries(boundaries: Option<&'a BoundariesConfig>) => boundaries,
+        with_dependencies(dependencies: &'a DependenciesConfig) => Some(dependencies),
+        with_duplication(duplication: DuplicationConfig) => duplication,
+        with_ownership(ownership: OwnershipOptions<'a>) => ownership,
+        with_baseline(baseline: Option<&'a Baseline>) => baseline,
+        with_extras(extras: ReportExtras) => extras,
     }
 }
 
@@ -496,75 +449,8 @@ impl Report {
         findings: FindingsShown,
         budgets: &Budgets,
     ) -> Report {
-        Report::summarize_with_metrics(languages, submodules, findings, budgets, &[])
+        Report::summarize_with_options(languages, submodules, ReportOptions::new(findings, budgets))
             .expect("built-in metrics cannot fail")
-    }
-
-    pub fn summarize_with_metrics(
-        languages: Vec<MeasuredLanguage>,
-        submodules: Vec<RepoPath>,
-        findings: FindingsShown,
-        budgets: &Budgets,
-        metric_plugins: &[&dyn MetricPlugin],
-    ) -> Result<Report, MetricPluginError> {
-        Report::summarize_with_metrics_and_boundaries(
-            languages,
-            submodules,
-            findings,
-            budgets,
-            metric_plugins,
-            None,
-        )
-    }
-
-    pub fn summarize_with_metrics_and_boundaries(
-        languages: Vec<MeasuredLanguage>,
-        submodules: Vec<RepoPath>,
-        findings: FindingsShown,
-        budgets: &Budgets,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-    ) -> Result<Report, MetricPluginError> {
-        let dependencies = DependenciesConfig::default();
-        Report::summarize_with_options(
-            languages,
-            submodules,
-            ReportOptions::basic(findings, budgets, metric_plugins, boundaries, &dependencies),
-        )
-    }
-
-    pub fn summarize_with_config(
-        languages: Vec<MeasuredLanguage>,
-        submodules: Vec<RepoPath>,
-        findings: FindingsShown,
-        budgets: &Budgets,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-        duplication: DuplicationConfig,
-    ) -> Result<Report, MetricPluginError> {
-        let dependencies = DependenciesConfig::default();
-        let options =
-            ReportOptions::basic(findings, budgets, metric_plugins, boundaries, &dependencies)
-                .with_duplication(duplication);
-        Report::summarize_with_options(languages, submodules, options)
-    }
-
-    pub fn summarize_with_ownership(
-        languages: Vec<MeasuredLanguage>,
-        submodules: Vec<RepoPath>,
-        findings: FindingsShown,
-        budgets: &Budgets,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-        ownership: OwnershipOptions<'_>,
-    ) -> Result<Report, MetricPluginError> {
-        let dependencies = DependenciesConfig::default();
-        Report::summarize_with_options(
-            languages,
-            submodules,
-            ReportOptions::basic(findings, budgets, metric_plugins, boundaries, &dependencies)
-                .with_ownership(ownership),
-        )
     }
 
     pub fn summarize_with_options(
@@ -572,16 +458,11 @@ impl Report {
         submodules: Vec<RepoPath>,
         options: ReportOptions<'_>,
     ) -> Result<Report, MetricPluginError> {
-        Report::summarize_with_extras(languages, submodules, options, ReportExtras::default())
-    }
-
-    pub fn summarize_with_extras(
-        languages: Vec<MeasuredLanguage>,
-        submodules: Vec<RepoPath>,
-        options: ReportOptions<'_>,
-        extras: ReportExtras,
-    ) -> Result<Report, MetricPluginError> {
-        let ignored = options.dependencies.ignored();
+        let empty_ignored = BTreeSet::new();
+        let ignored = options
+            .dependencies
+            .map_or(&empty_ignored, DependenciesConfig::ignored);
+        let extras = options.extras;
         let measured_total_hygiene;
         let total_hygiene = match options.dependency_hygiene {
             Some(precomputed) => precomputed,
@@ -619,7 +500,13 @@ impl Report {
             baseline: options.baseline,
         };
         let (total_ranges, sections_per_language, precomputed_duplication) =
-            build_per_language_sections(&measured, &options, ignored, section_options)?;
+            build_per_language_sections(
+                &measured,
+                options.dependency_hygiene_by_language,
+                options.orphan_files_by_language,
+                ignored,
+                section_options,
+            )?;
         let import_bearing_model = collect_import_bearing_model(&measured, top_has_imports);
         let coverage_bearing_model = collect_coverage_bearing_model(&measured);
         let hazards_bearing_model = collect_hazards_bearing_model(&measured, top_has_hazard_rules);
@@ -713,22 +600,10 @@ impl Report {
     }
 
     pub fn ratchet_metrics(&self) -> Vec<MeasuredRatchetMetric> {
-        let mut metrics = Vec::new();
-        for (source_set, section) in self.measured.source_sets.iter() {
-            push_source_set_ratchet_metrics(&mut metrics, source_set, section);
-        }
-        if let Some(deps) = &self.measured.dependencies {
-            let un = &deps.unused_dependencies.header;
-            let ul = &deps.unlisted_dependencies.header;
-            let dp = &deps.dev_in_production_dependencies.header;
-            ratchet::push_dependency_ratchet_metrics(
-                &mut metrics,
-                (un.ratio.0, un.metric_version),
-                (ul.ratio.0, ul.metric_version),
-                (dp.ratio.0, dp.metric_version),
-            );
-        }
-        metrics
+        ratchet::collect_ratchet_metrics(
+            &self.measured.source_sets,
+            self.measured.dependencies.as_ref(),
+        )
     }
 
     pub fn apply_ratchet(&mut self, ratchet: &Ratchet) -> Result<(), Vec<RatchetVersionMismatch>> {
@@ -749,83 +624,6 @@ impl Report {
                 .map_err(ReportError::Sarif),
             ReportFormat::Markdown => Ok(markdown::render(self)),
         }
-    }
-}
-
-fn push_source_set_ratchet_metrics(
-    metrics: &mut Vec<MeasuredRatchetMetric>,
-    source_set: SourceSet,
-    section: &SourceSetSection,
-) {
-    let mut push = |key: &str, ratio: Decimal, metric_version: u32| {
-        metrics.push(MeasuredRatchetMetric {
-            source_set: Some(source_set),
-            metric: key.to_owned(),
-            ratio: ratio.0,
-            metric_version,
-        });
-    };
-    push(
-        Metric::Erosion.key(),
-        section.erosion.header.ratio,
-        section.erosion.header.metric_version,
-    );
-    push(
-        Metric::CognitiveComplexity.key(),
-        section.cognitive_complexity.header.ratio,
-        section.cognitive_complexity.header.metric_version,
-    );
-    push(
-        Metric::Duplication.key(),
-        section.duplication.header.ratio,
-        section.duplication.header.metric_version,
-    );
-    push(
-        Metric::Verbosity.key(),
-        section.verbosity.header.ratio,
-        section.verbosity.header.metric_version,
-    );
-    if let Some(import_cycles) = &section.import_cycles {
-        push(
-            Metric::ImportCycles.key(),
-            import_cycles.header.ratio,
-            import_cycles.header.metric_version,
-        );
-    }
-    if let Some(boundaries) = &section.boundaries {
-        push(
-            Metric::Boundaries.key(),
-            boundaries.header.ratio,
-            boundaries.header.metric_version,
-        );
-    }
-    if let Some(orphan_files) = &section.orphan_files {
-        push(
-            Metric::OrphanFiles.key(),
-            orphan_files.header.ratio,
-            orphan_files.header.metric_version,
-        );
-    }
-    if let Some(test_gap) = &section.test_gap {
-        push(
-            Metric::TestGap.key(),
-            test_gap.header.ratio,
-            test_gap.header.metric_version,
-        );
-    }
-    if let Some(hazards) = &section.hazards {
-        push(
-            Metric::Hazards.key(),
-            hazards.header.ratio,
-            hazards.header.metric_version,
-        );
-    }
-    for (key, external) in &section.external_metrics {
-        push(
-            key.as_str(),
-            external.header.ratio,
-            external.header.metric_version,
-        );
     }
 }
 
@@ -940,7 +738,8 @@ type PerLanguageSections = (
 
 fn build_per_language_sections(
     measured: &[MeasuredLanguage],
-    options: &ReportOptions<'_>,
+    dependency_hygiene_by_language: Option<&BTreeMap<String, DependencyHygiene>>,
+    orphan_files_by_language: Option<&BTreeMap<String, OrphanFiles>>,
     ignored: &BTreeSet<String>,
     section_options: SectionOptions<'_>,
 ) -> Result<PerLanguageSections, MetricPluginError> {
@@ -959,8 +758,13 @@ fn build_per_language_sections(
             let mut per_language = BTreeMap::new();
             let mut duplication_parts: BTreeMap<SourceSet, Vec<Duplication>> = BTreeMap::new();
             for language in measured {
-                let (section, lang_duplication) =
-                    build_single_language_section(language, options, ignored, section_options)?;
+                let (section, lang_duplication) = build_single_language_section(
+                    language,
+                    dependency_hygiene_by_language,
+                    orphan_files_by_language,
+                    ignored,
+                    section_options,
+                )?;
                 per_language.insert(language.plugin.clone(), section);
                 for (source_set, dup) in lang_duplication {
                     duplication_parts.entry(source_set).or_default().push(dup);
@@ -981,16 +785,14 @@ fn build_per_language_sections(
 
 fn build_single_language_section(
     language: &MeasuredLanguage,
-    options: &ReportOptions<'_>,
+    dependency_hygiene_by_language: Option<&BTreeMap<String, DependencyHygiene>>,
+    orphan_files_by_language: Option<&BTreeMap<String, OrphanFiles>>,
     ignored: &BTreeSet<String>,
     section_options: SectionOptions<'_>,
 ) -> Result<(MeasuredSection, BTreeMap<SourceSet, Duplication>), MetricPluginError> {
     let measured_language_hygiene;
     let language_hygiene = if language.has_imports {
-        match options
-            .dependency_hygiene_by_language
-            .and_then(|map| map.get(&language.plugin))
-        {
+        match dependency_hygiene_by_language.and_then(|map| map.get(&language.plugin)) {
             Some(precomputed) => precomputed,
             None => {
                 measured_language_hygiene = DependencyHygiene::measure(&language.model, ignored);
@@ -1003,11 +805,7 @@ fn build_single_language_section(
     };
     let language_orphans = language
         .has_imports
-        .then(|| {
-            options
-                .orphan_files_by_language
-                .and_then(|map| map.get(&language.plugin))
-        })
+        .then(|| orphan_files_by_language.and_then(|map| map.get(&language.plugin)))
         .flatten();
     let language_has_hazard_rules = model_has_hazard_rules(&language.model);
     MeasuredSection::new(

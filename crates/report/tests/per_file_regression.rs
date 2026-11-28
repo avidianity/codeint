@@ -5,8 +5,7 @@ use codeint_model::{
     CodeModel, FileModel, LanguageFacts, RepoPath, SourceFile, SourceSet, language::FlaggedLine,
 };
 use codeint_report::{
-    BaseCommit, CommitMeasurement, DiffReport, DiffReportOptions, Head, OwnershipOptions,
-    SavedReport,
+    BaseCommit, CommitMeasurement, DiffReport, DiffReportOptions, Head, SavedReport,
 };
 
 fn flagged_source(path: &str, lines: &[u32]) -> SourceFile {
@@ -62,6 +61,7 @@ fn diff_report_evaluates_per_file_regressions_and_round_trips_formats() {
     ]);
     let changed_files = BTreeSet::from(["src/shrank.ts".to_owned(), "src/worsened.ts".to_owned()]);
     let limits = RegressionLimits::default().with_per_file(true);
+    let budgets = Budgets::default();
     let diff = DiffReport::compare_with_options(
         BaseCommit {
             git_ref: "main".to_owned(),
@@ -70,17 +70,8 @@ fn diff_report_evaluates_per_file_regressions_and_round_trips_formats() {
         Head::WorkingTree,
         CommitMeasurement::of(base_model),
         CommitMeasurement::of(head_model),
-        DiffReportOptions {
-            findings: FindingsShown::default(),
-            budgets: &Budgets::default(),
-            new_file_budgets: &Budgets::default(),
-            new_files: None,
-            changed_files,
-            limits: &limits,
-            ownership: OwnershipOptions::default(),
-            baseline: None,
-            include_test_gap_note: false,
-        },
+        DiffReportOptions::new(FindingsShown::default(), &budgets, &limits)
+            .with_changed_files(changed_files),
     );
     let failures = diff.failure_messages();
     assert_eq!(failures.len(), 1, "unexpected failures: {failures:?}");

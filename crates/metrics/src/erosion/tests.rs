@@ -1,11 +1,11 @@
 use codeint_model::language::{FileModel, Function, SourceSet, Token, TokenKind};
-use codeint_model::{CodeModel, RepoPath, SourceFile, Workspace};
+use codeint_model::{RepoPath, SourceFile, SourceSetModel, Workspace};
 
 use super::Erosion;
 
-fn model_with(functions: Vec<Function>) -> CodeModel {
+fn model_with(functions: Vec<Function>) -> SourceSetModel {
     let path = RepoPath::new("src/demo.ts").expect("valid path");
-    CodeModel {
+    SourceSetModel {
         files: vec![SourceFile {
             path,
             model: FileModel {
@@ -27,7 +27,7 @@ fn model_with(functions: Vec<Function>) -> CodeModel {
             },
         }],
         workspace: Workspace::default(),
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     }
 }
 

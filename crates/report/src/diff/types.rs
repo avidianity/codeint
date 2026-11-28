@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_config::{Baseline, Budgets, FindingsShown, RegressionLimits};
+use codeint_model::Metric;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -209,16 +210,128 @@ pub(super) struct DependenciesChanges {
     pub(super) dev_in_production_dependencies: MetricChanges<ImportedDependencyRow>,
 }
 
+pub(super) struct DiffMetricSummary<'a> {
+    pub(super) key: &'a str,
+    pub(super) label: &'a str,
+    pub(super) base_ratio: Decimal,
+    pub(super) head_ratio: Decimal,
+    pub(super) metric_version: u32,
+    pub(super) head_budgeted_ratio: BudgetedRatio,
+    pub(super) new_count: usize,
+    pub(super) resolved_count: usize,
+    pub(super) unchanged: usize,
+}
+
+impl<T> MetricChanges<T> {
+    fn summary<'a>(&'a self, key: &'a str, label: &'a str) -> DiffMetricSummary<'a> {
+        DiffMetricSummary {
+            key,
+            label,
+            base_ratio: self.base_ratio,
+            head_ratio: self.head_ratio,
+            metric_version: self.metric_version,
+            head_budgeted_ratio: self.head_budgeted_ratio,
+            new_count: self.new.listed.len().saturating_add(self.new.left_out),
+            resolved_count: self
+                .resolved
+                .listed
+                .len()
+                .saturating_add(self.resolved.left_out),
+            unchanged: self.unchanged,
+        }
+    }
+}
+
+impl SourceSetChanges {
+    pub(super) fn metric_summaries(&self) -> Vec<DiffMetricSummary<'_>> {
+        let mut summaries = vec![
+            self.erosion.summary(Metric::Erosion.key(), "Erosion"),
+            self.cognitive_complexity
+                .summary(Metric::CognitiveComplexity.key(), "Cognitive complexity"),
+            self.duplication
+                .groups
+                .summary(Metric::Duplication.key(), "Duplication"),
+            self.verbosity.summary(Metric::Verbosity.key(), "Verbosity"),
+        ];
+        if let Some(item) = &self.import_cycles {
+            summaries.push(item.summary(Metric::ImportCycles.key(), "Import cycles"));
+        }
+        if let Some(item) = &self.boundaries {
+            summaries.push(item.summary(Metric::Boundaries.key(), "Boundaries"));
+        }
+        if let Some(item) = &self.orphan_files {
+            summaries.push(item.summary(Metric::OrphanFiles.key(), "Orphan files"));
+        }
+        if let Some(item) = &self.hazards {
+            summaries.push(item.summary(Metric::Hazards.key(), "Hazards"));
+        }
+        for (key, external) in &self.external_metrics {
+            summaries.push(
+                external
+                    .changes
+                    .summary(key.as_str(), external.name.as_str()),
+            );
+        }
+        summaries
+    }
+}
+
+impl DependenciesChanges {
+    pub(super) fn metric_summaries(&self) -> [DiffMetricSummary<'_>; 3] {
+        [
+            self.unused_dependencies
+                .summary(Metric::UnusedDependencies.key(), "Unused dependencies"),
+            self.unlisted_dependencies
+                .summary(Metric::UnlistedDependencies.key(), "Unlisted dependencies"),
+            self.dev_in_production_dependencies.summary(
+                Metric::DevInProductionDependencies.key(),
+                "Dev dependencies in production",
+            ),
+        ]
+    }
+}
+
+impl_ratchet_metrics_source!(SourceSetChanges => head_ratio, DependenciesChanges => head_ratio);
+
 pub struct DiffReportOptions<'a> {
     pub findings: FindingsShown,
     pub budgets: &'a Budgets,
-    pub new_file_budgets: &'a Budgets,
+    pub new_file_budgets: Option<&'a Budgets>,
     pub new_files: Option<CommitMeasurement>,
     pub changed_files: BTreeSet<String>,
     pub limits: &'a RegressionLimits,
     pub ownership: OwnershipOptions<'a>,
     pub baseline: Option<&'a Baseline>,
     pub include_test_gap_note: bool,
+}
+
+impl<'a> DiffReportOptions<'a> {
+    pub fn new(
+        findings: FindingsShown,
+        budgets: &'a Budgets,
+        limits: &'a RegressionLimits,
+    ) -> DiffReportOptions<'a> {
+        DiffReportOptions {
+            findings,
+            budgets,
+            new_file_budgets: None,
+            new_files: None,
+            changed_files: BTreeSet::new(),
+            limits,
+            ownership: OwnershipOptions::default(),
+            baseline: None,
+            include_test_gap_note: false,
+        }
+    }
+
+    with_fields! {
+        with_new_file_budgets(new_file_budgets: &'a Budgets) => Some(new_file_budgets),
+        with_new_files(new_files: Option<CommitMeasurement>) => new_files,
+        with_changed_files(changed_files: BTreeSet<String>) => changed_files,
+        with_ownership(ownership: OwnershipOptions<'a>) => ownership,
+        with_baseline(baseline: Option<&'a Baseline>) => baseline,
+        with_test_gap_note(include_test_gap_note: bool) => include_test_gap_note,
+    }
 }
 
 impl<T: Serialize> Serialize for MetricChanges<T> {

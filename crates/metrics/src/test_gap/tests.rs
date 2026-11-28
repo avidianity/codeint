@@ -1,7 +1,7 @@
 use codeint_model::language::Function;
 use codeint_model::{
-    CodeModel, FunctionCoverage, LanguageFacts, Package, SourceFile, SourceSet, Token, TokenKind,
-    Workspace, token_text_hash,
+    FunctionCoverage, LanguageFacts, Package, SourceFile, SourceSet, SourceSetModel, Token,
+    TokenKind, Workspace, token_text_hash,
 };
 
 use super::TestGap;
@@ -34,8 +34,8 @@ fn token(line: u32, text: &str) -> Token {
     }
 }
 
-fn covered_model(files: Vec<SourceFile>, workspace: Workspace) -> CodeModel {
-    CodeModel {
+fn covered_model(files: Vec<SourceFile>, workspace: Workspace) -> SourceSetModel {
+    SourceSetModel {
         files,
         workspace,
         languages: vec![LanguageFacts {
@@ -44,7 +44,7 @@ fn covered_model(files: Vec<SourceFile>, workspace: Workspace) -> CodeModel {
             has_hazard_rules: false,
             has_imports: true,
         }],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     }
 }
 
@@ -61,7 +61,7 @@ fn test_gap_is_absent_when_no_language_has_coverage_or_only_non_production_files
     prod.model
         .functions
         .push(function_with_coverage(Some("run"), 1, 4, 0, 4, None));
-    let uncovered = CodeModel {
+    let uncovered = SourceSetModel {
         files: vec![prod],
         languages: vec![LanguageFacts {
             language: "typescript".to_owned(),
@@ -69,7 +69,7 @@ fn test_gap_is_absent_when_no_language_has_coverage_or_only_non_production_files
             has_hazard_rules: false,
             has_imports: true,
         }],
-        ..CodeModel::default()
+        ..SourceSetModel::default()
     };
     assert_eq!(TestGap::measure(&uncovered), None);
 

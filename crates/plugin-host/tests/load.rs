@@ -1406,7 +1406,7 @@ fn assert_two_language_fact_probe(
     let merged = CodeModel::merge([first_model, second_model]);
     let source_sets = merged.into_source_sets();
     let multi_measured = plugin
-        .measure(source_sets.get(SourceSet::Production))
+        .measure(&source_sets.get(SourceSet::Production).to_code_model())
         .expect("measure merged multi-language model");
     assert!((multi_measured.ratio - expected_merged_ratio).abs() < 1e-9);
     assert_eq!(summarize_findings(&multi_measured), expected_merged);
@@ -1592,7 +1592,7 @@ fn metric_plugin_reads_per_language_coverage_statement() {
     let source_sets = merged.into_source_sets();
 
     let multi_measured = plugin
-        .measure(source_sets.get(SourceSet::Production))
+        .measure(&source_sets.get(SourceSet::Production).to_code_model())
         .expect("measure merged multi-language model");
 
     assert_eq!(

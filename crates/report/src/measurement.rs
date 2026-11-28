@@ -6,7 +6,9 @@ use codeint_config::{
 use codeint_metrics::{
     DependencyHygiene, Duplication, MinimumCloneTokens, MinimumDistinctTokens, OrphanFiles,
 };
-use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, RepoPath, SourceSet, SourceSets};
+use codeint_model::{
+    CodeModel, MetricPlugin, MetricPluginError, RepoPath, SourceSet, SourceSetModel, SourceSets,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::baseline::Identified;
@@ -59,15 +61,27 @@ pub(crate) struct SourceSetMeasurement {
     pub(crate) external_metrics: BTreeMap<String, ExternalMetricCommitMeasurement>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct CommitMeasurementOptions<'a> {
     pub metric_plugins: &'a [&'a dyn MetricPlugin],
     pub boundaries: Option<&'a BoundariesConfig>,
-    pub dependencies: &'a DependenciesConfig,
+    pub dependencies: Option<&'a DependenciesConfig>,
     pub duplication: DuplicationConfig,
     pub orphan_files: Option<&'a OrphanFiles>,
     pub dependency_hygiene: Option<&'a DependencyHygiene>,
-    pub disabled_hazard_rules: &'a BTreeSet<String>,
+    pub disabled_hazard_rules: Option<&'a BTreeSet<String>>,
+}
+
+impl<'a> CommitMeasurementOptions<'a> {
+    with_fields! {
+        with_metric_plugins(metric_plugins: &'a [&'a dyn MetricPlugin]) => metric_plugins,
+        with_boundaries(boundaries: Option<&'a BoundariesConfig>) => boundaries,
+        with_dependencies(dependencies: &'a DependenciesConfig) => Some(dependencies),
+        with_duplication(duplication: DuplicationConfig) => duplication,
+        with_orphan_files(orphan_files: Option<&'a OrphanFiles>) => orphan_files,
+        with_dependency_hygiene(dependency_hygiene: Option<&'a DependencyHygiene>) => dependency_hygiene,
+        with_disabled_hazard_rules(disabled_hazard_rules: &'a BTreeSet<String>) => Some(disabled_hazard_rules),
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -125,86 +139,18 @@ impl CommitMeasurement {
     }
 
     pub fn of(model: CodeModel) -> CommitMeasurement {
-        CommitMeasurement::of_with_metrics(model, &[]).expect("built-in metrics cannot fail")
+        CommitMeasurement::of_languages(vec![model], CommitMeasurementOptions::default())
+            .expect("built-in metrics cannot fail")
     }
 
-    pub fn of_with_metrics(
-        model: CodeModel,
-        metric_plugins: &[&dyn MetricPlugin],
-    ) -> Result<CommitMeasurement, MetricPluginError> {
-        CommitMeasurement::of_with_metrics_and_boundaries(model, metric_plugins, None)
-    }
-
-    pub fn of_with_metrics_and_boundaries(
-        model: CodeModel,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-    ) -> Result<CommitMeasurement, MetricPluginError> {
-        CommitMeasurement::of_with_config(
-            model,
-            metric_plugins,
-            boundaries,
-            DuplicationConfig::default(),
-        )
-    }
-
-    pub fn of_with_config(
-        model: CodeModel,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-        duplication: DuplicationConfig,
-    ) -> Result<CommitMeasurement, MetricPluginError> {
-        CommitMeasurement::of_with_options(model, metric_plugins, boundaries, duplication, None)
-    }
-
-    pub fn of_with_options(
-        model: CodeModel,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-        duplication: DuplicationConfig,
-        orphan_files: Option<&OrphanFiles>,
-    ) -> Result<CommitMeasurement, MetricPluginError> {
-        let dependencies = DependenciesConfig::default();
-        CommitMeasurement::of_languages_with_options(
-            vec![model],
-            metric_plugins,
-            boundaries,
-            &dependencies,
-            duplication,
-            orphan_files,
-            None,
-        )
-    }
-
-    pub fn of_languages_with_options(
-        languages: Vec<CodeModel>,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-        dependencies_config: &DependenciesConfig,
-        duplication: DuplicationConfig,
-        orphan_files: Option<&OrphanFiles>,
-        dependency_hygiene: Option<&DependencyHygiene>,
-    ) -> Result<CommitMeasurement, MetricPluginError> {
-        let disabled_hazard_rules = BTreeSet::new();
-        CommitMeasurement::of_languages_with_full_options(
-            languages,
-            CommitMeasurementOptions {
-                metric_plugins,
-                boundaries,
-                dependencies: dependencies_config,
-                duplication,
-                orphan_files,
-                dependency_hygiene,
-                disabled_hazard_rules: &disabled_hazard_rules,
-            },
-        )
-    }
-
-    pub fn of_languages_with_full_options(
+    pub fn of_languages(
         languages: Vec<CodeModel>,
         options: CommitMeasurementOptions<'_>,
     ) -> Result<CommitMeasurement, MetricPluginError> {
-        let ignored = options.dependencies.ignored();
+        let empty_ignored = BTreeSet::new();
+        let ignored = options
+            .dependencies
+            .map_or(&empty_ignored, DependenciesConfig::ignored);
         let measured_hygiene;
         let hygiene = match options.dependency_hygiene {
             Some(precomputed) => precomputed,
@@ -357,11 +303,13 @@ impl SourceSetMeasurement {
         precomputed_duplication: Option<Duplication>,
     ) -> Result<SourceSetMeasurement, MetricPluginError> {
         let model = models.model;
+        let empty_disabled = BTreeSet::new();
+        let disabled_hazard_rules = options.disabled_hazard_rules.unwrap_or(&empty_disabled);
         let measured = Measured::new(
             models,
             boundaries,
             options.duplication,
-            options.disabled_hazard_rules,
+            disabled_hazard_rules,
             precomputed_duplication,
         );
         let boundaries = measured.boundaries.as_ref().map(|evaluated| {
@@ -389,34 +337,37 @@ impl SourceSetMeasurement {
             ))
         });
         let mut external_metrics = BTreeMap::new();
+        let external_model = (!options.metric_plugins.is_empty()).then(|| model.to_code_model());
         for plugin in options.metric_plugins {
-            let result = plugin.measure(model)?;
-            let file_numerators =
-                count_file_numerators(result.findings.iter().map(|finding| &finding.path));
-            let findings_worst_first: Vec<ExternalMetricFinding> = result
-                .findings
-                .iter()
-                .map(ExternalMetricFinding::from)
-                .collect();
-            let finding_anchors = findings_worst_first
-                .iter()
-                .map(Identified::anchor)
-                .collect();
-            external_metrics.insert(
-                plugin.key().to_owned(),
-                ExternalMetricCommitMeasurement {
-                    name: plugin.name().to_owned(),
-                    description: plugin.description().to_owned(),
-                    metric_version: plugin.version(),
-                    measurement: MetricMeasurement {
-                        ratio: result.ratio,
-                        numerator: result.numerator,
-                        findings_worst_first,
-                        finding_anchors,
-                        file_numerators,
+            if let Some(plugin_model) = external_model.as_ref() {
+                let result = plugin.measure(plugin_model)?;
+                let file_numerators =
+                    count_file_numerators(result.findings.iter().map(|finding| &finding.path));
+                let findings_worst_first: Vec<ExternalMetricFinding> = result
+                    .findings
+                    .iter()
+                    .map(ExternalMetricFinding::from)
+                    .collect();
+                let finding_anchors = findings_worst_first
+                    .iter()
+                    .map(Identified::anchor)
+                    .collect();
+                external_metrics.insert(
+                    plugin.key().to_owned(),
+                    ExternalMetricCommitMeasurement {
+                        name: plugin.name().to_owned(),
+                        description: plugin.description().to_owned(),
+                        metric_version: plugin.version(),
+                        measurement: MetricMeasurement {
+                            ratio: result.ratio,
+                            numerator: result.numerator,
+                            findings_worst_first,
+                            finding_anchors,
+                            file_numerators,
+                        },
                     },
-                },
-            );
+                );
+            }
         }
         let clone_families: Vec<CloneFamilyFinding> = measured
             .duplication
@@ -595,7 +546,7 @@ fn select_subset_model<'a>(
     source_sets: &'a SourceSets,
     separate_source_sets: Option<&'a SourceSets>,
     require_non_empty_shared: bool,
-) -> Option<&'a CodeModel> {
+) -> Option<&'a SourceSetModel> {
     if !enabled {
         return None;
     }
@@ -624,7 +575,7 @@ fn prepare_source_sets_and_duplication(
         .map(CodeModel::into_source_sets)
         .collect();
     let duplication = measure_per_language_duplication(&lang_source_sets, duplication_config);
-    (merge_source_sets(lang_source_sets), Some(duplication))
+    (SourceSets::merge(lang_source_sets), Some(duplication))
 }
 
 fn measure_per_language_duplication(
@@ -652,18 +603,6 @@ fn measure_per_language_duplication(
         }
     }
     by_source_set
-}
-
-fn merge_source_sets(lang_source_sets: Vec<SourceSets>) -> SourceSets {
-    let mut models = Vec::new();
-    for sets in lang_source_sets {
-        for (_, model) in sets.iter() {
-            if !model.files.is_empty() {
-                models.push(model.clone());
-            }
-        }
-    }
-    CodeModel::merge(models).into_source_sets()
 }
 
 fn measure_source_set(

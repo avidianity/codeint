@@ -1,7 +1,6 @@
 use super::types::{
     DependenciesChanges, DiffReport, HeadEntry, MetricChanges, Regression, SourceSetChanges,
 };
-use crate::Findings;
 use crate::markdown::{
     BOUNDARY_FINDING_COLUMNS, CLONE_FAMILY, CLONE_GROUP, COMPLEX_FUNCTION,
     COMPLEX_FUNCTION_COLUMNS, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS, EXTERNAL_FINDING_COLUMNS,
@@ -117,48 +116,21 @@ fn comparison_sentence(report: &DiffReport) -> String {
 }
 
 fn metric_rows(source_set: &str, changes: &SourceSetChanges) -> Vec<Vec<String>> {
-    let mut rows = vec![
-        metric_row(source_set, "Erosion", &changes.erosion),
-        metric_row(
-            source_set,
-            "Cognitive complexity",
-            &changes.cognitive_complexity,
-        ),
-        metric_row(source_set, "Duplication", &changes.duplication.groups),
-        metric_row(source_set, "Verbosity", &changes.verbosity),
-    ];
-    if let Some(import_cycles) = &changes.import_cycles {
-        rows.push(metric_row(source_set, "Import cycles", import_cycles));
-    }
-    if let Some(boundaries) = &changes.boundaries {
-        rows.push(metric_row(source_set, "Boundaries", boundaries));
-    }
-    if let Some(orphan_files) = &changes.orphan_files {
-        rows.push(metric_row(source_set, "Orphan files", orphan_files));
-    }
-    if let Some(hazards) = &changes.hazards {
-        rows.push(metric_row(source_set, "Hazards", hazards));
-    }
-    for external in changes.external_metrics.values() {
-        rows.push(metric_row(source_set, &external.name, &external.changes));
-    }
-    rows
-}
-
-fn metric_row<T>(source_set: &str, metric: &str, changes: &MetricChanges<T>) -> Vec<String> {
-    vec![
-        source_set.to_string(),
-        metric.to_string(),
-        changes.base_ratio.0.to_string(),
-        changes.head_ratio.0.to_string(),
-        count(&changes.new).to_string(),
-        count(&changes.resolved).to_string(),
-        changes.unchanged.to_string(),
-    ]
-}
-
-fn count<T>(findings: &Findings<T>) -> usize {
-    findings.listed.len().saturating_add(findings.left_out)
+    changes
+        .metric_summaries()
+        .into_iter()
+        .map(|summary| {
+            vec![
+                source_set.to_string(),
+                summary.label.to_owned(),
+                summary.base_ratio.0.to_string(),
+                summary.head_ratio.0.to_string(),
+                summary.new_count.to_string(),
+                summary.resolved_count.to_string(),
+                summary.unchanged.to_string(),
+            ]
+        })
+        .collect()
 }
 
 fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
@@ -250,26 +222,21 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
 fn dependency_table(changes: &DependenciesChanges) -> String {
     table(
         &DEPENDENCY_COLUMNS,
-        vec![
-            dependency_row("Unused dependencies", &changes.unused_dependencies),
-            dependency_row("Unlisted dependencies", &changes.unlisted_dependencies),
-            dependency_row(
-                "Dev dependencies in production",
-                &changes.dev_in_production_dependencies,
-            ),
-        ],
+        changes
+            .metric_summaries()
+            .into_iter()
+            .map(|summary| {
+                vec![
+                    summary.label.to_owned(),
+                    summary.base_ratio.0.to_string(),
+                    summary.head_ratio.0.to_string(),
+                    summary.new_count.to_string(),
+                    summary.resolved_count.to_string(),
+                    summary.unchanged.to_string(),
+                ]
+            })
+            .collect(),
     )
-}
-
-fn dependency_row<T>(metric: &str, changes: &MetricChanges<T>) -> Vec<String> {
-    vec![
-        metric.to_string(),
-        changes.base_ratio.0.to_string(),
-        changes.head_ratio.0.to_string(),
-        count(&changes.new).to_string(),
-        count(&changes.resolved).to_string(),
-        changes.unchanged.to_string(),
-    ]
 }
 
 fn dependency_findings_blocks(changes: &DependenciesChanges) -> Vec<String> {

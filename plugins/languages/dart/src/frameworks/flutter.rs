@@ -1,5 +1,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use codeint_model::frameworks::{
+    find_package_manifest, matching_package_files, strip_package_root,
+};
 use codeint_model::language::{Manifest, Resolution};
 use serde::Deserialize;
 use serde::de::IgnoredAny;
@@ -119,15 +122,9 @@ pub(super) fn entry_points<P: AsRef<str>>(
 }
 
 pub(super) fn generated_paths<P: AsRef<str>>(package_root: &str, files: &[P]) -> Vec<String> {
-    files
-        .iter()
-        .map(AsRef::as_ref)
-        .filter(|full| {
-            rel_path(package_root, full)
-                .is_some_and(|rel| rel.ends_with(".dart") && is_generated_rel(rel))
-        })
-        .map(str::to_owned)
-        .collect()
+    matching_package_files(package_root, files, &[], |rel| {
+        rel.ends_with(".dart") && is_generated_rel(rel)
+    })
 }
 
 pub(super) fn fallback_package_import(
@@ -167,31 +164,22 @@ pub(super) fn is_virtual_generated_import(spec: &str) -> bool {
             .any(|suffix| spec.ends_with(suffix))
 }
 
+const IGNORED_MANIFEST_DIRS: [&str; 3] = ["vendor", "third_party", ".dart_tool"];
+
 fn parse_local_pubspec(package_root: &str, manifests: &[Manifest]) -> Option<FlutterPubspec> {
-    let expected = if package_root.is_empty() {
-        PUBSPEC_MANIFEST.to_owned()
-    } else {
-        format!("{package_root}/{PUBSPEC_MANIFEST}")
-    };
-    let manifest = manifests
-        .iter()
-        .find(|item| item.path == expected && !has_ignored_manifest_dir(&item.path))?;
+    let manifest = find_package_manifest(
+        package_root,
+        PUBSPEC_MANIFEST,
+        manifests,
+        &IGNORED_MANIFEST_DIRS,
+    )?;
     serde_saphyr::from_str::<Option<FlutterPubspec>>(&manifest.text)
         .ok()
         .flatten()
 }
 
-fn has_ignored_manifest_dir(path: &str) -> bool {
-    path.split('/')
-        .any(|seg| matches!(seg, "vendor" | "third_party" | ".dart_tool"))
-}
-
 fn rel_path<'p>(package_root: &str, full: &'p str) -> Option<&'p str> {
-    if package_root.is_empty() {
-        Some(full)
-    } else {
-        full.strip_prefix(package_root)?.strip_prefix('/')
-    }
+    strip_package_root(package_root, full)
 }
 
 fn is_app_main_rel(rel: &str) -> bool {

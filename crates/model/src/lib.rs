@@ -5,6 +5,7 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
+pub mod frameworks;
 mod metric;
 mod runtime_imports;
 pub mod scan;
@@ -186,12 +187,95 @@ pub struct CodeModel {
     pub languages: Vec<LanguageFacts>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceSetModel {
+    pub source_set: SourceSet,
+    pub files: Vec<SourceFile>,
+    pub workspace: Workspace,
+    pub runtime_imports: Vec<RuntimeImport>,
+    pub languages: Vec<LanguageFacts>,
+}
+
+impl Default for SourceSetModel {
+    fn default() -> SourceSetModel {
+        SourceSetModel::empty(SourceSet::Production)
+    }
+}
+
+impl SourceSetModel {
+    pub fn empty(source_set: SourceSet) -> SourceSetModel {
+        SourceSetModel {
+            source_set,
+            files: Vec::new(),
+            workspace: Workspace::default(),
+            runtime_imports: Vec::new(),
+            languages: Vec::new(),
+        }
+    }
+
+    pub fn merge(
+        source_set: SourceSet,
+        models: impl IntoIterator<Item = SourceSetModel>,
+    ) -> SourceSetModel {
+        let mut merged = SourceSetModel::empty(source_set);
+        let mut languages: BTreeMap<String, LanguageFacts> = BTreeMap::new();
+        for model in models {
+            merged.files.extend(model.files);
+            merged.runtime_imports.extend(model.runtime_imports);
+            merged.workspace.join(model.workspace);
+            merge_language_facts(&mut languages, model.languages);
+        }
+        merged
+            .files
+            .sort_by(|left, right| left.path.cmp(&right.path));
+        merged.languages = languages.into_values().collect();
+        merged
+    }
+
+    pub fn to_code_model(&self) -> CodeModel {
+        CodeModel {
+            files: self.files.clone(),
+            workspace: self.workspace.clone(),
+            runtime_imports: self.runtime_imports.clone(),
+            languages: self.languages.clone(),
+            ..CodeModel::default()
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceSets {
-    production: CodeModel,
-    test: CodeModel,
-    generated: CodeModel,
-    vendored: CodeModel,
+    production: SourceSetModel,
+    test: SourceSetModel,
+    generated: SourceSetModel,
+    vendored: SourceSetModel,
+}
+
+impl Default for SourceSets {
+    fn default() -> SourceSets {
+        SourceSets {
+            production: SourceSetModel::empty(SourceSet::Production),
+            test: SourceSetModel::empty(SourceSet::Test),
+            generated: SourceSetModel::empty(SourceSet::Generated),
+            vendored: SourceSetModel::empty(SourceSet::Vendored),
+        }
+    }
+}
+
+fn merge_language_facts(
+    target: &mut BTreeMap<String, LanguageFacts>,
+    incoming: impl IntoIterator<Item = LanguageFacts>,
+) {
+    for facts in incoming {
+        target
+            .entry(facts.language.clone())
+            .and_modify(|existing| {
+                existing.has_coverage |= facts.has_coverage;
+                existing.has_hazard_rules |= facts.has_hazard_rules;
+                existing.has_imports |= facts.has_imports;
+            })
+            .or_insert(facts);
+    }
 }
 
 impl CodeModel {
@@ -216,16 +300,7 @@ impl CodeModel {
             merged
                 .root_dependency_inheritance
                 .extend(model.root_dependency_inheritance);
-            for facts in model.languages {
-                languages
-                    .entry(facts.language.clone())
-                    .and_modify(|existing| {
-                        existing.has_coverage |= facts.has_coverage;
-                        existing.has_hazard_rules |= facts.has_hazard_rules;
-                        existing.has_imports |= facts.has_imports;
-                    })
-                    .or_insert(facts);
-            }
+            merge_language_facts(&mut languages, model.languages);
         }
         merged
             .files
@@ -242,6 +317,32 @@ impl CodeModel {
         merged.root_dependency_inheritance.dedup();
         merged.languages = languages.into_values().collect();
         merged
+    }
+
+    pub fn for_source_set(&self, source_set: SourceSet) -> SourceSetModel {
+        let matching_importers: HashSet<&RepoPath> = self
+            .files
+            .iter()
+            .filter(|file| file.model.source_set == source_set)
+            .map(|file| &file.path)
+            .collect();
+        SourceSetModel {
+            source_set,
+            files: self
+                .files
+                .iter()
+                .filter(|file| file.model.source_set == source_set)
+                .cloned()
+                .collect(),
+            workspace: self.workspace.clone(),
+            runtime_imports: self
+                .runtime_imports
+                .iter()
+                .filter(|import| matching_importers.contains(&import.importer))
+                .cloned()
+                .collect(),
+            languages: self.languages.clone(),
+        }
     }
 
     pub fn into_source_sets(self) -> SourceSets {
@@ -286,7 +387,7 @@ impl CodeModel {
 }
 
 impl SourceSets {
-    pub fn get(&self, source_set: SourceSet) -> &CodeModel {
+    pub fn get(&self, source_set: SourceSet) -> &SourceSetModel {
         match source_set {
             SourceSet::Production => &self.production,
             SourceSet::Test => &self.test,
@@ -295,7 +396,7 @@ impl SourceSets {
         }
     }
 
-    fn get_mut(&mut self, source_set: SourceSet) -> &mut CodeModel {
+    fn get_mut(&mut self, source_set: SourceSet) -> &mut SourceSetModel {
         match source_set {
             SourceSet::Production => &mut self.production,
             SourceSet::Test => &mut self.test,
@@ -304,7 +405,35 @@ impl SourceSets {
         }
     }
 
-    pub fn iter(&self) -> std::array::IntoIter<(SourceSet, &CodeModel), 4> {
+    pub fn into_source_set(self, source_set: SourceSet) -> SourceSetModel {
+        match source_set {
+            SourceSet::Production => self.production,
+            SourceSet::Test => self.test,
+            SourceSet::Generated => self.generated,
+            SourceSet::Vendored => self.vendored,
+        }
+    }
+
+    pub fn merge(sets: impl IntoIterator<Item = SourceSets>) -> SourceSets {
+        let mut production = Vec::new();
+        let mut test = Vec::new();
+        let mut generated = Vec::new();
+        let mut vendored = Vec::new();
+        for set in sets {
+            production.push(set.production);
+            test.push(set.test);
+            generated.push(set.generated);
+            vendored.push(set.vendored);
+        }
+        SourceSets {
+            production: SourceSetModel::merge(SourceSet::Production, production),
+            test: SourceSetModel::merge(SourceSet::Test, test),
+            generated: SourceSetModel::merge(SourceSet::Generated, generated),
+            vendored: SourceSetModel::merge(SourceSet::Vendored, vendored),
+        }
+    }
+
+    pub fn iter(&self) -> std::array::IntoIter<(SourceSet, &SourceSetModel), 4> {
         [
             SourceSet::Production,
             SourceSet::Test,

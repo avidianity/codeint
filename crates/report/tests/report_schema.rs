@@ -1,15 +1,15 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use codeint_config::{Budgets, DependenciesConfig, DuplicationConfig, FindingsShown, ReportFormat};
+use codeint_config::{Budgets, DependenciesConfig, FindingsShown, ReportFormat};
 use codeint_model::language::Function;
 use codeint_model::{
     CodeModel, FileModel, FunctionCoverage, HazardLine, LanguageFacts, ReferenceRanges, RepoPath,
     SourceFile, SourceSet, Workspace,
 };
 use codeint_report::{
-    FileDiagnosticEntry, MeasuredLanguage, OwnershipOptions, Report, ReportExtras, ReportOptions,
-    ScopeSummaryEntry, report_schema,
+    FileDiagnosticEntry, MeasuredLanguage, Report, ReportExtras, ReportOptions, ScopeSummaryEntry,
+    report_schema,
 };
 use serde_json::Value;
 
@@ -171,7 +171,31 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
     let dependencies = DependenciesConfig::default();
     let budgets = Budgets::default();
 
-    let with_gap = Report::summarize_with_extras(
+    let unmatched = ["missing/file.ts".to_owned()];
+    let mut with_gap_options = ReportOptions::new(FindingsShown::default(), &budgets)
+        .with_dependencies(&dependencies)
+        .with_extras(
+            ReportExtras::default()
+                .with_file_diagnostics(vec![FileDiagnosticEntry {
+                    path: "packages/api/db/bad.sql".to_owned(),
+                    line: 9,
+                    kind: "rejected-statement".to_owned(),
+                    message: "could not parse statement as postgresql".to_owned(),
+                }])
+                .with_scope_summaries(vec![ScopeSummaryEntry {
+                    language: "sql".to_owned(),
+                    package: Some("packages/api".to_owned()),
+                    dialect: Some("postgresql".to_owned()),
+                    kind: "sql-schema".to_owned(),
+                    fields: BTreeMap::from([
+                        ("dialect".to_owned(), "postgresql".to_owned()),
+                        ("tables".to_owned(), "3".to_owned()),
+                    ]),
+                }]),
+        );
+    with_gap_options.coverage_reports_named = true;
+    with_gap_options.unmatched_coverage_paths = &unmatched;
+    let with_gap = Report::summarize_with_options(
         vec![MeasuredLanguage {
             plugin: "typescript-javascript".to_owned(),
             model: sample_model(true, true),
@@ -185,39 +209,7 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
             )]),
         }],
         Vec::new(),
-        ReportOptions {
-            findings: FindingsShown::default(),
-            budgets: &budgets,
-            metric_plugins: &[],
-            boundaries: None,
-            dependencies: &dependencies,
-            dependency_hygiene: None,
-            dependency_hygiene_by_language: None,
-            duplication: DuplicationConfig::default(),
-            orphan_files: None,
-            orphan_files_by_language: None,
-            ownership: OwnershipOptions::default(),
-            coverage_reports_named: true,
-            unmatched_coverage_paths: &["missing/file.ts".to_owned()],
-            baseline: None,
-        },
-        ReportExtras::default()
-            .with_file_diagnostics(vec![FileDiagnosticEntry {
-                path: "packages/api/db/bad.sql".to_owned(),
-                line: 9,
-                kind: "rejected-statement".to_owned(),
-                message: "could not parse statement as postgresql".to_owned(),
-            }])
-            .with_scope_summaries(vec![ScopeSummaryEntry {
-                language: "sql".to_owned(),
-                package: Some("packages/api".to_owned()),
-                dialect: Some("postgresql".to_owned()),
-                kind: "sql-schema".to_owned(),
-                fields: BTreeMap::from([
-                    ("dialect".to_owned(), "postgresql".to_owned()),
-                    ("tables".to_owned(), "3".to_owned()),
-                ]),
-            }]),
+        with_gap_options,
     )
     .expect("report with test gap and hazards");
     let with_gap_json: Value =
@@ -310,7 +302,7 @@ fn report_schema_validates_external_package_boundary_findings() {
     });
     let dependencies = DependenciesConfig::default();
     let budgets = Budgets::default();
-    let report = Report::summarize_with_extras(
+    let report = Report::summarize_with_options(
         vec![MeasuredLanguage {
             plugin: "typescript-javascript".to_owned(),
             model,
@@ -321,23 +313,9 @@ fn report_schema_validates_external_package_boundary_findings() {
             framework_profiles_by_package: BTreeMap::new(),
         }],
         Vec::new(),
-        ReportOptions {
-            findings: FindingsShown::default(),
-            budgets: &budgets,
-            metric_plugins: &[],
-            boundaries: configuration.boundaries.as_ref(),
-            dependencies: &dependencies,
-            dependency_hygiene: None,
-            dependency_hygiene_by_language: None,
-            duplication: DuplicationConfig::default(),
-            orphan_files: None,
-            orphan_files_by_language: None,
-            ownership: OwnershipOptions::default(),
-            coverage_reports_named: false,
-            unmatched_coverage_paths: &[],
-            baseline: None,
-        },
-        ReportExtras::default(),
+        ReportOptions::new(FindingsShown::default(), &budgets)
+            .with_boundaries(configuration.boundaries.as_ref())
+            .with_dependencies(&dependencies),
     )
     .expect("report with external boundary finding");
     let report_json: Value =
@@ -400,7 +378,7 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
     let plugin = VersionedExternalMetricPlugin;
     let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
     let budgets = Budgets::default();
-    let report = Report::summarize_with_metrics(
+    let report = Report::summarize_with_options(
         vec![MeasuredLanguage::new(
             "typescript-javascript",
             model,
@@ -408,9 +386,7 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
             true,
         )],
         Vec::new(),
-        FindingsShown::default(),
-        &budgets,
-        &metric_plugins,
+        ReportOptions::new(FindingsShown::default(), &budgets).with_metric_plugins(&metric_plugins),
     )
     .expect("report with external metric plugin");
 

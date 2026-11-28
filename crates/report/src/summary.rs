@@ -10,7 +10,8 @@ use codeint_metrics::{
     NearCloneConfig, OrphanFiles, TestGap, Verbosity,
 };
 use codeint_model::{
-    CodeModel, Metric, MetricPlugin, MetricPluginError, Package, RepoPath, SourceSet, SourceSets,
+    CodeModel, Metric, MetricPlugin, MetricPluginError, Package, RepoPath, SourceSet,
+    SourceSetModel, SourceSets,
 };
 
 use crate::baseline::BaselineScope;
@@ -114,10 +115,10 @@ impl<'a> SectionOptions<'a> {
 
 #[derive(Clone, Copy)]
 pub(crate) struct SectionModels<'a> {
-    pub(crate) model: &'a CodeModel,
-    pub(crate) import_model: Option<&'a CodeModel>,
-    pub(crate) coverage_model: Option<&'a CodeModel>,
-    pub(crate) hazards_model: Option<&'a CodeModel>,
+    pub(crate) model: &'a SourceSetModel,
+    pub(crate) import_model: Option<&'a SourceSetModel>,
+    pub(crate) coverage_model: Option<&'a SourceSetModel>,
+    pub(crate) hazards_model: Option<&'a SourceSetModel>,
 }
 
 pub(crate) struct MeasuredSectionModels {
@@ -441,7 +442,10 @@ impl SourceSetSections {
     }
 }
 
-fn select_non_empty(source_sets: Option<&SourceSets>, source_set: SourceSet) -> Option<&CodeModel> {
+fn select_non_empty(
+    source_sets: Option<&SourceSets>,
+    source_set: SourceSet,
+) -> Option<&SourceSetModel> {
     source_sets
         .map(|sets| sets.get(source_set))
         .filter(|model| !model.files.is_empty())
@@ -449,9 +453,9 @@ fn select_non_empty(source_sets: Option<&SourceSets>, source_set: SourceSet) -> 
 
 fn select_coverage_model<'a>(
     source_set: SourceSet,
-    model: &'a CodeModel,
+    model: &'a SourceSetModel,
     coverage_source_sets: Option<&'a SourceSets>,
-) -> Option<&'a CodeModel> {
+) -> Option<&'a SourceSetModel> {
     if source_set != SourceSet::Production {
         return None;
     }
@@ -507,23 +511,31 @@ impl SourceSetSection {
             .as_ref()
             .map(|evaluated| HazardsSection::new(evaluated, view));
         let mut external_metrics = BTreeMap::new();
+        let external_model = (!options.metric_plugins.is_empty()).then(|| model.to_code_model());
         for plugin in options.metric_plugins {
-            let result = plugin.measure(model)?;
-            external_metrics.insert(
-                plugin.key().to_owned(),
-                ExternalMetricSection {
-                    name: plugin.name().to_owned(),
-                    description: plugin.description().to_owned(),
-                    header: MetricHeader::new(result.ratio, ranges, plugin.key(), plugin.version()),
-                    numerator: Decimal::rounded(result.numerator),
-                    denominator: Decimal::rounded(result.denominator),
-                    findings: view.map_baselined(plugin.key(), &result.findings),
-                },
-            );
+            if let Some(plugin_model) = external_model.as_ref() {
+                let result = plugin.measure(plugin_model)?;
+                external_metrics.insert(
+                    plugin.key().to_owned(),
+                    ExternalMetricSection {
+                        name: plugin.name().to_owned(),
+                        description: plugin.description().to_owned(),
+                        header: MetricHeader::new(
+                            result.ratio,
+                            ranges,
+                            plugin.key(),
+                            plugin.version(),
+                        ),
+                        numerator: Decimal::rounded(result.numerator),
+                        denominator: Decimal::rounded(result.denominator),
+                        findings: view.map_baselined(plugin.key(), &result.findings),
+                    },
+                );
+            }
         }
         let section = SourceSetSection {
             files: model.files.len(),
-            source_lines: source_lines(model),
+            source_lines: source_lines(&model.files),
             erosion: MetricSection {
                 header: MetricHeader::new(
                     measured.erosion.ratio(),
@@ -613,9 +625,8 @@ impl SourceSetSection {
     }
 }
 
-fn source_lines(model: &CodeModel) -> u64 {
-    model
-        .files
+fn source_lines(files: &[codeint_model::SourceFile]) -> u64 {
+    files
         .iter()
         .map(|file| u64::from(file.model.source_lines))
         .sum()
@@ -733,7 +744,7 @@ impl MeasuredSection {
         precomputed_duplication: Option<BTreeMap<SourceSet, Duplication>>,
     ) -> Result<(MeasuredSection, BTreeMap<SourceSet, Duplication>), MetricPluginError> {
         let files = models.model.files.len();
-        let lines = source_lines(&models.model);
+        let lines = source_lines(&models.model.files);
         let view = options.findings_view(None);
         let dependencies = options
             .has_imports
