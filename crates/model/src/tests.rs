@@ -634,3 +634,28 @@ fn validate_framework_profile_result_rejects_unlisted_profiles_unknown_paths_and
         ))
     ));
 }
+
+#[test]
+fn repo_path_as_ref_and_find_manifests_accept_borrowed_repo_paths() {
+    let paths = [
+        path("package.json"),
+        path("packages/app/package.json"),
+        path("packages/app/src/index.ts"),
+    ];
+    assert_eq!(paths[0].as_ref(), "package.json");
+    assert_eq!(
+        crate::scan::find_manifests(&paths, "package.json"),
+        vec![
+            "package.json".to_owned(),
+            "packages/app/package.json".to_owned()
+        ]
+    );
+}
+
+#[test]
+fn validate_workspace_packages_converts_valid_roots_and_rejects_invalid_paths() {
+    let valid = crate::validate_workspace_packages(vec!["packages/app".to_owned()])
+        .expect("valid workspace package");
+    assert_eq!(valid, vec![path("packages/app")]);
+    assert!(crate::validate_workspace_packages(vec!["../escape".to_owned()]).is_err());
+}

@@ -23,11 +23,12 @@ const TYPESCRIPT_SOURCES_OF_JAVASCRIPT_OUTPUT: [(&str, &[&str]); 4] = [
 
 const CONDITIONS: [&str; 6] = ["types", "bun", "import", "require", "node", "default"];
 
-pub(crate) fn manifest_paths(repository_paths: &[String]) -> Vec<String> {
+pub(crate) fn manifest_paths<P: AsRef<str>>(repository_paths: &[P]) -> Vec<String> {
     repository_paths
         .iter()
+        .map(AsRef::as_ref)
         .filter(|path| *path == PNPM_WORKSPACE_MANIFEST || is_manifest(file_name(path)))
-        .cloned()
+        .map(str::to_owned)
         .collect()
 }
 
@@ -48,8 +49,8 @@ pub(crate) struct ProjectResolver {
 }
 
 impl ProjectResolver {
-    pub(crate) fn new(
-        repository_paths: &[String],
+    pub(crate) fn new<P: AsRef<str>>(
+        repository_paths: &[P],
         manifests: Vec<Manifest>,
         active_profiles: &[String],
     ) -> ProjectResolver {

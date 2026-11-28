@@ -1,11 +1,15 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_model::RepoPath;
 use gix::ObjectId;
-use gix::objs::tree::EntryMode;
+use gix::objs::tree::{EntryMode, EntryRef};
 
 use crate::history::{SECONDS_PER_DAY, WalkDecision};
 use crate::{CommitId, CommitRange, GitError, Repository};
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChurnRange {
@@ -228,6 +232,29 @@ struct TreeDiffer<'a> {
     touched: &'a mut BTreeSet<RepoPath>,
 }
 
+struct TreeCursor<'a, I> {
+    iter: I,
+    next: Option<(EntryRef<'a>, &'a str)>,
+}
+
+impl<'a, I> TreeCursor<'a, I> {
+    fn new<'repo>(commit: CommitId, mut iter: I) -> Result<Self, GitError>
+    where
+        I: Iterator<Item = Result<gix::object::tree::EntryRef<'repo, 'a>, gix::Error>>,
+    {
+        let next = next_utf8_entry(commit, &mut iter)?;
+        Ok(Self { iter, next })
+    }
+
+    fn advance<'repo>(&mut self, commit: CommitId) -> Result<(), GitError>
+    where
+        I: Iterator<Item = Result<gix::object::tree::EntryRef<'repo, 'a>, gix::Error>>,
+    {
+        self.next = next_utf8_entry(commit, &mut self.iter)?;
+        Ok(())
+    }
+}
+
 impl TreeDiffer<'_> {
     fn trees(
         &mut self,
@@ -238,44 +265,97 @@ impl TreeDiffer<'_> {
         if old_tree.id == new_tree.id {
             return Ok(());
         }
-        let old_entries = tree_entries(self.commit, old_tree)?;
-        let new_entries = tree_entries(self.commit, new_tree)?;
-        self.visit_present(prefix, &old_entries, &new_entries)?;
-        self.visit_removed(prefix, &old_entries, &new_entries)
-    }
-
-    fn visit_present(
-        &mut self,
-        prefix: &str,
-        old_entries: &HashMap<String, (EntryMode, ObjectId)>,
-        new_entries: &HashMap<String, (EntryMode, ObjectId)>,
-    ) -> Result<(), GitError> {
-        for (name, &(new_mode, new_oid)) in new_entries {
-            let path = join_prefix(prefix, name);
-            match old_entries.get(name) {
-                None => self.record_entry(&path, new_mode, new_oid)?,
-                Some(&(old_mode, old_oid)) if old_oid == new_oid && old_mode == new_mode => {}
-                Some(&(old_mode, old_oid)) => {
-                    self.visit_changed(&path, (old_mode, old_oid), (new_mode, new_oid))?;
-                }
-            }
-        }
+        let mut old_cursor = TreeCursor::new(self.commit, old_tree.iter())?;
+        let mut new_cursor = TreeCursor::new(self.commit, new_tree.iter())?;
+        while self.step_trees(prefix, &mut old_cursor, &mut new_cursor)? {}
         Ok(())
     }
 
-    fn visit_removed(
+    fn step_trees<'repo, 'a, I>(
         &mut self,
         prefix: &str,
-        old_entries: &HashMap<String, (EntryMode, ObjectId)>,
-        new_entries: &HashMap<String, (EntryMode, ObjectId)>,
-    ) -> Result<(), GitError> {
-        for (name, &(old_mode, old_oid)) in old_entries {
-            if !new_entries.contains_key(name) {
-                let path = join_prefix(prefix, name);
-                self.record_entry(&path, old_mode, old_oid)?;
+        old_cursor: &mut TreeCursor<'a, I>,
+        new_cursor: &mut TreeCursor<'a, I>,
+    ) -> Result<bool, GitError>
+    where
+        I: Iterator<Item = Result<gix::object::tree::EntryRef<'repo, 'a>, gix::Error>>,
+    {
+        match (old_cursor.next.take(), new_cursor.next.take()) {
+            (Some(old), Some(new)) => {
+                self.diff_pair(prefix, old, new, old_cursor, new_cursor)?;
+                Ok(true)
+            }
+            (Some((old, name)), None) => {
+                self.record_and_advance(prefix, old, name, old_cursor)?;
+                Ok(true)
+            }
+            (None, Some((new, name))) => {
+                self.record_and_advance(prefix, new, name, new_cursor)?;
+                Ok(true)
+            }
+            (None, None) => Ok(false),
+        }
+    }
+
+    fn diff_pair<'repo, 'a, I>(
+        &mut self,
+        prefix: &str,
+        old: (EntryRef<'a>, &'a str),
+        new: (EntryRef<'a>, &'a str),
+        old_cursor: &mut TreeCursor<'a, I>,
+        new_cursor: &mut TreeCursor<'a, I>,
+    ) -> Result<(), GitError>
+    where
+        I: Iterator<Item = Result<gix::object::tree::EntryRef<'repo, 'a>, gix::Error>>,
+    {
+        match old.0.cmp(&new.0) {
+            Ordering::Less => {
+                new_cursor.next = Some(new);
+                self.record_and_advance(prefix, old.0, old.1, old_cursor)
+            }
+            Ordering::Greater => {
+                old_cursor.next = Some(old);
+                self.record_and_advance(prefix, new.0, new.1, new_cursor)
+            }
+            Ordering::Equal => {
+                self.diff_matching_entries(prefix, old.0, new.0, new.1)?;
+                old_cursor.advance(self.commit)?;
+                new_cursor.advance(self.commit)
             }
         }
-        Ok(())
+    }
+
+    fn diff_matching_entries(
+        &mut self,
+        prefix: &str,
+        old: EntryRef<'_>,
+        new: EntryRef<'_>,
+        name: &str,
+    ) -> Result<(), GitError> {
+        if old.oid == new.oid && old.mode == new.mode {
+            return Ok(());
+        }
+        let path = join_prefix(prefix, name);
+        self.visit_changed(
+            &path,
+            (old.mode, old.oid.to_owned()),
+            (new.mode, new.oid.to_owned()),
+        )
+    }
+
+    fn record_and_advance<'repo, 'a, I>(
+        &mut self,
+        prefix: &str,
+        entry: EntryRef<'a>,
+        name: &str,
+        cursor: &mut TreeCursor<'a, I>,
+    ) -> Result<(), GitError>
+    where
+        I: Iterator<Item = Result<gix::object::tree::EntryRef<'repo, 'a>, gix::Error>>,
+    {
+        let path = join_prefix(prefix, name);
+        self.record_entry(&path, entry.mode, entry.oid.to_owned())?;
+        cursor.advance(self.commit)
     }
 
     fn visit_changed(
@@ -306,9 +386,10 @@ impl TreeDiffer<'_> {
     }
 
     fn collect_blobs(&mut self, prefix: &str, tree: &gix::Tree<'_>) -> Result<(), GitError> {
-        for (name, (mode, oid)) in tree_entries(self.commit, tree)? {
-            let path = join_prefix(prefix, &name);
-            self.record_entry(&path, mode, oid)?;
+        let mut iter = tree.iter();
+        while let Some((entry, name)) = next_utf8_entry(self.commit, &mut iter)? {
+            let path = join_prefix(prefix, name);
+            self.record_entry(&path, entry.mode, entry.oid.to_owned())?;
         }
         Ok(())
     }
@@ -324,22 +405,17 @@ fn find_tree(
         .map_err(|source| GitError::CommitTree { commit, source })
 }
 
-fn tree_entries(
+fn next_utf8_entry<'repo, 'a>(
     commit: CommitId,
-    tree: &gix::Tree<'_>,
-) -> Result<HashMap<String, (EntryMode, ObjectId)>, GitError> {
-    let mut map = HashMap::new();
-    for entry in tree.iter() {
-        let entry = entry.map_err(|source| GitError::CommitTree { commit, source })?;
-        let Ok(name) = std::str::from_utf8(entry.inner.filename) else {
-            continue;
-        };
-        map.insert(
-            name.to_owned(),
-            (entry.inner.mode, entry.inner.oid.to_owned()),
-        );
+    iter: &mut impl Iterator<Item = Result<gix::object::tree::EntryRef<'repo, 'a>, gix::Error>>,
+) -> Result<Option<(EntryRef<'a>, &'a str)>, GitError> {
+    for item in iter {
+        let entry = item.map_err(|source| GitError::CommitTree { commit, source })?;
+        if let Ok(name) = std::str::from_utf8(entry.inner.filename) {
+            return Ok(Some((entry.inner, name)));
+        }
     }
-    Ok(map)
+    Ok(None)
 }
 
 fn join_prefix(prefix: &str, name: &str) -> String {

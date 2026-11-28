@@ -590,3 +590,128 @@ fn multi_file_resolved_imports_mark_all_targets_and_transitive_folders_reachable
         expected
     );
 }
+
+fn tagged_files<'a>(prod: &[&'a str], tests: &[&'a str]) -> Vec<(&'a str, SourceSet)> {
+    prod.iter()
+        .map(|&path| (path, SourceSet::Production))
+        .chain(tests.iter().map(|&path| (path, SourceSet::Test)))
+        .collect()
+}
+
+#[test]
+fn linear_test_only_traversal_handles_cycles_diamonds_direct_precedence_and_deep_chains() {
+    let files = tagged_files(
+        &[
+            "src/entry.ts",
+            "src/direct_and_upstream.ts",
+            "src/direct_and_downstream.ts",
+            "src/leaf_after_both.ts",
+            "src/cycle_a.ts",
+            "src/cycle_b.ts",
+            "src/cycle_tail.ts",
+        ],
+        &["tests/t1.test.ts", "tests/t2.test.ts", "tests/t3.test.ts"],
+    );
+    let model = build_model(
+        &files,
+        &[
+            ("tests/t1.test.ts", "src/direct_and_upstream.ts"),
+            ("src/direct_and_upstream.ts", "src/direct_and_downstream.ts"),
+            ("tests/t2.test.ts", "src/direct_and_downstream.ts"),
+            ("src/direct_and_downstream.ts", "src/leaf_after_both.ts"),
+            ("tests/t3.test.ts", "src/cycle_a.ts"),
+            ("src/cycle_a.ts", "src/cycle_b.ts"),
+            ("src/cycle_b.ts", "src/cycle_a.ts"),
+            ("src/cycle_b.ts", "src/cycle_tail.ts"),
+        ],
+        &[],
+    );
+
+    let measured = OrphanFiles::measure(&model, &[repo_path("src/entry.ts")])
+        .expect("entry point activates orphan-file detection");
+
+    let mut summary = Vec::new();
+    for finding in measured.findings() {
+        let importers: Vec<&str> = finding
+            .test_importers
+            .iter()
+            .map(RepoPath::as_str)
+            .collect();
+        summary.push((finding.path.as_str(), finding.kind, importers));
+    }
+    assert_eq!(
+        summary,
+        vec![
+            (
+                "src/cycle_a.ts",
+                OrphanFileKind::TestOnly,
+                vec!["tests/t3.test.ts"],
+            ),
+            (
+                "src/cycle_b.ts",
+                OrphanFileKind::TestOnly,
+                vec!["tests/t3.test.ts"],
+            ),
+            (
+                "src/cycle_tail.ts",
+                OrphanFileKind::TestOnly,
+                vec!["tests/t3.test.ts"],
+            ),
+            (
+                "src/direct_and_downstream.ts",
+                OrphanFileKind::TestOnly,
+                vec!["tests/t2.test.ts"],
+            ),
+            (
+                "src/direct_and_upstream.ts",
+                OrphanFileKind::TestOnly,
+                vec!["tests/t1.test.ts"],
+            ),
+            (
+                "src/leaf_after_both.ts",
+                OrphanFileKind::TestOnly,
+                vec!["tests/t1.test.ts", "tests/t2.test.ts"],
+            ),
+        ]
+    );
+}
+
+#[test]
+fn linear_test_only_traversal_handles_deep_chain_without_stack_overflow() {
+    let depth = 1_500usize;
+    let mut files = vec![
+        ("src/entry.ts".to_owned(), SourceSet::Production),
+        ("tests/root.test.ts".to_owned(), SourceSet::Test),
+    ];
+    for idx in 0..depth {
+        files.push((format!("src/node_{idx:04}.ts"), SourceSet::Production));
+    }
+    let mut edges = vec![(
+        "tests/root.test.ts".to_owned(),
+        "src/node_0000.ts".to_owned(),
+    )];
+    for idx in 0..(depth - 1) {
+        edges.push((
+            format!("src/node_{idx:04}.ts"),
+            format!("src/node_{:04}.ts", idx + 1),
+        ));
+    }
+    let file_refs: Vec<(&str, SourceSet)> = files
+        .iter()
+        .map(|(name, set)| (name.as_str(), *set))
+        .collect();
+    let edge_refs: Vec<(&str, &str)> = edges
+        .iter()
+        .map(|(from, to)| (from.as_str(), to.as_str()))
+        .collect();
+    let model = build_model(&file_refs, &edge_refs, &[]);
+
+    let measured = OrphanFiles::measure(&model, &[repo_path("src/entry.ts")])
+        .expect("entry point activates orphan-file detection");
+
+    assert_eq!(measured.test_only_count(), depth);
+    assert_eq!(measured.unreferenced_count(), 0);
+    let last = measured.findings().last().expect("deepest orphan");
+    assert_eq!(last.path.as_str(), format!("src/node_{:04}.ts", depth - 1));
+    assert_eq!(last.test_importers, vec![repo_path("tests/root.test.ts")]);
+}

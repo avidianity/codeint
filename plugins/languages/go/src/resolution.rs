@@ -10,12 +10,15 @@ struct RepoModule {
     go_mod: GoMod,
 }
 
-pub(crate) fn find_go_mods(repository_paths: &[String]) -> Vec<String> {
-    repository_paths
-        .iter()
-        .filter(|path| is_go_mod_path(path.as_str()))
-        .cloned()
-        .collect()
+pub(crate) fn find_go_mods<P: AsRef<str>>(repository_paths: &[P]) -> Vec<String> {
+    let mut paths = Vec::new();
+    for path in repository_paths {
+        let path = path.as_ref();
+        if is_go_mod_path(path) {
+            paths.push(path.to_owned());
+        }
+    }
+    paths
 }
 
 pub(crate) fn strip_module_prefix<'a>(spec: &'a str, mod_path: &str) -> Option<&'a str> {
@@ -26,10 +29,11 @@ pub(crate) fn strip_module_prefix<'a>(spec: &'a str, mod_path: &str) -> Option<&
         .and_then(|rest| rest.strip_prefix('/'))
 }
 
-pub(crate) fn resolve_all(
-    repository_paths: &[String],
+pub(crate) fn resolve_all<P: AsRef<str>>(
+    repository_paths: &[P],
     manifests: &[Manifest],
     requests: &[ImportRequest],
+    _active_profiles: &[String],
 ) -> Vec<Resolution> {
     let pkg_files = index_package_files(repository_paths);
     let repo_dirs = index_repo_dirs(repository_paths);
@@ -40,14 +44,15 @@ pub(crate) fn resolve_all(
         .collect()
 }
 
-fn index_package_files(repository_paths: &[String]) -> HashMap<String, Vec<String>> {
+fn index_package_files<P: AsRef<str>>(repository_paths: &[P]) -> HashMap<String, Vec<String>> {
     let mut by_dir: HashMap<String, Vec<String>> = HashMap::new();
     for path in repository_paths {
+        let path = path.as_ref();
         if !path.ends_with(".go") || path.ends_with("_test.go") {
             continue;
         }
         let dir = path.rsplit_once('/').map_or("", |(d, _)| d).to_owned();
-        by_dir.entry(dir).or_default().push(path.clone());
+        by_dir.entry(dir).or_default().push(path.to_owned());
     }
     for files in by_dir.values_mut() {
         files.sort();
@@ -56,11 +61,11 @@ fn index_package_files(repository_paths: &[String]) -> HashMap<String, Vec<Strin
     by_dir
 }
 
-fn index_repo_dirs(repository_paths: &[String]) -> HashSet<String> {
+fn index_repo_dirs<P: AsRef<str>>(repository_paths: &[P]) -> HashSet<String> {
     let mut dirs = HashSet::new();
     dirs.insert(String::new());
     for path in repository_paths {
-        let mut cursor = path.as_str();
+        let mut cursor = path.as_ref();
         while let Some((parent, _)) = cursor.rsplit_once('/') {
             dirs.insert(parent.to_owned());
             cursor = parent;

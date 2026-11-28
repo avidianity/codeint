@@ -1,3 +1,4 @@
+use codeint_model::RepoPath;
 use codeint_model::language::Manifest;
 
 use super::{
@@ -80,9 +81,10 @@ fn is_staticfiles(rel: &str) -> bool {
     rel.split('/').any(|segment| segment == "staticfiles")
 }
 
-fn fallback_roots(repository_paths: &[String], _manifests: &[Manifest]) -> Vec<String> {
+fn fallback_roots(repository_paths: &[RepoPath], _manifests: &[Manifest]) -> Vec<String> {
     let mut roots = Vec::new();
     for path in repository_paths {
+        let path = path.as_str();
         if has_ignored_dir(path) {
             continue;
         }

@@ -13,10 +13,7 @@ mod workspaces;
 
 use std::collections::BTreeSet;
 
-use codeint_model::language::{
-    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    Token, TokenKind, WorkspaceError,
-};
+use codeint_model::language::{FileModel, LowerError, Token, TokenKind};
 use codeint_model::scan::CoreReferenceRanges;
 use codeint_model::token_text_hash;
 
@@ -25,66 +22,6 @@ use crate::lexer::{GoKind, GoToken};
 pub use rules::flagged_line_rules;
 
 pub struct Go;
-
-impl Guest for Go {
-    fn extensions() -> Vec<String> {
-        vec!["go".to_owned()]
-    }
-
-    fn has_imports() -> bool {
-        true
-    }
-
-    fn has_hazard_rules() -> bool {
-        false
-    }
-
-    fn hazard_rules() -> Vec<String> {
-        Vec::new()
-    }
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        CoreReferenceRanges {
-            erosion: (0.304, 0.746),
-            cognitive_complexity: (0.306, 0.671),
-            verbosity: (0.000, 0.004),
-            duplication: (0.034, 0.243),
-            import_cycles: Some((0.000, 0.000)),
-        }
-        .build("codeint stratified panel of 100 Go repositories, ADR 0035, codeint 0.8.0")
-    }
-
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
-        lower_file(&path, &text)
-    }
-
-    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
-        resolution::find_go_mods(&repository_paths)
-    }
-
-    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        workspaces::discover(&manifests)
-    }
-
-    fn resolve_imports(
-        repository_paths: Vec<String>,
-        manifests: Vec<Manifest>,
-        requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
-    ) -> Vec<Resolution> {
-        resolution::resolve_all(&repository_paths, &manifests, &requests)
-    }
-
-    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        dependencies::extract_declared(&manifests)
-    }
-
-    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
-        entry_points::discover(&repository_paths, &manifests)
-    }
-
-    codeint_model::empty_framework_profile_guest_methods!();
-}
 
 fn lower_file(path: &str, text: &str) -> Result<FileModel, LowerError> {
     if !path.ends_with(".go") {
@@ -136,3 +73,35 @@ fn build_duplication_tokens(raw: &[GoToken], import_indices: &BTreeSet<usize>) -
         })
         .collect()
 }
+
+fn lower_go(
+    _plugin: &Go,
+    path: &codeint_model::RepoPath,
+    text: &str,
+) -> Result<FileModel, codeint_model::LowerError> {
+    lower_file(path.as_str(), text).map_err(codeint_model::LowerError::from)
+}
+
+const GO_RANGES: CoreReferenceRanges = CoreReferenceRanges::new(
+    (0.304, 0.746),
+    (0.306, 0.671),
+    (0.000, 0.004),
+    (0.034, 0.243),
+    Some((0.000, 0.000)),
+);
+
+codeint_model::impl_builtin_language_plugin!(
+    Go,
+    ["go"],
+    lower_go,
+    GO_RANGES.build("codeint stratified panel of 100 Go repositories, ADR 0035, codeint 0.8.0"),
+    imports(
+        resolution::find_go_mods,
+        workspaces::discover,
+        resolution::resolve_all,
+        dependencies::extract_declared,
+        entry_points::discover,
+    ),
+    frameworks(none),
+    hazards(none),
+);

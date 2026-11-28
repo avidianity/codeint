@@ -8,6 +8,8 @@ use codeint_model::{InvalidRepoPath, RepoPath};
 use gix::dir::entry::{Kind, Status};
 use gix::dir::walk::EmissionMode;
 use gix::dir::walk::delegate::Collect;
+use gix::index::entry::{Flags, Mode, Stage, Stat, stat::Options as StatOptions};
+use gix::index::fs::Metadata as IndexMetadata;
 
 mod churn;
 mod history;
@@ -115,6 +117,8 @@ pub struct Snapshot {
 enum Contents {
     WorkingTree {
         root: PathBuf,
+        index: gix::worktree::Index,
+        stat_options: StatOptions,
     },
     Commit {
         repository: Box<gix::Repository>,
@@ -170,12 +174,15 @@ impl Repository {
     }
 
     pub fn working_tree(&self) -> Result<Snapshot, GitError> {
-        let Listing { files, submodules } = list_working_tree(&self.repository)?;
+        let (Listing { files, submodules }, index) = list_working_tree(&self.repository)?;
+        let stat_options = self.repository.stat_options().map_err(GitError::Walk)?;
         Ok(Snapshot {
             files,
             submodules,
             contents: Contents::WorkingTree {
                 root: self.root.clone(),
+                index,
+                stat_options,
             },
         })
     }
@@ -275,18 +282,36 @@ impl Snapshot {
         if !base.contains_file(path) {
             return Ok(true);
         }
-        if let (
-            Contents::Commit {
-                blobs: head_blobs, ..
-            },
-            Contents::Commit {
-                blobs: base_blobs, ..
-            },
-        ) = (&self.contents, &base.contents)
-        {
-            return Ok(head_blobs.get(path) != base_blobs.get(path));
+        match (&self.contents, &base.contents) {
+            (
+                Contents::Commit {
+                    blobs: head_blobs, ..
+                },
+                Contents::Commit {
+                    blobs: base_blobs, ..
+                },
+            ) => Ok(head_blobs.get(path) != base_blobs.get(path)),
+            (
+                Contents::WorkingTree {
+                    root,
+                    index,
+                    stat_options,
+                },
+                Contents::Commit {
+                    blobs: base_blobs, ..
+                },
+            ) if working_tree_matches_base_blob(
+                root,
+                index,
+                *stat_options,
+                path,
+                base_blobs.get(path),
+            ) =>
+            {
+                Ok(false)
+            }
+            _ => Ok(self.read(path)? != base.read(path)?),
         }
-        Ok(self.read(path)? != base.read(path)?)
     }
 
     fn contains_file(&self, path: &RepoPath) -> bool {
@@ -298,14 +323,14 @@ impl Snapshot {
 
     pub fn working_tree_reader(&self) -> Option<WorkingTreeReader<'_>> {
         match &self.contents {
-            Contents::WorkingTree { root } => Some(WorkingTreeReader { root }),
+            Contents::WorkingTree { root, .. } => Some(WorkingTreeReader { root }),
             Contents::Commit { .. } => None,
         }
     }
 
     pub fn read(&self, path: &RepoPath) -> Result<Vec<u8>, GitError> {
         match &self.contents {
-            Contents::WorkingTree { root } => WorkingTreeReader { root }.read(path),
+            Contents::WorkingTree { root, .. } => WorkingTreeReader { root }.read(path),
             Contents::Commit {
                 repository,
                 commit,
@@ -342,7 +367,9 @@ struct Listing {
     submodules: Vec<RepoPath>,
 }
 
-fn list_working_tree(repository: &gix::Repository) -> Result<Listing, GitError> {
+fn list_working_tree(
+    repository: &gix::Repository,
+) -> Result<(Listing, gix::worktree::Index), GitError> {
     let index = repository.index_or_empty().map_err(GitError::Walk)?;
     let options = repository
         .dirwalk_options()
@@ -375,7 +402,71 @@ fn list_working_tree(repository: &gix::Repository) -> Result<Listing, GitError> 
             listing.files.push(repo_path(entry.rela_path)?);
         }
     }
-    Ok(listing)
+    Ok((listing, index))
+}
+
+fn working_tree_matches_base_blob(
+    root: &Path,
+    index: &gix::worktree::Index,
+    stat_options: StatOptions,
+    path: &RepoPath,
+    base_blob: Option<&gix::ObjectId>,
+) -> bool {
+    let Some(&base_oid) = base_blob else {
+        return false;
+    };
+    let Some(entry) = index.entry_by_path_and_stage(path.as_str().into(), Stage::Unconflicted)
+    else {
+        return false;
+    };
+    if entry.id != base_oid || !is_trustworthy_regular_file_entry(entry) {
+        return false;
+    }
+    let racy_options = StatOptions {
+        use_nsec: false,
+        ..stat_options
+    };
+    if entry.stat.is_racy(index.timestamp(), racy_options) {
+        return false;
+    }
+    let Ok(metadata) = IndexMetadata::from_path_no_follow(&root.join(path.as_str())) else {
+        return false;
+    };
+    if !metadata.is_file()
+        || u32::try_from(metadata.len()).ok() != Some(entry.stat.size)
+        || mode_changed(entry.mode, &metadata)
+    {
+        return false;
+    }
+    let Ok(fs_stat) = Stat::from_fs(&metadata) else {
+        return false;
+    };
+    entry.stat.matches(&fs_stat, stat_options)
+}
+
+fn is_trustworthy_regular_file_entry(entry: &gix::index::Entry) -> bool {
+    let untrusted_flags = Flags::INTENT_TO_ADD
+        | Flags::SKIP_WORKTREE
+        | Flags::ASSUME_VALID
+        | Flags::UPDATE
+        | Flags::REMOVE
+        | Flags::CONFLICTED
+        | Flags::WORKTREE_REMOVE;
+    matches!(entry.mode, Mode::FILE | Mode::FILE_EXECUTABLE)
+        && entry.stat.mtime.secs != 0
+        && !entry.flags.intersects(untrusted_flags)
+}
+
+fn mode_changed(mode: Mode, metadata: &IndexMetadata) -> bool {
+    #[cfg(unix)]
+    {
+        (mode == Mode::FILE_EXECUTABLE) != metadata.is_executable()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (mode, metadata);
+        false
+    }
 }
 
 fn list_commit(

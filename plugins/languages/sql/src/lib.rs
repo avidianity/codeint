@@ -12,13 +12,9 @@ mod tokenize;
 use std::collections::BTreeSet;
 use std::fmt;
 
-use codeint_model::language::{
-    DeclaredDep, FileModel, Function, ImportRequest, Manifest, Resolution,
-};
-use codeint_model::{
-    LanguagePlugin, LanguagePluginError, LowerError, ReferenceRanges, RepoPath, Token,
-    WorkspaceError,
-};
+use codeint_model::language::{FileModel, Function};
+use codeint_model::scan::CoreReferenceRanges;
+use codeint_model::{LowerError, RepoPath, Token};
 
 pub use flagged::flagged_line_rules;
 pub use hazards::{SQL_HAZARD_RULES, hazard_line_rules};
@@ -137,86 +133,29 @@ impl Sql {
     }
 }
 
-impl LanguagePlugin for Sql {
-    fn extensions(&self) -> Vec<String> {
-        vec!["sql".to_owned()]
-    }
+const SQL_RANGES: CoreReferenceRanges = CoreReferenceRanges::new(
+    (0.000, 0.918),
+    (0.000, 0.902),
+    (0.000, 0.000),
+    (0.000, 0.909),
+    None,
+);
 
-    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
-        self.lower_with_details(path, text)
-            .map(|output| output.file_model)
-    }
-
-    fn has_imports(&self) -> bool {
-        false
-    }
-
-    fn manifest_paths(
-        &self,
-        _repository_paths: &[RepoPath],
-    ) -> Result<Vec<String>, LanguagePluginError> {
-        Ok(Vec::new())
-    }
-
-    fn has_hazard_rules(&self) -> bool {
-        true
-    }
-
-    fn workspace_packages(
-        &self,
-        _manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        Ok(Vec::new())
-    }
-
-    fn hazard_rules(&self) -> Vec<String> {
-        SQL_HAZARD_RULES
-            .iter()
-            .map(|rule| (*rule).to_owned())
-            .collect()
-    }
-
-    fn resolve_imports(
-        &self,
-        _repository_paths: &[RepoPath],
-        _manifests: Vec<Manifest>,
-        _requests: Vec<ImportRequest>,
-        _active_profiles: &[String],
-    ) -> Result<Vec<Resolution>, LanguagePluginError> {
-        Ok(Vec::new())
-    }
-
-    fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError> {
-        ReferenceRanges::new(
-            codeint_model::scan::CoreReferenceRanges {
-                erosion: (0.000, 0.918),
-                cognitive_complexity: (0.000, 0.902),
-                verbosity: (0.000, 0.000),
-                duplication: (0.000, 0.909),
-                import_cycles: None,
-            }
-            .build("codeint stratified panel of 77 SQL repositories, ADR 0035, codeint 0.8.0"),
-        )
-        .map_err(LanguagePluginError::InvalidReferenceRange)
-    }
-
-    fn declared_dependencies(
-        &self,
-        _manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        Ok(Vec::new())
-    }
-
-    codeint_model::empty_framework_profile_plugin_methods!();
-
-    fn entry_points(
-        &self,
-        _repository_paths: &[RepoPath],
-        _manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
-        Ok(Vec::new())
-    }
+fn lower_sql(plugin: &Sql, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
+    plugin
+        .lower_with_details(path, text)
+        .map(|output| output.file_model)
 }
+
+codeint_model::impl_builtin_language_plugin!(
+    Sql,
+    ["sql"],
+    lower_sql,
+    SQL_RANGES.build("codeint stratified panel of 77 SQL repositories, ADR 0035, codeint 0.8.0"),
+    imports(none),
+    frameworks(none),
+    hazards(SQL_HAZARD_RULES),
+);
 
 fn collect_lines_and_tokens(
     extracted: &[statements::ExtractedStatement],

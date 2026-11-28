@@ -16,17 +16,17 @@ struct PackageHeader {
     name: Option<String>,
 }
 
-pub(crate) fn find_pubspecs(repository_paths: &[String]) -> Vec<String> {
+pub(crate) fn find_pubspecs<P: AsRef<str>>(repository_paths: &[P]) -> Vec<String> {
     find_manifests(repository_paths, PUBSPEC_MANIFEST)
 }
 
-pub(crate) fn resolve_dart_imports(
-    paths: &[String],
+pub(crate) fn resolve_dart_imports<P: AsRef<str>>(
+    paths: &[P],
     manifests: &[Manifest],
     requests: &[ImportRequest],
     profiles: &[String],
 ) -> Vec<Resolution> {
-    let files: HashSet<String> = paths.iter().cloned().collect();
+    let files: HashSet<String> = paths.iter().map(|path| path.as_ref().to_owned()).collect();
     let packages = collect_package_roots(manifests);
     requests
         .iter()

@@ -14,7 +14,7 @@ use crate::workspaces::COMPOSER_MANIFEST;
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn manifest_paths(repository_paths: &[String]) -> Vec<String> {
+pub(crate) fn manifest_paths<P: AsRef<str>>(repository_paths: &[P]) -> Vec<String> {
     find_manifests(repository_paths, COMPOSER_MANIFEST)
 }
 
@@ -39,8 +39,8 @@ pub(crate) fn resolve_batch(
     resolve_batch_with_profiles(repository_paths, manifests, requests, &[])
 }
 
-pub(crate) fn resolve_batch_with_profiles(
-    repository_paths: &[String],
+pub(crate) fn resolve_batch_with_profiles<P: AsRef<str>>(
+    repository_paths: &[P],
     manifests: &[Manifest],
     requests: &[ImportRequest],
     active_profiles: &[String],
@@ -58,8 +58,8 @@ struct PhpResolver {
 }
 
 impl PhpResolver {
-    fn new(
-        repository_paths: &[String],
+    fn new<P: AsRef<str>>(
+        repository_paths: &[P],
         manifests: &[Manifest],
         active_profiles: &[String],
     ) -> PhpResolver {
@@ -69,7 +69,10 @@ impl PhpResolver {
         }
         rules.sort_by_key(|rule| Reverse(rule.prefix.len()));
         PhpResolver {
-            files: repository_paths.iter().cloned().collect(),
+            files: repository_paths
+                .iter()
+                .map(|path| path.as_ref().to_owned())
+                .collect(),
             rules,
             declared_packages: declared_package_names(manifests),
             active_profiles: active_profiles.to_vec(),

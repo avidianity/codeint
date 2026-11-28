@@ -240,12 +240,13 @@ pub fn normalize_relative_path(base_dir: &str, rel: &str) -> Option<String> {
     Some(segments.join("/"))
 }
 
-pub fn find_manifests(repository_paths: &[String], filename: &str) -> Vec<String> {
+pub fn find_manifests<P: AsRef<str>>(repository_paths: &[P], filename: &str) -> Vec<String> {
     let nested = format!("/{filename}");
     repository_paths
         .iter()
-        .filter(|path| path.as_str() == filename || path.ends_with(&nested))
-        .cloned()
+        .map(AsRef::as_ref)
+        .filter(|path| *path == filename || path.ends_with(&nested))
+        .map(str::to_owned)
         .collect()
 }
 
@@ -332,6 +333,22 @@ pub struct CoreReferenceRanges {
 }
 
 impl CoreReferenceRanges {
+    pub const fn new(
+        erosion: (f64, f64),
+        cognitive_complexity: (f64, f64),
+        verbosity: (f64, f64),
+        duplication: (f64, f64),
+        import_cycles: Option<(f64, f64)>,
+    ) -> Self {
+        Self {
+            erosion,
+            cognitive_complexity,
+            verbosity,
+            duplication,
+            import_cycles,
+        }
+    }
+
     pub fn build(self, source: &str) -> Vec<ReferenceRange> {
         let mut ranges = build_reference_ranges(
             source,
@@ -358,6 +375,17 @@ impl CoreReferenceRanges {
         }
         ranges
     }
+}
+
+pub fn paths_with_suffix<'a, P: AsRef<str>>(
+    repository_paths: &'a [P],
+    suffix: &str,
+) -> HashSet<&'a str> {
+    repository_paths
+        .iter()
+        .map(AsRef::as_ref)
+        .filter(|path| path.ends_with(suffix))
+        .collect()
 }
 
 pub fn build_reference_ranges<const N: usize>(

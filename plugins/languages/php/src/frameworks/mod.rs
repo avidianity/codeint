@@ -106,12 +106,13 @@ pub(crate) struct ComposerPackage<'a> {
 }
 
 impl<'a> ComposerPackage<'a> {
-    fn build(root: &'a str, files: &'a [String], manifests: &[Manifest]) -> Self {
+    fn build<P: AsRef<str>>(root: &'a str, files: &'a [P], manifests: &[Manifest]) -> Self {
         let entries = files
             .iter()
             .filter_map(|full| {
+                let full = full.as_ref();
                 let rel = relative_to_root(root, full)?;
-                (!contains_vendor(rel)).then_some((full.as_str(), rel))
+                (!contains_vendor(rel)).then_some((full, rel))
             })
             .collect();
         let manifest_path = if root.is_empty() {
@@ -233,9 +234,9 @@ fn namespace_prefix_fallback(specifier: &str, mappings: &[(&str, &str)]) -> Vec<
     candidates
 }
 
-pub(crate) fn resolve_framework_profiles(
+pub(crate) fn resolve_framework_profiles<P: AsRef<str>>(
     package_root: &str,
-    files: &[String],
+    files: &[P],
     manifests: &[Manifest],
     selection: FrameworkProfileSelection,
 ) -> Result<FrameworkProfileResult, String> {

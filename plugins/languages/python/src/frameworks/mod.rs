@@ -4,6 +4,7 @@ mod flask;
 
 use std::collections::BTreeSet;
 
+use codeint_model::RepoPath;
 use codeint_model::language::{FrameworkProfileResult, FrameworkProfileSelection, Manifest};
 use toml::Value;
 
@@ -31,18 +32,18 @@ pub(crate) struct PythonProfile {
     pub(crate) detect: fn(&PythonPackage<'_>) -> bool,
     pub(crate) entry_points: fn(&PythonPackage<'_>) -> Vec<String>,
     pub(crate) generated_paths: fn(&PythonPackage<'_>) -> Vec<String>,
-    pub(crate) fallback_roots: fn(&[String], &[Manifest]) -> Vec<String>,
+    pub(crate) fallback_roots: fn(&[RepoPath], &[Manifest]) -> Vec<String>,
 }
 
 pub(crate) struct PythonPackage<'a> {
     root: &'a str,
-    files: &'a [String],
+    files: &'a [RepoPath],
     runtime_deps: BTreeSet<String>,
     pyproject: Option<Value>,
 }
 
 impl<'a> PythonPackage<'a> {
-    fn new(root: &'a str, files: &'a [String], manifests: &[Manifest]) -> Self {
+    fn new(root: &'a str, files: &'a [RepoPath], manifests: &[Manifest]) -> Self {
         let mut runtime_deps = BTreeSet::new();
         let mut pyproject = None;
         for manifest in manifests {
@@ -85,24 +86,25 @@ impl<'a> PythonPackage<'a> {
     pub(crate) fn has_any_rel(&self, targets: &[&str]) -> bool {
         self.files
             .iter()
-            .filter_map(|full| self.rel_path(full))
+            .filter_map(|full| self.rel_path(full.as_str()))
             .any(|rel| targets.contains(&rel))
     }
 
     pub(crate) fn matching_py_files(&self, predicate: impl Fn(&str) -> bool) -> Vec<String> {
         self.files
             .iter()
+            .map(RepoPath::as_str)
             .filter(|full| {
                 self.rel_path(full)
                     .is_some_and(|rel| rel.ends_with(".py") && predicate(rel))
             })
-            .cloned()
+            .map(str::to_owned)
             .collect()
     }
 
     pub(crate) fn has_non_test_py(&self, predicate: impl Fn(&str) -> bool) -> bool {
         self.files.iter().any(|full| {
-            self.rel_path(full)
+            self.rel_path(full.as_str())
                 .is_some_and(|rel| rel.ends_with(".py") && !is_test_dir_rel(rel) && predicate(rel))
         })
     }
@@ -122,8 +124,9 @@ impl<'a> PythonPackage<'a> {
         candidates.iter().find_map(|candidate| {
             self.files
                 .iter()
+                .map(RepoPath::as_str)
                 .find(|full| self.rel_path(full) == Some(candidate.as_str()))
-                .cloned()
+                .map(str::to_owned)
         })
     }
 }
@@ -170,11 +173,12 @@ pub(crate) fn empty_generated(_pkg: &PythonPackage<'_>) -> Vec<String> {
 }
 
 pub(crate) fn fallback_roots_for_filenames(
-    repository_paths: &[String],
+    repository_paths: &[RepoPath],
     file_names: &[&str],
 ) -> Vec<String> {
     repository_paths
         .iter()
+        .map(RepoPath::as_str)
         .filter(|path| !has_ignored_dir(path) && !is_test_dir_rel(path))
         .filter_map(|path| {
             let (parent, name) = split_parent_and_name(path);
@@ -191,9 +195,9 @@ pub(crate) fn known_profiles() -> Vec<String> {
 }
 
 pub(crate) fn resolve_framework_profiles(
-    package_root: String,
-    files: Vec<String>,
-    manifests: Vec<Manifest>,
+    package_root: &str,
+    files: &[RepoPath],
+    manifests: &[Manifest],
     selection: FrameworkProfileSelection,
 ) -> Result<FrameworkProfileResult, String> {
     if let FrameworkProfileSelection::Only(ref only) = selection
@@ -201,7 +205,7 @@ pub(crate) fn resolve_framework_profiles(
     {
         return Err(format!("unknown Framework profile {unknown:?}"));
     }
-    let pkg = PythonPackage::new(&package_root, &files, &manifests);
+    let pkg = PythonPackage::new(package_root, files, manifests);
     let mut active_profiles = BTreeSet::new();
     let mut entry_points = BTreeSet::new();
     let mut generated_paths = BTreeSet::new();
@@ -238,7 +242,7 @@ fn profile_matches(
 
 pub(crate) fn fallback_import_roots(
     active_profiles: &[String],
-    repository_paths: &[String],
+    repository_paths: &[RepoPath],
     manifests: &[Manifest],
 ) -> Vec<String> {
     let mut roots = Vec::new();

@@ -90,3 +90,45 @@ fn legacy_commit_measurement_missing_clone_families_fails_deserialization() {
     let decoded = serde_json::from_value::<CommitMeasurement>(encoded);
     assert!(decoded.is_err());
 }
+
+#[test]
+fn parallel_measured_report_is_byte_identical_across_repeated_runs() {
+    let mut model = CodeModel::default();
+    for idx in 0..4usize {
+        model.files.push(SourceFile {
+            path: RepoPath::new(format!("src/mod_{idx}.ts")).expect("valid path"),
+            model: FileModel {
+                source_set: SourceSet::Production,
+                source_lines: 10,
+                functions: Vec::new(),
+                tokens: Vec::new(),
+                flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
+                runtime_imports: Vec::new(),
+                program_start: false,
+            },
+        });
+    }
+    let build_json = || {
+        let report = Report::summarize_with_config(
+            vec![MeasuredLanguage::new(
+                "typescript-javascript",
+                model.clone(),
+                ReferenceRanges::default(),
+                true,
+            )],
+            Vec::new(),
+            FindingsShown::default(),
+            &Budgets::default(),
+            &[],
+            None,
+            DuplicationConfig::default(),
+        )
+        .expect("summarize");
+        report.render(ReportFormat::Json).expect("json")
+    };
+    let expected = build_json();
+    for _ in 0..8 {
+        assert_eq!(build_json(), expected);
+    }
+}

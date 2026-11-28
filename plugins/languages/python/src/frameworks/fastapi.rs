@@ -1,3 +1,4 @@
+use codeint_model::RepoPath;
 use codeint_model::language::Manifest;
 
 use super::{
@@ -55,6 +56,6 @@ fn entry_points(pkg: &PythonPackage<'_>) -> Vec<String> {
     found
 }
 
-fn fallback_roots(repository_paths: &[String], _manifests: &[Manifest]) -> Vec<String> {
+fn fallback_roots(repository_paths: &[RepoPath], _manifests: &[Manifest]) -> Vec<String> {
     fallback_roots_for_filenames(repository_paths, &["main.py", "app.py", "api.py"])
 }

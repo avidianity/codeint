@@ -8,10 +8,7 @@ mod hazards;
 mod lexer;
 mod source_set;
 
-use codeint_model::language::{
-    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    Token, TokenKind, WorkspaceError,
-};
+use codeint_model::language::{FileModel, LowerError, Token, TokenKind};
 use codeint_model::scan::CoreReferenceRanges;
 use codeint_model::{path_file_name, token_text_hash};
 
@@ -30,68 +27,32 @@ const SHELL_KEYWORDS_AND_BUILTINS: &[&str] = &[
 
 pub struct Shell;
 
-impl Guest for Shell {
-    fn extensions() -> Vec<String> {
-        vec!["sh".to_owned(), "bash".to_owned(), "zsh".to_owned()]
-    }
+const SHELL_RANGES: CoreReferenceRanges = CoreReferenceRanges::new(
+    (0.364, 0.930),
+    (0.218, 0.828),
+    (0.000, 0.031),
+    (0.003, 0.713),
+    None,
+);
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
-        lower_file(&path, &text)
-    }
-
-    fn has_imports() -> bool {
-        false
-    }
-
-    fn manifest_paths(_: Vec<String>) -> Vec<String> {
-        Vec::default()
-    }
-
-    fn has_hazard_rules() -> bool {
-        true
-    }
-
-    fn workspace_packages(_: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(Vec::default())
-    }
-
-    fn hazard_rules() -> Vec<String> {
-        SHELL_HAZARD_RULES
-            .iter()
-            .map(|rule| (*rule).to_owned())
-            .collect()
-    }
-
-    fn resolve_imports(
-        _: Vec<String>,
-        _: Vec<Manifest>,
-        _: Vec<ImportRequest>,
-        _: Vec<String>,
-    ) -> Vec<Resolution> {
-        Vec::default()
-    }
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        CoreReferenceRanges {
-            erosion: (0.364, 0.930),
-            cognitive_complexity: (0.218, 0.828),
-            verbosity: (0.000, 0.031),
-            duplication: (0.003, 0.713),
-            import_cycles: None,
-        }
-        .build("codeint stratified panel of 100 Shell repositories, ADR 0035, codeint 0.8.0")
-    }
-
-    fn declared_dependencies(_: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::default()
-    }
-
-    fn entry_points(_: Vec<String>, _: Vec<Manifest>) -> Vec<String> {
-        Vec::default()
-    }
-
-    codeint_model::empty_framework_profile_guest_methods!();
+fn lower_shell(
+    _plugin: &Shell,
+    path: &codeint_model::RepoPath,
+    text: &str,
+) -> Result<FileModel, codeint_model::LowerError> {
+    lower_file(path.as_str(), text).map_err(codeint_model::LowerError::from)
 }
+
+codeint_model::impl_builtin_language_plugin!(
+    Shell,
+    ["sh", "bash", "zsh"],
+    lower_shell,
+    SHELL_RANGES
+        .build("codeint stratified panel of 100 Shell repositories, ADR 0035, codeint 0.8.0"),
+    imports(none),
+    frameworks(none),
+    hazards(SHELL_HAZARD_RULES),
+);
 
 fn lower_file(path: &str, text: &str) -> Result<FileModel, LowerError> {
     if !is_supported_path(path) {

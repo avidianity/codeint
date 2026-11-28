@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use codeint_model::language::Manifest;
-use codeint_model::scan::normalize_relative_path;
+use codeint_model::scan::{normalize_relative_path, paths_with_suffix};
 use serde::Deserialize;
 
 use crate::workspaces::PUBSPEC_MANIFEST;
@@ -11,12 +11,11 @@ struct PubspecEntryPoints {
     executables: Option<BTreeMap<String, Option<String>>>,
 }
 
-pub(crate) fn discover(repository_paths: &[String], manifests: &[Manifest]) -> Vec<String> {
-    let dart_files: HashSet<&str> = repository_paths
-        .iter()
-        .map(String::as_str)
-        .filter(|path| path.ends_with(".dart"))
-        .collect();
+pub(crate) fn discover<P: AsRef<str>>(
+    repository_paths: &[P],
+    manifests: &[Manifest],
+) -> Vec<String> {
+    let dart_files = paths_with_suffix(repository_paths, ".dart");
     let suffix = format!("/{PUBSPEC_MANIFEST}");
     let mut results = BTreeSet::new();
     for manifest in manifests {
@@ -36,10 +35,10 @@ pub(crate) fn discover(repository_paths: &[String], manifests: &[Manifest]) -> V
 }
 
 impl PubspecEntryPoints {
-    fn collect_entries(
+    fn collect_entries<P: AsRef<str>>(
         &self,
         base_dir: &str,
-        repository_paths: &[String],
+        repository_paths: &[P],
         dart_files: &HashSet<&str>,
         out: &mut BTreeSet<String>,
     ) {
@@ -52,9 +51,9 @@ impl PubspecEntryPoints {
     }
 }
 
-fn collect_public_lib_files(
+fn collect_public_lib_files<P: AsRef<str>>(
     base_dir: &str,
-    repository_paths: &[String],
+    repository_paths: &[P],
     out: &mut BTreeSet<String>,
 ) {
     let prefix = if base_dir.is_empty() {
@@ -63,12 +62,13 @@ fn collect_public_lib_files(
         format!("{base_dir}/lib/")
     };
     let is_app = repository_paths.iter().any(|path| {
-        path.strip_prefix(&prefix).is_some_and(|rest| {
+        path.as_ref().strip_prefix(&prefix).is_some_and(|rest| {
             rest == "main.dart"
                 || (rest.starts_with("main_") && !rest.contains('/') && rest.ends_with(".dart"))
         })
     });
     for path in repository_paths {
+        let path = path.as_ref();
         let Some(rest) = path.strip_prefix(&prefix) else {
             continue;
         };
@@ -77,10 +77,10 @@ fn collect_public_lib_files(
         }
         if is_app {
             if !rest.contains('/') {
-                out.insert(path.clone());
+                out.insert(path.to_owned());
             }
         } else if !rest.starts_with("src/") {
-            out.insert(path.clone());
+            out.insert(path.to_owned());
         }
     }
 }
@@ -117,10 +117,10 @@ fn collect_declared_executables(
     }
 }
 
-fn collect_top_level_dart_files(
+fn collect_top_level_dart_files<P: AsRef<str>>(
     base_dir: &str,
     subdir: &str,
-    repository_paths: &[String],
+    repository_paths: &[P],
     out: &mut BTreeSet<String>,
 ) {
     let prefix = if base_dir.is_empty() {
@@ -129,11 +129,12 @@ fn collect_top_level_dart_files(
         format!("{base_dir}/{subdir}/")
     };
     for path in repository_paths {
+        let path = path.as_ref();
         if let Some(rest) = path.strip_prefix(&prefix)
             && !rest.contains('/')
             && rest.ends_with(".dart")
         {
-            out.insert(path.clone());
+            out.insert(path.to_owned());
         }
     }
 }
