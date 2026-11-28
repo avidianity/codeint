@@ -459,12 +459,12 @@ On Windows PowerShell:
 Get-FileHash -Algorithm SHA256 path\to\plugin.wasm
 ```
 
-Copy the 64-character hexadecimal digest into `plugins[].sha256` in `codeint.jsonc` or `codeint.json`.
+Copy the 64-character hexadecimal digest into `plugins[].sha256` in the configuration file.
 Recompute the digest whenever you rebuild the `.wasm` file.
 
-## Declare Plugins in `codeint.jsonc` or `codeint.json`
+## Declare Plugins in the configuration file
 
-Declare external Language plugins and Metric plugins under the top-level `plugins` array in `codeint.jsonc` or `codeint.json`.
+Declare external Language plugins and Metric plugins under the top-level `plugins` array in the configuration file.
 See [docs/reference.md](./reference.md#plugins) for the full configuration schema.
 
 ```json
