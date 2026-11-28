@@ -296,7 +296,7 @@ fn count_language_files(
 
 fn check_workspace(tree: &Snapshot) -> DoctorCheck {
     let plugins = built_in_language_plugins();
-    let manifests = match read_manifests(tree, plugins) {
+    let manifests = match read_manifests(tree, plugins, codeint_config::ConfigFileKind::Json) {
         Ok(manifests) => manifests,
         Err(error) => {
             return DoctorCheck::error("workspace", describe(&error));

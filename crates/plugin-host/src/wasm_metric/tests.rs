@@ -1,6 +1,9 @@
-use codeint_model::{Metric, STRUCTURAL_REPORT_KEYS, SourceSet};
+use codeint_config::PluginLimits;
+use codeint_model::{Metric, MetricPluginError, STRUCTURAL_REPORT_KEYS, SourceSet};
 
-use super::{validate_metric_key, validate_metric_version};
+use super::{
+    enforce_metric_lifted_budget, guest_metric, validate_metric_key, validate_metric_version,
+};
 use crate::PluginHostError;
 
 fn assert_reserved_metric_key(reserved: &str) {
@@ -95,4 +98,36 @@ fn validates_positive_integer_metric_versions() {
         validate_metric_version("custom-metric", version)
             .unwrap_or_else(|err| panic!("expected version {version} to be accepted: {err}"));
     }
+}
+
+#[test]
+fn metric_lifted_budget_rejects_oversized_findings_payload() {
+    let limits = PluginLimits {
+        memory_mb: 1,
+        timeout_ms: 5_000,
+    };
+    let oversized_message = guest_metric::Measurement {
+        ratio: 0.5,
+        numerator: 1.0,
+        denominator: 2.0,
+        findings: vec![guest_metric::Finding {
+            id: "f1".to_owned(),
+            path: "src/a.ts".to_owned(),
+            line: 1,
+            end_line: None,
+            message: "x".repeat(limits.memory_bytes() + 1),
+        }],
+    };
+    let error = enforce_metric_lifted_budget("oversized-metric", limits, &oversized_message)
+        .expect_err("measurement exceeding lifted byte budget must fail");
+    assert!(
+        matches!(
+            error,
+            MetricPluginError::MemoryLimitExceeded {
+                ref plugin,
+                memory_mb: 1,
+            } if plugin == "oversized-metric"
+        ),
+        "unexpected error: {error}"
+    );
 }

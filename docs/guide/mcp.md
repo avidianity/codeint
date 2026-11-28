@@ -36,18 +36,21 @@ If you run codeint through npm without a global binary install, set `"command": 
 
 ## Exposed MCP tools
 
-`codeint mcp` exposes eight read-only tools:
+`codeint mcp` exposes eight read-only tools.
+Every tool accepts an optional `format` argument (`"toon"` by default, or `"json"`) and ignores the repository-configured `format` key.
+Coding agents receive compact TOON output by default to save context tokens, and can pass `"format": "json"` when structured JSON is required.
+All eight tools return MCP-tailored error remedies naming MCP arguments instead of CLI flags, and validate arguments such as `format` and `max_paths` (`>= 1`) before running analysis.
 
 | Tool | Required arguments | Optional arguments | Purpose |
 | ---- | ------------------ | ------------------ | ------- |
-| `check` | none | `path`, `package`, `coverage_reports`, `all` | Measure Software entropy and Hazards of the working tree (Erosion, Cognitive complexity, Test gap when Coverage reports are configured, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Dependency hygiene, and Hazards when a measured language defines Hazard line rules) and report Budget failures, `sql_schemas`, and `rejected_statements`. |
-| `diff` | `base_ref` | `head_ref`, `path`, `package`, `all` | Compare against the merge-base of `base_ref` (including Hazards and new Hazard line Findings) and classify Findings as new, resolved, or unchanged. |
-| `trend` | none | `path`, `since` (`YYYY-MM-DD`) | Measure each main-line commit over time (latest 20 commits or since a UTC date), including `hazards` when measured. |
-| `guard` | `file` | `path` | Query the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for an existing or planned file path. |
-| `impact` | none (`paths` or `changed`) | `path`, `paths`, `changed`, `depth`, `package` | Compute the transitive reverse-dependency blast radius, separating Production and Test dependents and listing affected Workspace packages. |
-| `trace` | `from`, `to` | `path`, `package`, `all`, `max_paths` | Find the shortest runtime import path(s) connecting two repository files. |
-| `churn` | none | `path`, `since`, `commits`, `all` | Rank eroded and duplicated files alongside their Git commit churn independently per Metric. |
-| `coupling` | none | `path`, `since`, `commits`, `max_commit_files`, `min_co_changes`, `min_ratio`, `include_tests`, `all` | Detect pairs of files that repeatedly change together in the same commits and flag direct runtime imports. |
+| `check` | none | `path`, `package`, `coverage_reports`, `all`, `ignore_baseline`, `format` | Measure Software entropy and Hazards of the working tree (Erosion, Cognitive complexity, Test gap when Coverage reports are configured, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Dependency hygiene, and Hazards when a measured language defines Hazard line rules) and report Budget failures, `sql_schemas`, and `rejected_statements`. |
+| `diff` | `base_ref` | `head_ref`, `path`, `package`, `all`, `format` | Compare against the merge-base of `base_ref` (including Hazards and new Hazard line Findings) and classify Findings as new, resolved, or unchanged. |
+| `trend` | none | `path`, `since` (`YYYY-MM-DD`), `format` | Measure each main-line commit over time (latest 20 commits or since a UTC date), including `hazards` when measured. |
+| `guard` | `file` | `path`, `format` | Query the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for an existing or planned file path. |
+| `impact` | none (`paths` or `changed`) | `path`, `paths`, `changed`, `depth`, `package`, `format` | Compute the transitive reverse-dependency blast radius, separating Production and Test dependents and listing affected Workspace packages. |
+| `trace` | `from`, `to` | `path`, `package`, `all`, `max_paths` (`>= 1`), `format` | Find the shortest runtime import path(s) connecting two repository files. |
+| `churn` | none | `path`, `since`, `commits`, `all`, `format` | Rank eroded and duplicated files alongside their Git commit churn independently per Metric. |
+| `coupling` | none | `path`, `since`, `commits`, `max_commit_files`, `min_co_changes`, `min_ratio`, `include_tests`, `all`, `format` | Detect pairs of files that repeatedly change together in the same commits and flag direct runtime imports. |
 
 ## Machine-readable capability discovery
 

@@ -116,7 +116,7 @@ pub use measurement::{CommitMeasurement, CommitMeasurementOptions};
 pub use ownership::OwnershipOptions;
 pub use plugin_test::{PluginTestCheck, PluginTestReport, PluginTestStatus, PluginTestSummary};
 pub use ratchet::{RATCHET_PACKAGE_SKIPPED_NOTE, RatchetFailure, RatchetUpdateReport};
-pub use render::ReportError;
+pub use render::{ReportError, render_toon};
 pub use report_schema::report_schema;
 pub use saved::{SavedReport, SavedReportError};
 pub use schema::{ExitCodeSchema, LanguageSchema, McpToolSchema, MetricSchema, SchemaReport};
@@ -134,7 +134,7 @@ pub(crate) use findings::{
 pub(crate) use render::{
     Decimal, FindingKind, Findings, PerSourceSet, ReferenceRangeEntry, ReferenceRangeScope,
     TEST_GAP_DIFF_NOTE, TEST_GAP_TREND_NOTE, format_unmatched_coverage_note, render_json,
-    render_text_report, render_toon,
+    render_text_report,
 };
 pub(crate) use sections::{
     DependenciesSection, HazardsSection, ImportCyclesSection, MeasuredSection, MetricHeader,

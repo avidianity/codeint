@@ -46,20 +46,67 @@ pub(crate) fn remedy(error: &CliError) -> Cow<'static, str> {
 }
 
 pub(crate) fn mcp_remedy(error: &CliError) -> Cow<'static, str> {
+    mcp_specific_remedy(error).unwrap_or_else(|| remedy(error))
+}
+
+fn mcp_specific_remedy(error: &CliError) -> Option<Cow<'static, str>> {
     match error {
-        CliError::Check(CheckError::BaselineVersionMismatch {
+        CliError::Check(error) => mcp_check_remedy(error),
+        CliError::Guard(GuardError::Git(error)) => mcp_git_remedy(error),
+        CliError::Impact(ImpactCommandError::MissingTargets) => Some(Cow::Borrowed(
+            "Pass one or more repository file paths in paths, or pass changed with a base Git ref to analyze changed files.",
+        )),
+        CliError::Impact(ImpactCommandError::Check(CheckError::Git(GitError::NoMergeBase {
+            ..
+        }))) => Some(Cow::Borrowed(
+            "Pass a Git ref in changed that shares history with HEAD; in a shallow clone, fetch more history: git fetch --unshallow",
+        )),
+        CliError::Impact(ImpactCommandError::Check(error)) => mcp_check_remedy(error),
+        CliError::Trace(TraceCommandError::Check(error)) => mcp_check_remedy(error),
+        CliError::Trace(TraceCommandError::Trace(TraceError::InvalidMaxPaths)) => Some(
+            Cow::Borrowed("Pass a positive integer (at least 1) for max_paths."),
+        ),
+        _ => None,
+    }
+}
+
+fn mcp_check_remedy(error: &CheckError) -> Option<Cow<'static, str>> {
+    match error {
+        CheckError::BaselineVersionMismatch {
             supports_ignore_baseline: true,
             ..
-        }) => Cow::Borrowed(
+        } => Some(Cow::Borrowed(
             "Run codeint baseline update to refresh the Baseline for the updated Metric versions, or pass ignore_baseline: true to show every Finding.",
-        ),
-        CliError::Check(CheckError::BaselineVersionMismatch {
+        )),
+        CheckError::BaselineVersionMismatch {
             supports_ignore_baseline: false,
             ..
-        }) => Cow::Borrowed(
+        } => Some(Cow::Borrowed(
             "Run codeint baseline update to refresh the Baseline for the updated Metric versions.",
-        ),
-        other => remedy(other),
+        )),
+        CheckError::UnknownWorkspacePackage { .. } => Some(Cow::Borrowed(
+            "Pass one of the discovered Workspace package paths in package, or omit package to measure the whole repository.",
+        )),
+        CheckError::TestGapBudgetWithoutCoverage { .. } => Some(Cow::Borrowed(
+            "Name at least one LCOV or Cobertura XML Coverage report in coverage_reports in codeint.json or pass coverage_reports, or remove budgets.production.test_gap.",
+        )),
+        CheckError::Git(error) => mcp_git_remedy(error),
+        _ => None,
+    }
+}
+
+fn mcp_git_remedy(error: &GitError) -> Option<Cow<'static, str>> {
+    match error {
+        GitError::NotInRepository { .. } => Some(Cow::Borrowed(
+            "Run the MCP server inside a Git repository, or pass a folder inside one in path.",
+        )),
+        GitError::NoHeadCommit { .. } => Some(Cow::Borrowed(
+            "Commit once, then run the MCP tool again; comparing against a base ref requires a HEAD commit to find a merge-base.",
+        )),
+        GitError::NoMergeBase { .. } => Some(Cow::Borrowed(
+            "Pass a base_ref that shares history with the head, which is HEAD unless you pass head_ref; in a shallow clone, fetch more history: git fetch --unshallow",
+        )),
+        _ => None,
     }
 }
 
@@ -383,6 +430,9 @@ fn config_remedy(error: &ConfigError) -> &'static str {
         }
         ConfigError::MissingAgentHome => {
             "Pass --config-root <DIR>, or set CODEINT_AGENT_HOME or HOME."
+        }
+        ConfigError::InvalidPluginMaxDownloadMb { .. } => {
+            "Set CODEINT_PLUGIN_MAX_DOWNLOAD_MB to a positive integer in MiB (for example 100), or unset it to use the 50 MiB default."
         }
     }
 }
@@ -725,7 +775,9 @@ fn plugin_test_remedy(error: &PluginTestError) -> &'static str {
 }
 
 fn plugin_host_remedy(error: &PluginHostError, file: ConfigFileKind) -> Cow<'static, str> {
-    plugin_load_remedy(error, file).unwrap_or_else(|| plugin_runtime_remedy(error, file))
+    plugin_load_remedy(error, file)
+        .or_else(|| plugin_download_remedy(error, file))
+        .unwrap_or_else(|| plugin_runtime_remedy(error, file))
 }
 
 fn plugin_load_remedy(error: &PluginHostError, file: ConfigFileKind) -> Option<Cow<'static, str>> {
@@ -747,6 +799,15 @@ fn plugin_load_remedy(error: &PluginHostError, file: ConfigFileKind) -> Option<C
         PluginHostError::IncompatibleContractVersion { .. } => Cow::Owned(format!(
             "Rebuild the plugin against codeint:plugin@0.4.0 and update its sha256 in {file}."
         )),
+        _ => return None,
+    })
+}
+
+fn plugin_download_remedy(
+    error: &PluginHostError,
+    file: ConfigFileKind,
+) -> Option<Cow<'static, str>> {
+    Some(match error {
         PluginHostError::NonHttpsUrl { .. } => Cow::Owned(format!(
             "Use an https:// URL for the plugin in {file}; plain HTTP and other schemes are refused."
         )),
@@ -758,6 +819,9 @@ fn plugin_load_remedy(error: &PluginHostError, file: ConfigFileKind) -> Option<C
         ),
         PluginHostError::Download { .. } => Cow::Borrowed(
             "Check that curl is installed, the HTTPS URL is reachable, and its TLS certificate is valid.",
+        ),
+        PluginHostError::DownloadTooLarge { .. } => Cow::Borrowed(
+            "Check that the HTTPS URL points to a valid WebAssembly Plugin, or set CODEINT_PLUGIN_MAX_DOWNLOAD_MB to raise the download size cap.",
         ),
         _ => return None,
     })

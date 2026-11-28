@@ -12,6 +12,8 @@ use gix::dir::walk::delegate::Collect;
 mod churn;
 mod history;
 mod result_cache;
+#[cfg(test)]
+mod tests;
 
 pub use churn::{ChurnRange, CoChangeSummary, FileChurnSummary};
 pub use history::{CommitRange, HistoryCommit};

@@ -271,7 +271,7 @@ fn discover_workspace_roots(
     tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
 ) -> Result<Vec<RepoPath>, GitError> {
-    let manifests = match read_manifests(tree, plugins) {
+    let manifests = match read_manifests(tree, plugins, codeint_config::ConfigFileKind::Json) {
         Ok(manifests) => manifests,
         Err(CheckError::Git(error)) => return Err(error),
         Err(_) => return Ok(Vec::new()),

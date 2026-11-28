@@ -12,8 +12,8 @@ use codeint_model::language::{
 use codeint_model::{
     CodeModel, FileModel, HazardLine, ImportResolution, LanguageFacts, LanguagePlugin,
     LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError, RepoPath,
-    ResolveError, SourceFile, SourceSet, Token, TokenKind, resolve_runtime_imports,
-    token_text_hash,
+    ResolveError, SourceFile, SourceSet, Token, TokenKind, choose_manifests,
+    resolve_runtime_imports, token_text_hash,
 };
 use codeint_plugin_host::{
     PLUGIN_INTERFACE_VERSION, PluginHostError, WasmLanguagePlugin, load_language_plugin,
@@ -92,7 +92,12 @@ fn loads_sample_external_plugin_with_zero_capabilities_and_valid_hash() {
         RepoPath::new("src/app.mini").unwrap(),
         RepoPath::new("src/util.mini").unwrap(),
     ];
-    assert_eq!(plugin.manifest_paths(&repo_paths), vec!["mini.workspace"]);
+    assert_eq!(
+        plugin
+            .manifest_paths(&repo_paths)
+            .expect("manifest paths succeed"),
+        vec!["mini.workspace"]
+    );
     let packages = plugin
         .workspace_packages(vec![Manifest {
             path: "mini.workspace".to_owned(),
@@ -2078,4 +2083,375 @@ fn sdk_language_and_metric_plugins_reclaim_linear_memory_across_pooled_calls_and
             .expect("pooled metric calls reclaim linear memory under 2 MiB cap");
         assert!((measured.denominator - 1_600.0).abs() < 1e-9);
     }
+}
+
+#[test]
+fn manifest_paths_and_reference_ranges_propagate_wasm_traps_instead_of_returning_empty() {
+    let manifest_wasm = sandbox_probe_wasm("manifest_paths_trap_language_plugin.wasm");
+    let manifest_plugin = load_language_plugin(
+        Path::new("."),
+        &declaration_for("manifest-trap", &manifest_wasm),
+        &PluginHostConfig::default(),
+    )
+    .expect("manifest trap language plugin loads");
+    let repo_paths = vec![RepoPath::new("src/app.probe").expect("valid repo path")];
+    let manifest_error = choose_manifests(&manifest_plugin, &repo_paths)
+        .expect_err("trapping manifest-paths must propagate an error instead of returning empty");
+    assert!(
+        matches!(
+            manifest_error,
+            ResolveError::Plugin(LanguagePluginError::Call {
+                ref plugin,
+                call: "manifest-paths",
+                ..
+            }) if plugin == "manifest-trap"
+        ),
+        "unexpected manifest-paths error: {manifest_error}"
+    );
+
+    let ranges_wasm = sandbox_probe_wasm("reference_ranges_trap_language_plugin.wasm");
+    let ranges_plugin = load_language_plugin(
+        Path::new("."),
+        &declaration_for("ranges-trap", &ranges_wasm),
+        &PluginHostConfig::default(),
+    )
+    .expect("reference ranges trap language plugin loads");
+    let ranges_error = ranges_plugin
+        .reference_ranges()
+        .expect_err("trapping reference-ranges must propagate an error instead of returning empty");
+    let rendered = ranges_error.to_string();
+    assert!(
+        rendered.contains("ranges-trap") && rendered.contains("reference-ranges"),
+        "unexpected reference-ranges error: {rendered}"
+    );
+}
+
+#[test]
+fn manifest_paths_epoch_timeout_returns_time_limit_error_instead_of_empty() {
+    let loop_wasm = sandbox_probe_wasm("loop_language_plugin.wasm");
+    let plugin = load_language_plugin_with_limits(
+        Path::new("."),
+        &declaration_for("loop-manifests", &loop_wasm),
+        &PluginHostConfig::default(),
+        PluginLimits {
+            memory_mb: 4,
+            timeout_ms: 50,
+        },
+    )
+    .expect("loop language plugin loads");
+    let repo_paths = vec![RepoPath::new("loop-manifest-paths").expect("valid repo path")];
+    let error = choose_manifests(&plugin, &repo_paths)
+        .expect_err("timing out manifest-paths must return TimeLimitExceeded instead of empty");
+    assert!(
+        matches!(
+            error,
+            ResolveError::Plugin(LanguagePluginError::TimeLimitExceeded {
+                ref plugin,
+                timeout_ms: 50,
+            }) if plugin == "loop-manifests"
+        ),
+        "unexpected manifest-paths timeout error: {error}"
+    );
+}
+
+#[test]
+fn sequential_calls_to_stateful_wasm_plugins_execute_in_fresh_stores() {
+    let lang_wasm = sandbox_probe_wasm("stateful_language_plugin.wasm");
+    let lang_plugin = load_language_plugin(
+        Path::new("."),
+        &declaration_for("stateful-lang", &lang_wasm),
+        &PluginHostConfig::default(),
+    )
+    .expect("stateful language plugin loads");
+    let path = RepoPath::new("src/a.stateful").expect("valid repo path");
+    let first_lang = lang_plugin
+        .lower(&path, "first\n")
+        .expect("first lower call succeeds");
+    let second_lang = lang_plugin
+        .lower(&path, "second\n")
+        .expect("second lower call succeeds");
+    assert_eq!(first_lang.source_lines, 1);
+    assert_eq!(
+        second_lang.source_lines, 1,
+        "second lower call must execute in a fresh store without seeing prior call state"
+    );
+
+    let metric_wasm = sandbox_probe_wasm("stateful_metric_plugin.wasm");
+    let metric_plugin = load_metric_plugin(
+        Path::new("."),
+        &declaration_with_kind("stateful-metric", PluginKind::Metric, &metric_wasm),
+        &PluginHostConfig::default(),
+    )
+    .expect("stateful metric plugin loads");
+    let first_metric = metric_plugin
+        .measure(&CodeModel::default())
+        .expect("first measure call succeeds");
+    let second_metric = metric_plugin
+        .measure(&CodeModel::default())
+        .expect("second measure call succeeds");
+    assert!((first_metric.numerator - 1.0).abs() < 1e-9);
+    assert!(
+        (second_metric.numerator - 1.0).abs() < 1e-9,
+        "second measure call must execute in a fresh store without seeing prior call state, got {}",
+        second_metric.numerator
+    );
+}
+
+#[test]
+fn metric_plugin_returning_oversized_lifted_payload_is_rejected_by_lifted_budget() {
+    let wasm = sandbox_probe_wasm("oversized_lifted_metric_plugin.wasm");
+    let limits = PluginLimits {
+        memory_mb: 2,
+        timeout_ms: 5_000,
+    };
+    let plugin = load_metric_plugin_with_limits(
+        Path::new("."),
+        &declaration_with_kind("oversized-lifted", PluginKind::Metric, &wasm),
+        &PluginHostConfig::default(),
+        limits,
+    )
+    .expect("oversized lifted metric plugin loads");
+
+    let error = plugin
+        .measure(&CodeModel::default())
+        .expect_err("oversized lifted Metric measurement must be rejected by lifted budget");
+    assert!(
+        matches!(
+            error,
+            MetricPluginError::MemoryLimitExceeded {
+                ref plugin,
+                memory_mb: 2,
+            } if plugin == "oversized-lifted"
+        ),
+        "unexpected error: {error}"
+    );
+}
+
+struct LocalTestHttpsServer {
+    dir: PathBuf,
+    cert_path: PathBuf,
+    port: u16,
+    child: Option<std::process::Child>,
+}
+
+impl LocalTestHttpsServer {
+    fn start(valid_wasm: &Path) -> LocalTestHttpsServer {
+        use std::io::{BufRead, BufReader};
+        use std::process::{Command, Stdio};
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static SERVER_ID: AtomicU64 = AtomicU64::new(0);
+        let id = SERVER_ID.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "codeint-plugin-host-https-{}-{id}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir for https server");
+
+        let cert_path = dir.join("cert.pem");
+        let key_path = dir.join("key.pem");
+        let script = concat!(
+            "import http.server, os, ssl, subprocess, sys\n",
+            "valid_path, cert_path, key_path, work_dir = sys.argv[1:5]\n",
+            "cfg_path = os.path.join(work_dir, 'tls.cnf')\n",
+            "with open(cfg_path, 'w') as fh:\n",
+            "    fh.write('[req]\\ndistinguished_name=dn\\nx509_extensions=v3\\nprompt=no\\n[dn]\\nCN=127.0.0.1\\n[v3]\\nsubjectAltName=IP:127.0.0.1\\n')\n",
+            "subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-keyout', key_path, '-out', cert_path, '-config', cfg_path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n",
+            "with open(valid_path, 'rb') as fh:\n",
+            "    VALID_BYTES = fh.read()\n",
+            "class Handler(http.server.BaseHTTPRequestHandler):\n",
+            "    protocol_version = 'HTTP/1.1'\n",
+            "    def log_message(self, fmt, *args):\n",
+            "        pass\n",
+            "    def do_GET(self):\n",
+            "        if self.path == '/valid.wasm':\n",
+            "            self.send_response(200)\n",
+            "            self.send_header('Content-Length', str(len(VALID_BYTES)))\n",
+            "            self.send_header('Connection', 'close')\n",
+            "            self.end_headers()\n",
+            "            self.wfile.write(VALID_BYTES)\n",
+            "        elif self.path == '/over-50mib.wasm':\n",
+            "            self.send_response(200)\n",
+            "            self.send_header('Content-Length', str(50 * 1024 * 1024 + 1))\n",
+            "            self.send_header('Connection', 'close')\n",
+            "            self.end_headers()\n",
+            "            self.wfile.write(b'0' * 1024)\n",
+            "        elif self.path == '/sized-64k.wasm':\n",
+            "            body = b'A' * (64 * 1024)\n",
+            "            self.send_response(200)\n",
+            "            self.send_header('Content-Length', str(len(body)))\n",
+            "            self.send_header('Connection', 'close')\n",
+            "            self.end_headers()\n",
+            "            self.wfile.write(body)\n",
+            "        elif self.path == '/chunked-64k.wasm':\n",
+            "            self.send_response(200)\n",
+            "            self.send_header('Transfer-Encoding', 'chunked')\n",
+            "            self.send_header('Connection', 'close')\n",
+            "            self.end_headers()\n",
+            "            chunk = b'B' * 4096\n",
+            "            header = f'{len(chunk):x}\\r\\n'.encode('ascii')\n",
+            "            try:\n",
+            "                for _ in range(16):\n",
+            "                    self.wfile.write(header + chunk + b'\\r\\n')\n",
+            "                    self.wfile.flush()\n",
+            "                self.wfile.write(b'0\\r\\n\\r\\n')\n",
+            "                self.wfile.flush()\n",
+            "            except OSError:\n",
+            "                pass\n",
+            "        else:\n",
+            "            self.send_response(404)\n",
+            "            self.send_header('Content-Length', '0')\n",
+            "            self.send_header('Connection', 'close')\n",
+            "            self.end_headers()\n",
+            "server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)\n",
+            "ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)\n",
+            "ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)\n",
+            "server.socket = ctx.wrap_socket(server.socket, server_side=True)\n",
+            "print(server.server_address[1], flush=True)\n",
+            "server.serve_forever()\n",
+        );
+
+        let mut child = Command::new("python3")
+            .args(["-c", script])
+            .arg(valid_wasm)
+            .arg(&cert_path)
+            .arg(&key_path)
+            .arg(&dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn local python3 HTTPS server");
+        let stdout = child.stdout.take().expect("server stdout");
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("read server port");
+        let port: u16 = line
+            .trim()
+            .parse()
+            .unwrap_or_else(|error| panic!("invalid server port {line:?}: {error}"));
+
+        LocalTestHttpsServer {
+            dir,
+            cert_path,
+            port,
+            child: Some(child),
+        }
+    }
+
+    fn url(&self, route: &str) -> String {
+        format!("https://127.0.0.1:{}/{route}", self.port)
+    }
+
+    fn cache_dir(&self) -> PathBuf {
+        self.dir.join("cache")
+    }
+}
+
+impl Drop for LocalTestHttpsServer {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+#[test]
+fn https_download_rejects_response_exceeding_default_50_mib_cap() {
+    let default_config = PluginHostConfig::default();
+    assert_eq!(default_config.max_download_bytes, 50 * 1024 * 1024);
+
+    let server = LocalTestHttpsServer::start(sample_plugin_wasm());
+    let dummy_sha =
+        Sha256Digest::parse_hex("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+            .expect("valid hex");
+    let declaration = PluginDeclaration {
+        name: "oversized-remote".to_owned(),
+        kind: PluginKind::Language,
+        source: PluginSource::HttpsUrl(server.url("over-50mib.wasm")),
+        sha256: dummy_sha.clone(),
+    };
+    let host_config = PluginHostConfig {
+        cache_dir: Some(server.cache_dir()),
+        ca_cert: Some(server.cert_path.clone()),
+        ..PluginHostConfig::default()
+    };
+    let error = load_language_plugin(Path::new("."), &declaration, &host_config)
+        .err()
+        .expect("response exceeding 50 MiB default cap must be rejected");
+    assert!(
+        matches!(
+            error,
+            PluginHostError::DownloadTooLarge {
+                ref name,
+                max_bytes: 52_428_800,
+                ..
+            } if name == "oversized-remote"
+        ),
+        "expected DownloadTooLarge with 50 MiB cap, got: {error}"
+    );
+
+    let tight_cap = 16 * 1024u64;
+    let tight_config = PluginHostConfig {
+        cache_dir: Some(server.cache_dir()),
+        ca_cert: Some(server.cert_path.clone()),
+        max_download_bytes: tight_cap,
+        ..PluginHostConfig::default()
+    };
+    for (plugin_name, route) in [
+        ("oversized-sized", "sized-64k.wasm"),
+        ("oversized-chunked", "chunked-64k.wasm"),
+    ] {
+        let oversized = PluginDeclaration {
+            name: plugin_name.to_owned(),
+            kind: PluginKind::Language,
+            source: PluginSource::HttpsUrl(server.url(route)),
+            sha256: dummy_sha.clone(),
+        };
+        let cap_error = load_language_plugin(Path::new("."), &oversized, &tight_config)
+            .err()
+            .unwrap_or_else(|| panic!("{route} must fail under {tight_cap}-byte cap"));
+        assert!(
+            matches!(
+                cap_error,
+                PluginHostError::DownloadTooLarge {
+                    ref name,
+                    max_bytes,
+                    ..
+                } if name == plugin_name && max_bytes == tight_cap
+            ),
+            "expected DownloadTooLarge for {route}, got: {cap_error}"
+        );
+    }
+
+    let remaining: Vec<_> = std::fs::read_dir(server.cache_dir())
+        .map(|entries| entries.filter_map(Result::ok).collect())
+        .unwrap_or_default();
+    assert!(
+        remaining.is_empty(),
+        "expected no temp or cached files after oversized downloads, found: {remaining:?}"
+    );
+
+    let valid_bytes = std::fs::read(sample_plugin_wasm()).expect("read sample wasm");
+    let valid_sha = Sha256Digest::parse_hex(&codeint_plugin_host::sha256_hex(
+        &codeint_plugin_host::sha256(&valid_bytes),
+    ))
+    .expect("valid sha256");
+    let valid_decl = PluginDeclaration {
+        name: "valid-remote".to_owned(),
+        kind: PluginKind::Language,
+        source: PluginSource::HttpsUrl(server.url("valid.wasm")),
+        sha256: valid_sha,
+    };
+    let generous_config = PluginHostConfig {
+        cache_dir: Some(server.cache_dir()),
+        ca_cert: Some(server.cert_path.clone()),
+        max_download_bytes: u64::try_from(valid_bytes.len()).expect("len fits u64"),
+        ..PluginHostConfig::default()
+    };
+    let loaded = load_language_plugin(Path::new("."), &valid_decl, &generous_config)
+        .expect("plugin within configured download cap loads cleanly");
+    assert_eq!(loaded.extensions(), vec!["mini"]);
 }

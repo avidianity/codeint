@@ -84,7 +84,9 @@ fn assert_import_conformance(
         .iter()
         .map(|path| RepoPath::new(*path).unwrap())
         .collect();
-    let manifest_paths = plugin.manifest_paths(&repo_paths);
+    let manifest_paths = plugin
+        .manifest_paths(&repo_paths)
+        .unwrap_or_else(|error| panic!("{label}: manifest_paths failed: {error}"));
     assert!(
         manifest_paths.contains(&imports.expected_manifest_path.to_owned()),
         "{label}: expected manifest {} in {manifest_paths:?}",

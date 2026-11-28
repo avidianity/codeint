@@ -5,7 +5,7 @@ use codeint_config::{CouplingSettings, FindingsShown, PluginHostConfig};
 use codeint_model::{CodeModel, RepoPath, SourceSet};
 use codeint_report::{CouplingHistoryInput, CouplingReport};
 
-use crate::check::{CheckError, WorkspaceContext};
+use crate::check::{CheckError, WorkspaceContext, WorkspaceRef};
 use crate::churn::churn_range;
 
 pub(crate) fn coupling(
@@ -15,9 +15,17 @@ pub(crate) fn coupling(
     plugin_host: &PluginHostConfig,
 ) -> Result<CouplingReport, CheckError> {
     let context = WorkspaceContext::load(folder, plugin_host)?;
-    let model = context.measure_working_tree_model()?;
+    coupling_with_workspace(context.as_ref(), settings, findings)
+}
+
+pub(crate) fn coupling_with_workspace(
+    workspace: WorkspaceRef<'_>,
+    settings: CouplingSettings,
+    findings: FindingsShown,
+) -> Result<CouplingReport, CheckError> {
+    let model = workspace.measure_working_tree_model()?;
     let allowed_paths = selected_source_paths(&model, settings.include_tests);
-    let history = context.repository.co_change_coupling(
+    let history = workspace.repository.co_change_coupling(
         churn_range(settings.window),
         settings.max_commit_files,
         &allowed_paths,
