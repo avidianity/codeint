@@ -16,8 +16,8 @@ use codeint_model::language::{
     DeclaredDep, FileModel, Function, ImportRequest, Manifest, Resolution,
 };
 use codeint_model::{
-    InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, ReferenceRanges,
-    RepoPath, Token, WorkspaceError,
+    LanguagePlugin, LanguagePluginError, LowerError, ReferenceRanges, RepoPath, Token,
+    WorkspaceError,
 };
 
 pub use flagged::flagged_line_rules;
@@ -147,8 +147,19 @@ impl LanguagePlugin for Sql {
             .map(|output| output.file_model)
     }
 
-    fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
-        Vec::new()
+    fn has_imports(&self) -> bool {
+        false
+    }
+
+    fn manifest_paths(
+        &self,
+        _repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, LanguagePluginError> {
+        Ok(Vec::new())
+    }
+
+    fn has_hazard_rules(&self) -> bool {
+        true
     }
 
     fn workspace_packages(
@@ -156,6 +167,13 @@ impl LanguagePlugin for Sql {
         _manifests: Vec<Manifest>,
     ) -> Result<Vec<RepoPath>, WorkspaceError> {
         Ok(Vec::new())
+    }
+
+    fn hazard_rules(&self) -> Vec<String> {
+        SQL_HAZARD_RULES
+            .iter()
+            .map(|rule| (*rule).to_owned())
+            .collect()
     }
 
     fn resolve_imports(
@@ -168,22 +186,7 @@ impl LanguagePlugin for Sql {
         Ok(Vec::new())
     }
 
-    fn declared_dependencies(
-        &self,
-        _manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        Ok(Vec::new())
-    }
-
-    fn entry_points(
-        &self,
-        _repository_paths: &[RepoPath],
-        _manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
-        Ok(Vec::new())
-    }
-
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+    fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError> {
         ReferenceRanges::new(
             codeint_model::scan::CoreReferenceRanges {
                 erosion: (0.000, 0.918),
@@ -194,23 +197,24 @@ impl LanguagePlugin for Sql {
             }
             .build("codeint stratified panel of 77 SQL repositories, ADR 0035, codeint 0.8.0"),
         )
+        .map_err(LanguagePluginError::InvalidReferenceRange)
+    }
+
+    fn declared_dependencies(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+        Ok(Vec::new())
     }
 
     codeint_model::empty_framework_profile_plugin_methods!();
 
-    fn has_hazard_rules(&self) -> bool {
-        true
-    }
-
-    fn hazard_rules(&self) -> Vec<String> {
-        SQL_HAZARD_RULES
-            .iter()
-            .map(|rule| (*rule).to_owned())
-            .collect()
-    }
-
-    fn has_imports(&self) -> bool {
-        false
+    fn entry_points(
+        &self,
+        _repository_paths: &[RepoPath],
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
+        Ok(Vec::new())
     }
 }
 

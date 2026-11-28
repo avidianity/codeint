@@ -117,6 +117,41 @@ impl LoadedPlugins {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct WorkspaceRef<'a> {
+    pub(crate) repository: &'a Repository,
+    pub(crate) configuration: &'a Configuration,
+    pub(crate) plugins: &'a LoadedPlugins,
+}
+
+impl<'a> WorkspaceRef<'a> {
+    pub(crate) fn measure_working_tree_model(self) -> Result<CodeModel, CheckError> {
+        self.measure_working_tree_model_for_package(None)
+    }
+
+    pub(crate) fn measure_working_tree_model_for_package(
+        self,
+        package: Option<&str>,
+    ) -> Result<CodeModel, CheckError> {
+        let plugins = self.plugins.as_named();
+        let tree = self.repository.working_tree()?;
+        let mut languages = measure_with(&tree, &plugins, self.configuration)?;
+        let workspace = if let Some(requested) = package {
+            let workspace = workspace_of_languages(&languages);
+            let selected = select_workspace_package(&workspace, requested)?;
+            filter_languages_to_package(&mut languages, &selected);
+            Some(workspace)
+        } else {
+            None
+        };
+        let mut model = CodeModel::merge(languages.into_iter().map(|language| language.model));
+        if let Some(workspace) = workspace {
+            model.workspace = workspace;
+        }
+        Ok(model)
+    }
+}
+
 pub(crate) struct WorkspaceContext {
     pub(crate) repository: Repository,
     pub(crate) configuration: Configuration,
@@ -138,56 +173,34 @@ impl WorkspaceContext {
         })
     }
 
-    pub(crate) fn measure_working_tree_model(&self) -> Result<CodeModel, CheckError> {
-        self.measure_working_tree_model_for_package(None)
-    }
-
-    pub(crate) fn measure_working_tree_model_for_package(
-        &self,
-        package: Option<&str>,
-    ) -> Result<CodeModel, CheckError> {
-        let plugins = self.plugins.as_named();
-        let tree = self.repository.working_tree()?;
-        let mut languages = measure_with(&tree, &plugins, &self.configuration)?;
-        let workspace = if let Some(requested) = package {
-            let workspace = workspace_of_languages(&languages);
-            let selected = select_workspace_package(&workspace, requested)?;
-            filter_languages_to_package(&mut languages, &selected);
-            Some(workspace)
-        } else {
-            None
-        };
-        let mut model = CodeModel::merge(languages.into_iter().map(|language| language.model));
-        if let Some(workspace) = workspace {
-            model.workspace = workspace;
+    pub(crate) fn as_ref(&self) -> WorkspaceRef<'_> {
+        WorkspaceRef {
+            repository: &self.repository,
+            configuration: &self.configuration,
+            plugins: &self.plugins,
         }
-        Ok(model)
     }
 }
 
-pub(crate) struct PreparedRun {
-    pub(crate) context: WorkspaceContext,
+pub(crate) struct PreparedOwnership {
     pub(crate) codeowners: Option<Codeowners>,
     pub(crate) owner_filter: Option<OwnerFilter>,
 }
 
-impl PreparedRun {
+impl PreparedOwnership {
     pub(crate) fn load(
-        folder: &Path,
+        repository_root: &Path,
         owner_pattern: Option<&str>,
-        plugin_host: &PluginHostConfig,
-    ) -> Result<PreparedRun, CheckError> {
-        let context = WorkspaceContext::load(folder, plugin_host)?;
-        let codeowners = Codeowners::load(context.repository.root())?;
+    ) -> Result<PreparedOwnership, CheckError> {
+        let codeowners = Codeowners::load(repository_root)?;
         let owner_filter = owner_pattern.map(OwnerFilter::new).transpose()?;
-        Ok(PreparedRun {
-            context,
+        Ok(PreparedOwnership {
             codeowners,
             owner_filter,
         })
     }
 
-    pub(crate) fn ownership(&self) -> OwnershipOptions<'_> {
+    pub(crate) fn options(&self) -> OwnershipOptions<'_> {
         OwnershipOptions {
             codeowners: self.codeowners.as_ref(),
             owner_filter: self.owner_filter.as_ref(),
@@ -208,17 +221,26 @@ pub(crate) fn check(
     scope: CheckScope<'_>,
     plugin_host: &PluginHostConfig,
 ) -> Result<Report, CheckError> {
-    let run = PreparedRun::load(folder, scope.owner, plugin_host)?;
-    let plugins = run.context.plugins.as_named();
-    let metric_plugins = run.context.plugins.metric_plugins();
+    let context = WorkspaceContext::load(folder, plugin_host)?;
+    check_with_workspace(folder, scope, context.as_ref())
+}
+
+pub(crate) fn check_with_workspace(
+    folder: &Path,
+    scope: CheckScope<'_>,
+    workspace: WorkspaceRef<'_>,
+) -> Result<Report, CheckError> {
+    let ownership = PreparedOwnership::load(workspace.repository.root(), scope.owner)?;
+    let plugins = workspace.plugins.as_named();
+    let metric_plugins = workspace.plugins.metric_plugins();
     let baseline = if scope.ignore_baseline {
         None
     } else {
-        Baseline::load_optional(run.context.repository.root())?
+        Baseline::load_optional(workspace.repository.root())?
     };
     check_loaded(
-        &run.context.repository,
-        &run.context.configuration,
+        workspace.repository,
+        workspace.configuration,
         &plugins,
         &metric_plugins,
         CheckRequest {
@@ -226,7 +248,7 @@ pub(crate) fn check(
             findings: scope.findings,
             package: scope.package,
             cli_coverage_reports: scope.coverage_reports,
-            ownership: run.ownership(),
+            ownership: ownership.options(),
             baseline: baseline.as_ref(),
         },
     )
@@ -464,7 +486,12 @@ fn measure_check_report(
     let (orphan_files, orphan_files_by_language) = compute_orphan_files(&snapshot, selected_ref);
     let (dependency_hygiene, dependency_hygiene_by_language) =
         compute_dependency_hygiene(&snapshot, &configuration.dependencies, selected_ref);
-    apply_selected_package(&mut snapshot, plugins, selected.as_ref())?;
+    apply_selected_package(
+        &mut snapshot,
+        plugins,
+        selected.as_ref(),
+        configuration.config_file(),
+    )?;
     Report::summarize_with_extras(
         snapshot.languages,
         tree.submodules().to_vec(),
@@ -497,6 +524,7 @@ fn apply_selected_package(
     snapshot: &mut MeasuredSnapshot,
     plugins: &[NamedLanguagePlugin<'_>],
     selected: Option<&(SelectedPackage, Workspace)>,
+    config_file: ConfigFileKind,
 ) -> Result<(), CheckError> {
     let Some((selected_pkg, workspace)) = selected else {
         return Ok(());
@@ -513,6 +541,7 @@ fn apply_selected_package(
         plugins,
         &snapshot.framework_profiles_by_language,
         selected_pkg,
+        config_file,
     )
 }
 
@@ -556,7 +585,8 @@ fn measure(
     let covered_files = lowering::assign_files_to_plugins(tree, plugins, coverage, config_file)?;
     let sql_dialects =
         sql::resolve_sql_dialects(plugins, &covered_files, &configuration.sql, config_file)?;
-    let discovery = manifests::find_plugin_workspaces(plugins, read_manifests(tree, plugins)?)?;
+    let discovery =
+        manifests::find_plugin_workspaces(plugins, read_manifests(tree, plugins, config_file)?)?;
     let workspace = discovery.workspace();
     let manifest_warnings = discovery.warnings();
     let plugin_members = discovery.members_by_plugin;

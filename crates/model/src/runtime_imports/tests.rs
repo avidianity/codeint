@@ -1,7 +1,7 @@
 use crate::language::{DeclaredDep, ImportRequest, Resolution, SourceSet};
 use crate::{
-    FileModel, InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, Manifest,
-    ReferenceRanges, RepoPath, SourceFile, WorkspaceError,
+    FileModel, LanguagePlugin, LanguagePluginError, LowerError, Manifest, ReferenceRanges,
+    RepoPath, SourceFile, WorkspaceError,
 };
 
 use super::{
@@ -11,6 +11,7 @@ use super::{
 enum StubAnswer {
     Resolutions(Vec<Resolution>),
     MemoryLimit { plugin: String, memory_mb: u64 },
+    NoImports,
 }
 
 struct Answering(StubAnswer);
@@ -19,28 +20,13 @@ impl Answering {
     fn of(resolutions: Vec<Resolution>) -> Answering {
         Answering(StubAnswer::Resolutions(resolutions))
     }
-}
 
-macro_rules! stub_non_import_language_methods {
-    ($has_imports:expr) => {
-        fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
-            ReferenceRanges::new(Vec::new())
-        }
-
-        crate::empty_framework_profile_plugin_methods!();
-
-        fn has_hazard_rules(&self) -> bool {
-            false
-        }
-
-        fn hazard_rules(&self) -> Vec<String> {
-            Vec::new()
-        }
-
-        fn has_imports(&self) -> bool {
-            $has_imports
-        }
-    };
+    fn assert_imports_enabled(&self, method: &str) {
+        assert!(
+            !matches!(self.0, StubAnswer::NoImports),
+            "{method} must not be called when has_imports is false"
+        );
+    }
 }
 
 impl LanguagePlugin for Answering {
@@ -48,6 +34,7 @@ impl LanguagePlugin for Answering {
         &self,
         _manifests: Vec<Manifest>,
     ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+        self.assert_imports_enabled("declared_dependencies");
         Ok(Vec::new())
     }
 
@@ -56,25 +43,35 @@ impl LanguagePlugin for Answering {
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
     ) -> Result<Vec<RepoPath>, LanguagePluginError> {
+        self.assert_imports_enabled("entry_points");
         Ok(Vec::new())
     }
 
     fn extensions(&self) -> Vec<String> {
-        vec!["ts".to_owned()]
+        if matches!(self.0, StubAnswer::NoImports) {
+            vec!["noimp".to_owned()]
+        } else {
+            vec!["ts".to_owned()]
+        }
     }
 
     fn lower(&self, _path: &RepoPath, _text: &str) -> Result<FileModel, LowerError> {
         Err(LowerError::TooLarge)
     }
 
-    fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
-        vec!["package.json".to_owned()]
+    fn manifest_paths(
+        &self,
+        _repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, LanguagePluginError> {
+        self.assert_imports_enabled("manifest_paths");
+        Ok(vec!["package.json".to_owned()])
     }
 
     fn workspace_packages(
         &self,
         _manifests: Vec<Manifest>,
     ) -> Result<Vec<RepoPath>, WorkspaceError> {
+        self.assert_imports_enabled("workspace_packages");
         Ok(Vec::new())
     }
 
@@ -93,10 +90,29 @@ impl LanguagePlugin for Answering {
                     memory_mb: *memory_mb,
                 })
             }
+            StubAnswer::NoImports => {
+                panic!("resolve_imports must not be called when has_imports is false")
+            }
         }
     }
 
-    stub_non_import_language_methods!(true);
+    fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError> {
+        ReferenceRanges::new(Vec::new()).map_err(LanguagePluginError::InvalidReferenceRange)
+    }
+
+    crate::empty_framework_profile_plugin_methods!();
+
+    fn has_hazard_rules(&self) -> bool {
+        false
+    }
+
+    fn hazard_rules(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn has_imports(&self) -> bool {
+        !matches!(self.0, StubAnswer::NoImports)
+    }
 }
 
 fn path(text: &str) -> RepoPath {
@@ -257,57 +273,7 @@ fn the_manifests_a_plugin_chooses_must_be_files_of_the_snapshot() {
 
 #[test]
 fn no_imports_plugin_is_never_asked_for_manifests_or_import_resolution() {
-    struct NoImportsPlugin;
-
-    impl LanguagePlugin for NoImportsPlugin {
-        fn extensions(&self) -> Vec<String> {
-            vec!["noimp".to_owned()]
-        }
-
-        fn lower(&self, _path: &RepoPath, _text: &str) -> Result<FileModel, LowerError> {
-            Err(LowerError::TooLarge)
-        }
-
-        fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
-            panic!("manifest_paths must not be called when has_imports is false");
-        }
-
-        fn workspace_packages(
-            &self,
-            _manifests: Vec<Manifest>,
-        ) -> Result<Vec<RepoPath>, WorkspaceError> {
-            panic!("workspace_packages must not be called when has_imports is false");
-        }
-
-        fn resolve_imports(
-            &self,
-            _repository_paths: &[RepoPath],
-            _manifests: Vec<Manifest>,
-            _requests: Vec<ImportRequest>,
-            _active_profiles: &[String],
-        ) -> Result<Vec<Resolution>, LanguagePluginError> {
-            panic!("resolve_imports must not be called when has_imports is false");
-        }
-
-        fn declared_dependencies(
-            &self,
-            _manifests: Vec<Manifest>,
-        ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-            panic!("declared_dependencies must not be called when has_imports is false");
-        }
-
-        fn entry_points(
-            &self,
-            _repository_paths: &[RepoPath],
-            _manifests: Vec<Manifest>,
-        ) -> Result<Vec<RepoPath>, LanguagePluginError> {
-            panic!("entry_points must not be called when has_imports is false");
-        }
-
-        stub_non_import_language_methods!(false);
-    }
-
-    let plugin = NoImportsPlugin;
+    let plugin = Answering(StubAnswer::NoImports);
     let file = importer("a.noimp", &["./ignored"]);
 
     let manifests =

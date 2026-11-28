@@ -59,7 +59,7 @@ pub fn choose_manifests(
     }
     let known_paths: HashSet<&str> = repository_paths.iter().map(RepoPath::as_str).collect();
     plugin
-        .manifest_paths(repository_paths)
+        .manifest_paths(repository_paths)?
         .into_iter()
         .map(|path| {
             if known_paths.contains(path.as_str()) {

@@ -9,8 +9,13 @@ use crate::coupling::CouplingSettings;
 use crate::resolved::ConfigOverrides;
 
 pub(crate) const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
+pub const DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES: u64 = 50 * 1024 * 1024;
+pub(crate) const MAX_PLUGIN_DOWNLOAD_MIB: u64 = (i64::MAX as u64) / (1024 * 1024);
 pub(crate) const WORST_FINDINGS_PER_METRIC: usize = 20;
 pub const DEFAULT_MAX_TRACE_PATHS: usize = 10;
+pub const DEFAULT_UPDATE_CONNECT_TIMEOUT_SECONDS: u64 = 15;
+pub const DEFAULT_UPDATE_METADATA_MAX_TIME_SECONDS: u64 = 30;
+pub const DEFAULT_UPDATE_DOWNLOAD_MAX_TIME_SECONDS: u64 = 300;
 const LATEST_COMMITS_OF_A_TREND: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +23,7 @@ pub struct PluginHostConfig {
     pub cache_dir: Option<PathBuf>,
     pub ca_cert: Option<PathBuf>,
     pub download_timeout_seconds: u64,
+    pub max_download_bytes: u64,
 }
 
 impl Default for PluginHostConfig {
@@ -26,6 +32,7 @@ impl Default for PluginHostConfig {
             cache_dir: None,
             ca_cert: None,
             download_timeout_seconds: DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS,
+            max_download_bytes: DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES,
         }
     }
 }
@@ -52,6 +59,10 @@ pub enum ConfigError {
     MissingOutputFolder { path: PathBuf, folder: PathBuf },
     #[error("cannot determine the home folder for agent configuration")]
     MissingAgentHome,
+    #[error(
+        "CODEINT_PLUGIN_MAX_DOWNLOAD_MB must be a positive integer in MiB up to {MAX_PLUGIN_DOWNLOAD_MIB}, got {value:?}"
+    )]
+    InvalidPluginMaxDownloadMb { value: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

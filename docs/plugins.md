@@ -57,7 +57,7 @@ rustup target add wasm32-wasip2
 
 `codeint-plugin-sdk` automatically supplies:
 
-- A freeing global allocator (`dlmalloc::GlobalDlmalloc`) so pooled component instances reclaim linear memory between files under codeint's 64 MiB default cap.
+- A freeing global allocator (`dlmalloc::GlobalDlmalloc`) so each fresh per-call `Store` instantiated from pre-compiled `InstancePre` stays within codeint's 64 MiB default cap.
 - A `#[panic_handler]` that traps cleanly via `wasm32::unreachable`.
 - The `cabi_realloc` export and C memory intrinsics (`memcmp`, `memcpy`, `memmove`, `memset`) that `wasm32-wasip2` `no_std` targets omit.
 - Bundled `codeint:plugin@0.4.0` WIT bindings behind safe `LanguagePlugin` and `MetricPlugin` traits, plus `export_language_plugin!` and `export_metric_plugin!` macros.
