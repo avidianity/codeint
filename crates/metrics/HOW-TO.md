@@ -91,6 +91,8 @@ let ratio = duplication.ratio();
   Clone families are ordered worst-first by `duplicated_lines`, then by location count, then by their canonical fragments.
 - `Duplication::measure_with_near_clones` adds opt-in shingle/Jaccard near-clone detection using MinHash/LSH candidate pruning when passed `Some(NearCloneConfig)`.
   Near-clone `CloneGroup`s set `similarity: Some(ratio)` and contribute to `clone_lines` (and `ratio()`), while `exact_clone_lines` holds only exact Clone group lines.
+  Near-clone clustering checks every member against the cluster anchor (no transitive chaining), and oversized LSH buckets rank candidate pairs by estimated MinHash similarity ([ADR 0037](../../docs/adr/0037-metric-v2-duplication-and-boundaries.md)).
+- Use `Duplication::merge` to aggregate independent per-language Duplication measurements into a repository total without matching tokens across distinct Language plugins.
 - `MinimumCloneTokens::DEFAULT` is 75 tokens, and `MinimumDistinctTokens::DEFAULT` is 14 distinct normalized tokens, as [ADR 0007](../../docs/adr/0007-default-minimum-clone-size.md) decides.
 - `by_package(&model)` gives a `LineShare` for every package of `model.workspace`: its clone lines and its source lines.
   A Clone group that spans two packages adds each copy's lines to the package that holds it.

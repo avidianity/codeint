@@ -142,7 +142,7 @@ impl Metric {
             MetricDescriptor {
                 key: "duplication",
                 display_name: "Duplication",
-                version: 1,
+                version: 2,
                 kind: MetricKind::SoftwareEntropy,
                 scope: MetricScope::AllSourceSets,
                 supports_diff_regression: true,
@@ -184,7 +184,7 @@ impl Metric {
             MetricDescriptor {
                 key: "boundaries",
                 display_name: "Import boundaries",
-                version: 1,
+                version: 2,
                 kind: MetricKind::SoftwareEntropy,
                 scope: MetricScope::AllSourceSets,
                 supports_diff_regression: true,

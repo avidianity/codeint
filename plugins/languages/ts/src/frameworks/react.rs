@@ -71,7 +71,7 @@ fn reference_ranges(ctx: &PackageContext<'_>) -> Option<Vec<ReferenceRange>> {
             ("erosion", 1, 0.054, 0.566),
             ("cognitive_complexity", 1, 0.038, 0.399),
             ("verbosity", 2, 0.000, 0.001),
-            ("duplication", 1, 0.026, 0.315),
+            ("duplication", 2, 0.026, 0.315),
             ("import_cycles", 1, 0.000, 0.202),
         ],
     )

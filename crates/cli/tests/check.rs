@@ -204,7 +204,7 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          findings: []\n    \
          duplication:\n      \
          ratio: 0\n      \
-         metric_version: 1\n      \
+         metric_version: 2\n      \
          reference_range:\n        \
          low: 0.018\n        \
          high: 0.252\n        \
@@ -364,7 +364,7 @@ fn duplicated_non_flagged_lines_keep_verbosity_at_zero_and_report_metric_version
             > 0.0,
         "expected positive duplication ratio: {prod}"
     );
-    assert_eq!(prod["duplication"]["metric_version"], 1);
+    assert_eq!(prod["duplication"]["metric_version"], 2);
     assert_eq!(prod["verbosity"]["ratio"], 0.0);
     assert_eq!(prod["verbosity"]["metric_version"], 2);
     assert_eq!(prod["verbosity"]["verbose_lines"], 0);
@@ -1398,7 +1398,7 @@ fn assert_unwritable_output(output: &Output, path: &str) {
     );
 }
 
-const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  metric_version: 1\n  reference_range:\n    low: 0.018\n    high: 0.252\n    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n  clone_lines: 0\n  clone_groups: []\n";
+const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  metric_version: 2\n  reference_range:\n    low: 0.018\n    high: 0.252\n    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n  clone_lines: 0\n  clone_groups: []\n";
 
 const CART_TOTAL: &str = concat!(
     "export function total(items: { price: number; discount: number; quantity: number }[]): number {\n",
@@ -1431,7 +1431,7 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
         concat!(
             "duplication:\n",
             "  ratio: 0.9\n",
-            "  metric_version: 1\n",
+            "  metric_version: 2\n",
             "  reference_range:\n",
             "    low: 0.018\n",
             "    high: 0.252\n",
@@ -1486,7 +1486,7 @@ fn copies_that_differ_only_in_names_and_literal_values_form_one_clone_group() {
         concat!(
             "duplication:\n",
             "  ratio: 1\n",
-            "  metric_version: 1\n",
+            "  metric_version: 2\n",
             "  reference_range:\n",
             "    low: 0.018\n",
             "    high: 0.252\n",
@@ -1566,7 +1566,7 @@ fn a_copy_of_74_tokens_is_not_a_clone_group_and_a_copy_of_75_tokens_is() {
         concat!(
             "duplication:\n",
             "  ratio: 1\n",
-            "  metric_version: 1\n",
+            "  metric_version: 2\n",
             "  reference_range:\n",
             "    low: 0.018\n",
             "    high: 0.252\n",
@@ -1719,7 +1719,7 @@ fn a_copied_function_after_a_shared_import_list_forms_a_clone_group_of_the_funct
         concat!(
             "duplication:\n",
             "  ratio: 0.4737\n",
-            "  metric_version: 1\n",
+            "  metric_version: 2\n",
             "  reference_range:\n",
             "    low: 0.018\n",
             "    high: 0.252\n",
@@ -3385,7 +3385,7 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
       },
       "duplication": {
         "ratio": 0.0,
-        "metric_version": 1,
+        "metric_version": 2,
         "reference_range": {
           "low": 0.018,
           "high": 0.252,

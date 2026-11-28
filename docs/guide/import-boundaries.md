@@ -19,6 +19,7 @@ An Import boundary governs both internal dependencies between named architectura
 - **Source-set scoping**: `boundaries` evaluates `["production"]` by default so test fixtures and test files do not trigger Production architecture violations.
   Set `boundaries.source_sets` (for example `["production", "test"]`) to opt additional Source sets into boundary checks.
 - **Strict zone coverage (`strict_zones`)**: set `boundaries.strict_zones` to `true` to report every file in evaluated Source sets that matches no configured zone (`kind: "unzoned_file"`).
+  When `strict_zones` is `true`, the ratio denominator is `resolved_imports + evaluated_files` (naturally bounded in `[0, 1]` without clamping, Metric version `2`, [ADR 0037](../adr/0037-metric-v2-duplication-and-boundaries.md)); when `false`, the denominator stays `resolved_imports`.
 
 ## Configuration examples
 

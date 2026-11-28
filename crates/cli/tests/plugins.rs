@@ -1345,14 +1345,14 @@ fn stale_reference_range_from_external_language_plugin_hides_stale_range_with_no
     }
     assert_eq!(
         prod["duplication"]["reference_range"]["source"],
-        "fresh v1 duplication panel"
+        "fresh v2 duplication panel"
     );
 
     let md_stdout = run_check_markdown_stdout(repo.path());
     for needle in [
         "Metric version 2",
         "Metric version 0",
-        "fresh v1 duplication panel",
+        "fresh v2 duplication panel",
     ] {
         assert!(
             md_stdout.contains(needle),

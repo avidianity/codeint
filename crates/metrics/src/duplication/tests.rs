@@ -940,3 +940,228 @@ fn parallel_duplication_and_compact_clone_lines_are_deterministic_across_repeate
         assert_eq!(repeated, baseline);
     }
 }
+
+fn chain_variants(length: usize, edits: &[&[(usize, &str)]]) -> Vec<Vec<String>> {
+    let base: Vec<String> = (0..length)
+        .map(|idx| format!("let $v = k_{idx} + p_{idx} ;"))
+        .collect();
+    let mut variants = vec![base];
+    for step in edits {
+        let mut next = variants.last().expect("at least base").clone();
+        for &(slot, replacement) in *step {
+            next[slot] = replacement.to_owned();
+        }
+        variants.push(next);
+    }
+    variants
+}
+
+fn measure_identical_copies_with_two_variants(copy_count: usize) -> Duplication {
+    let base: Vec<String> = (0..20usize)
+        .map(|idx| format!("let $v = copy_{idx} + factor_{idx} ;"))
+        .collect();
+    let mut variant_zero = base.clone();
+    variant_zero[3] = "let $v = variant_zero_3 - offset_3 ;".to_owned();
+    let mut variant_one = base.clone();
+    variant_one[14] = "let $v = variant_one_14 - offset_14 ;".to_owned();
+
+    let mut files = Vec::new();
+    let base_refs: Vec<&str> = base.iter().map(String::as_str).collect();
+    for idx in 0..copy_count {
+        files.push(file_with_functions(
+            &format!("src/c{idx:02}.ts"),
+            &base_refs,
+            whole_function(base_refs.len()),
+        ));
+    }
+    for (name, lines) in [
+        ("src/zz_v0.ts", &variant_zero),
+        ("src/zz_v1.ts", &variant_one),
+    ] {
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        files.push(file_with_functions(name, &refs, whole_function(refs.len())));
+    }
+    Duplication::measure_with_near_clones(
+        &model(files),
+        minimum(55),
+        MinimumDistinctTokens::new(10),
+        NearCloneConfig::new(0.80),
+    )
+}
+
+fn measure_near_clone_files(entries: &[(&str, &Vec<String>)], min_similarity: f64) -> Duplication {
+    let files: Vec<SourceFile> = entries
+        .iter()
+        .map(|&(path, owned)| {
+            let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+            file_with_functions(path, &refs, whole_function(refs.len()))
+        })
+        .collect();
+    Duplication::measure_with_near_clones(
+        &model(files),
+        minimum(55),
+        MinimumDistinctTokens::new(10),
+        NearCloneConfig::new(min_similarity),
+    )
+}
+
+#[test]
+fn near_clone_anchor_clustering_does_not_chain_dissimilar_endpoints() {
+    let variants = chain_variants(
+        20,
+        &[
+            &[
+                (2, "const $x = b_2 - q_2 ;"),
+                (6, "const $y = b_6 - q_6 ;"),
+                (12, "const $z = b_12 - q_12 ;"),
+            ],
+            &[
+                (4, "var $p = c_4 ^ r_4 ;"),
+                (10, "var $q = c_10 ^ r_10 ;"),
+                (16, "var $r = c_16 ^ r_16 ;"),
+            ],
+        ],
+    );
+    let duplication = measure_near_clone_files(
+        &[
+            ("src/a.ts", &variants[0]),
+            ("src/b.ts", &variants[1]),
+            ("src/c.ts", &variants[2]),
+        ],
+        0.70,
+    );
+
+    let near_groups: Vec<_> = duplication
+        .clone_groups
+        .iter()
+        .filter(|group| group.similarity.is_some())
+        .collect();
+    assert_eq!(near_groups.len(), 2, "got: {near_groups:?}");
+    for group in near_groups {
+        let paths: Vec<&str> = group.fragments.iter().map(|f| f.path.as_str()).collect();
+        assert!(
+            !(paths.contains(&"src/a.ts") && paths.contains(&"src/c.ts")),
+            "dissimilar endpoints must not chain: {paths:?}"
+        );
+    }
+}
+
+#[test]
+fn oversized_lsh_bucket_with_many_identical_copies_still_detects_near_clone_variants() {
+    let duplication = measure_identical_copies_with_two_variants(40);
+    let near_groups: Vec<_> = duplication
+        .clone_groups
+        .iter()
+        .filter(|group| group.similarity.is_some())
+        .collect();
+    assert!(
+        !near_groups.is_empty(),
+        "oversized bucket of 40 identical copies must not starve near-clone variants"
+    );
+    let paths: Vec<&str> = near_groups
+        .iter()
+        .flat_map(|group| {
+            group
+                .fragments
+                .iter()
+                .map(|fragment| fragment.path.as_str())
+        })
+        .collect();
+    assert!(paths.contains(&"src/zz_v0.ts"), "missing zz_v0: {paths:?}");
+    assert!(paths.contains(&"src/zz_v1.ts"), "missing zz_v1: {paths:?}");
+}
+
+#[test]
+fn identical_copies_with_near_clone_variants_emit_single_near_clone_group() {
+    let duplication = measure_identical_copies_with_two_variants(20);
+    let near_groups: Vec<_> = duplication
+        .clone_groups
+        .iter()
+        .filter(|group| group.similarity.is_some())
+        .collect();
+    assert_eq!(
+        near_groups.len(),
+        1,
+        "expected 1 near-clone group instead of one per identical copy, got {}",
+        near_groups.len()
+    );
+    assert_eq!(near_groups[0].fragments.len(), 22);
+}
+
+#[test]
+fn near_clone_chain_clustering_is_rename_invariant_and_keeps_every_pair_above_min_similarity() {
+    let variants = chain_variants(
+        24,
+        &[
+            &[
+                (1, "const $x = b_1 - q_1 ;"),
+                (5, "const $y = b_5 - q_5 ;"),
+                (9, "const $z = b_9 - q_9 ;"),
+            ],
+            &[
+                (3, "var $p = c_3 ^ r_3 ;"),
+                (11, "var $q = c_11 ^ r_11 ;"),
+                (17, "var $r = c_17 ^ r_17 ;"),
+            ],
+            &[
+                (7, "let $m = d_7 * s_7 ;"),
+                (15, "let $n = d_15 * s_15 ;"),
+                (21, "let $o = d_21 * s_21 ;"),
+            ],
+        ],
+    );
+
+    let measure_labeled = |entries: [(&str, &str, &Vec<String>); 4]| -> Vec<Vec<String>> {
+        let path_to_label: std::collections::BTreeMap<&str, &str> = entries
+            .iter()
+            .map(|&(path, label, _)| (path, label))
+            .collect();
+        let file_entries: Vec<(&str, &Vec<String>)> = entries
+            .into_iter()
+            .map(|(path, _, owned)| (path, owned))
+            .collect();
+        let duplication = measure_near_clone_files(&file_entries, 0.70);
+        let mut clusters: Vec<Vec<String>> = duplication
+            .clone_groups
+            .iter()
+            .filter(|group| group.similarity.is_some())
+            .map(|group| {
+                let mut labels: Vec<String> = group
+                    .fragments
+                    .iter()
+                    .map(|fragment| path_to_label[fragment.path.as_str()].to_owned())
+                    .collect();
+                labels.sort();
+                labels
+            })
+            .collect();
+        clusters.sort();
+        clusters
+    };
+
+    let canonical = measure_labeled([
+        ("src/a.ts", "A", &variants[0]),
+        ("src/b.ts", "B", &variants[1]),
+        ("src/c.ts", "C", &variants[2]),
+        ("src/d.ts", "D", &variants[3]),
+    ]);
+    let renamed = measure_labeled([
+        ("src/b.ts", "A", &variants[0]),
+        ("src/a.ts", "B", &variants[1]),
+        ("src/c.ts", "C", &variants[2]),
+        ("src/d.ts", "D", &variants[3]),
+    ]);
+
+    assert_eq!(canonical, renamed);
+    assert!(!canonical.is_empty());
+    let disallowed_pairs = [("A", "C"), ("A", "D"), ("B", "D")];
+    for cluster in &canonical {
+        for &(left, right) in &disallowed_pairs {
+            assert!(
+                !(cluster.iter().any(|item| item == left)
+                    && cluster.iter().any(|item| item == right)),
+                "cluster {cluster:?} contains pair ({left}, {right}) below min_similarity"
+            );
+        }
+    }
+}
