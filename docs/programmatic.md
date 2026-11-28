@@ -52,8 +52,9 @@ Subprocess SDKs also accept common execution options:
 
 - TypeScript/JavaScript accepts `cwd` and `binaryPath` on every options object, plus `output` on report-producing operations (`check`, `diff`, `trend`, `impact`, `trace`, `schema`, `report`, `churn`, `coupling`).
 - Dart configures `cwd`, `binaryPath`, `allowDownload`, `releaseBaseUrl`, `cacheDir`, and `environment` on `CodeintClient`.
+- When `report` receives a non-empty `output` path in TypeScript/JavaScript or Dart, relative paths resolve against `cwd`, the client reads back and returns the written report text instead of empty stdout, and reading failures throw `CodeintError` with the original cause.
 - Rust accepts `PluginHostConfig` on measurement options (`check`, `diff`, `trend`, `impact`, `trace`, `init`, `doctor`, `churn`, `coupling`, `ratchet_update`, `baseline_update`).
-- `trend` accepts either `since` or a positive commit count (`--commits <COUNT>` on the CLI, defaulting to 20; passing `0` or combining `since` with `commits` fails with exit code 2).
+- `trend` accepts either `since` or a positive commit count (`--commits <COUNT>` on the CLI, `TrendOptions(last: N)` in Dart, defaulting to 20; passing a non-positive count or combining `since` with a commit count fails with exit code 2 or `CodeintError`).
 
 ## Built-in Metrics, custom Metric plugins, and report JSON Schemas
 

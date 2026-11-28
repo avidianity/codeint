@@ -94,39 +94,89 @@ void main() {
       expect(failDiff.failures, isNotEmpty);
     });
 
-    test('trend supports default, since, last, and validates options', () async {
+    test('trend supports default, since, last below/at/above 20, and validates options',
+        () async {
       final cacheDir = await createTempDir('trend_cache');
       addTearDown(() => cacheDir.delete(recursive: true));
 
-      await writeRepoFile(
-        repo,
-        'src/math.ts',
-        'export function add(a: number, b: number): number {\n'
-        '  return a + b + 0;\n'
-        '}\n',
-      );
-      await runGit(repo, const <String>['add', '.']);
-      await runGit(repo, const <String>['commit', '-m', 'second']);
+      for (var i = 2; i <= 25; i++) {
+        await writeRepoFile(
+          repo,
+          'src/math.ts',
+          'export function add(a: number, b: number): number {\n'
+          '  return a + b + $i;\n'
+          '}\n',
+        );
+        await runGit(repo, const <String>['add', '.']);
+        await runGit(repo, <String>['commit', '-m', 'commit $i']);
+      }
 
-      final fullTrend = await client.trend(
+      final defaultTrend = await client.trend(
         TrendOptions(resultCache: cacheDir.path),
       );
-      expect(fullTrend.commits, equals(2));
-      expect(fullTrend.sourceSets['production'], hasLength(2));
+      expect(defaultTrend.commits, equals(20));
+      expect(defaultTrend.sourceSets['production'], hasLength(20));
 
-      final lastOne = await client.trend(
-        TrendOptions(last: 1, resultCache: cacheDir.path),
+      final lastFive = await client.trend(
+        TrendOptions(last: 5, resultCache: cacheDir.path),
       );
-      expect(lastOne.commits, equals(1));
-      expect(lastOne.sourceSets['production'], hasLength(1));
+      expect(lastFive.commits, equals(5));
+      expect(lastFive.sourceSets['production'], hasLength(5));
+
+      final lastTwenty = await client.trend(
+        TrendOptions(last: 20, resultCache: cacheDir.path),
+      );
+      expect(lastTwenty.commits, equals(20));
+      expect(lastTwenty.sourceSets['production'], hasLength(20));
+
+      final lastTwentyFive = await client.trend(
+        TrendOptions(last: 25, resultCache: cacheDir.path),
+      );
+      expect(lastTwentyFive.commits, equals(25));
+      expect(lastTwentyFive.sourceSets['production'], hasLength(25));
 
       await expectLater(
         client.trend(const TrendOptions(last: 0)),
         throwsA(isA<CodeintError>()),
       );
       await expectLater(
-        client.trend(const TrendOptions(since: '2026-01-01', last: 2)),
+        client.trend(const TrendOptions(last: -1)),
         throwsA(isA<CodeintError>()),
+      );
+      await expectLater(
+        client.trend(const TrendOptions(since: '2026-01-01', last: 5)),
+        throwsA(isA<CodeintError>()),
+      );
+    });
+
+    test('trend forwards --commits N directly to CLI without client slicing',
+        () async {
+      if (Platform.isWindows) {
+        return;
+      }
+      final fakeDir = await createTempDir('trend_args_bin');
+      addTearDown(() => fakeDir.delete(recursive: true));
+      final argsLog = File('${fakeDir.path}/args.txt');
+      final fakeBin = File('${fakeDir.path}/codeint');
+      await fakeBin.writeAsString(
+        '#!/bin/sh\n'
+        'printf "%s\\n" "\$@" > "${argsLog.path}"\n'
+        'cat <<\'EOF\'\n'
+        '{"commits":25,"source_sets":{"production":[]}}\n'
+        'EOF\n',
+      );
+      await Process.run('chmod', <String>['0755', fakeBin.path]);
+
+      final fakeClient = CodeintClient(
+        cwd: repo.path,
+        binaryPath: fakeBin.path,
+        allowDownload: false,
+      );
+      final result = await fakeClient.trend(const TrendOptions(last: 25));
+      expect(result.commits, equals(25));
+      expect(
+        await argsLog.readAsLines(),
+        equals(<String>['trend', '--commits', '25', '--format', 'json']),
       );
     });
 
@@ -183,6 +233,39 @@ void main() {
         const ReportOptions(format: ReportRenderFormat.markdown, all: true),
       );
       expect(rendered, contains('Production'));
+
+      await Directory('${repo.path}${Platform.pathSeparator}rel')
+          .create(recursive: true);
+      final relativeOut = await client.report(
+        savedReport.path,
+        const ReportOptions(
+          format: ReportRenderFormat.markdown,
+          all: true,
+          output: 'rel/out.md',
+        ),
+      );
+      expect(relativeOut, isNotEmpty);
+      expect(relativeOut, contains('Production'));
+      expect(
+        File('${repo.path}${Platform.pathSeparator}rel${Platform.pathSeparator}out.md')
+            .readAsStringSync(),
+        equals(relativeOut),
+      );
+
+      final absOutDir = await createTempDir('report_abs_out');
+      addTearDown(() => absOutDir.delete(recursive: true));
+      final absOutPath = '${absOutDir.path}${Platform.pathSeparator}report.md';
+      final absoluteOut = await client.report(
+        savedReport.path,
+        ReportOptions(
+          format: ReportRenderFormat.markdown,
+          all: true,
+          output: absOutPath,
+        ),
+      );
+      expect(absoluteOut, isNotEmpty);
+      expect(absoluteOut, contains('Production'));
+      expect(File(absOutPath).readAsStringSync(), equals(absoluteOut));
 
       final doctorOk = await client.doctor();
       expect(doctorOk.passed, isTrue);
@@ -315,6 +398,35 @@ void main() {
                 contains('diagnostic stderr line'),
               )
               .having((e) => e.cause, 'cause', isA<FormatException>()),
+        ),
+      );
+    });
+
+    test('report with missing output file throws CodeintError preserving cause',
+        () async {
+      if (Platform.isWindows) {
+        return;
+      }
+      final fakeDir = await createTempDir('missing_output_bin');
+      addTearDown(() => fakeDir.delete(recursive: true));
+      final fakeBin = File('${fakeDir.path}/codeint');
+      await fakeBin.writeAsString('#!/bin/sh\nexit 0\n');
+      await Process.run('chmod', <String>['0755', fakeBin.path]);
+
+      final fakeClient = CodeintClient(
+        cwd: repo.path,
+        binaryPath: fakeBin.path,
+        allowDownload: false,
+      );
+      await expectLater(
+        fakeClient.report(
+          'saved-check.json',
+          const ReportOptions(output: 'missing/out.md'),
+        ),
+        throwsA(
+          isA<CodeintError>()
+              .having((e) => e.exitCode, 'exitCode', equals(0))
+              .having((e) => e.cause, 'cause', isA<FileSystemException>()),
         ),
       );
     });

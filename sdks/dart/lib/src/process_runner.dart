@@ -89,12 +89,42 @@ Future<String> runTextCommand(
   List<String> args,
   CommonOptions options, {
   Map<String, String>? extraEnv,
+  String? outputPath,
 }) async {
   final raw = await runCodeintProcess(args, options, extraEnv: extraEnv);
   if (raw.exitCode != 0) {
     throw _errorFromRawResult(args, raw);
   }
-  return raw.stdout;
+  return _readOutputPayload(raw, options, outputPath);
+}
+
+Future<String> _readOutputPayload(
+  RawCommandResult raw,
+  CommonOptions options,
+  String? outputPath,
+) async {
+  if (outputPath == null || outputPath.isEmpty) {
+    return raw.stdout;
+  }
+  final resolvedPath = _resolveOutputPath(options.cwd, outputPath);
+  try {
+    return await File(resolvedPath).readAsString();
+  } on FileSystemException catch (error) {
+    throw CodeintError(
+      'Failed to read output file "$resolvedPath": ${error.message}',
+      exitCode: raw.exitCode,
+      stderr: raw.stderr,
+      cause: error,
+    );
+  }
+}
+
+String _resolveOutputPath(String? cwd, String outputPath) {
+  if (File(outputPath).isAbsolute) {
+    return outputPath;
+  }
+  final baseDir = cwd == null || cwd.isEmpty ? Directory.current.path : cwd;
+  return Directory(baseDir).uri.resolveUri(Uri.file(outputPath)).toFilePath();
 }
 
 Map<String, Object?> _decodeJsonObject(
