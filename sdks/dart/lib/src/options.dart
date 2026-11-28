@@ -1,6 +1,6 @@
 import 'enums.dart';
 
-const String codeintVersion = '0.8.0';
+const String codeintVersion = '0.9.0';
 
 class BinaryResolverOptions {
   const BinaryResolverOptions({
